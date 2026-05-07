@@ -88,6 +88,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path(".cache/git-crawl"),
         help="directory for bare git mirrors",
     )
+    crawl.add_argument(
+        "--state-db",
+        type=Path,
+        help="SQLite state database for git-crawl run metadata and incremental default-branch heads",
+    )
     crawl.add_argument("--active-since", help="only crawl repos pushed at or after this ISO timestamp/date")
     crawl.add_argument("--since", help="only include commits authored at or after this ISO timestamp/date")
     crawl.add_argument("--until", help="only include commits authored at or before this ISO timestamp/date")
@@ -191,6 +196,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             document,
             output_dir=args.output_dir,
             cache_dir=args.cache_dir,
+            state_db=args.state_db,
             token=token,
             active_since=args.active_since,
             since=args.since,
