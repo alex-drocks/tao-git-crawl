@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install package and dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install 'git-crawl @ git+https://github.com/alex-drocks/git-crawl.git@e010ecfb71e3b9af778d87caf90cd9629b9fbeda'
+          python -m pip install -e '.[dev]'
+      - name: Run tests
+        run: python -m pytest tests -q
+      - name: Run Ruff
+        run: python -m ruff check tao_git_crawl tests
+      - name: Compile package
+        run: python -m compileall -q tao_git_crawl
+      - name: Build distributions
+        run: |
+          rm -rf dist build tao_git_crawl.egg-info
+          python -m build
+      - name: Smoke install wheel and resolve fixture
+        run: |
+          tmpdir=$(mktemp -d)
+          python -m venv "$tmpdir/.venv"
+          "$tmpdir/.venv/bin/python" -m pip install --upgrade pip
+          "$tmpdir/.venv/bin/python" -m pip install 'git-crawl @ git+https://github.com/alex-drocks/git-crawl.git@e010ecfb71e3b9af778d87caf90cd9629b9fbeda'
+          "$tmpdir/.venv/bin/python" -m pip install dist/*.whl
+          "$tmpdir/.venv/bin/tao-git-crawl" --help >/tmp/tao-git-crawl-help.txt
+          "$tmpdir/.venv/bin/tao-git-crawl" resolve --from-json examples/subnets.sample.json --output-dir "$tmpdir/out" --target smoke
+          test -s "$tmpdir/out/repository-manifest.json"

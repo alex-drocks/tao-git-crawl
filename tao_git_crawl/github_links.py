@@ -1,0 +1,141 @@
+from __future__ import annotations
+
+import re
+import urllib.parse
+
+from git_crawl.github import GITHUB_OWNER_RE, GITHUB_REPO_RE, GitHubURLParseError, parse_github_repo_url
+
+from .models import GITHUB_DISCOVERY_FIELDS, GitHubTarget, SubnetIdentityRecord
+
+REPOSITORY_URL_RE = re.compile(
+    r"(?:"
+    r"git@github\.com:[A-Za-z0-9][A-Za-z0-9-]{0,37}[A-Za-z0-9]/[A-Za-z0-9._-]+(?:\.git)?"
+    r"|"
+    r"(?:https?://)?(?:www\.)?github\.com/"
+    r"[A-Za-z0-9][A-Za-z0-9-]{0,37}[A-Za-z0-9]/[A-Za-z0-9._-]+(?:\.git)?"
+    r"(?:/(?:tree|blob|commit|releases)/[^\s<>'\")]+)?"
+    r")"
+)
+
+OWNER_ROOT_RE = re.compile(
+    r"^(?:https?://)?(?:www\.)?github\.com/(?:orgs/)?(?P<owner>[A-Za-z0-9][A-Za-z0-9-]{0,37}[A-Za-z0-9])/?$"
+)
+BARE_OWNER_REPO_RE = re.compile(
+    r"^(?P<owner>[A-Za-z0-9][A-Za-z0-9-]{0,37}[A-Za-z0-9])/(?P<repo>[A-Za-z0-9._-]+)(?:\.git)?$"
+)
+
+FIELD_CONFIDENCE = {
+    "github_repo": "high",
+    "subnet_url": "medium",
+    "description": "low",
+    "additional": "low",
+    "subnet_contact": "low",
+}
+
+
+def extract_github_targets(record: SubnetIdentityRecord) -> list[GitHubTarget]:
+    """Extract normalized GitHub repository and owner targets from subnet identity fields."""
+    targets: list[GitHubTarget] = []
+    seen: set[tuple[str, str]] = set()
+
+    for field in GITHUB_DISCOVERY_FIELDS:
+        raw_value = getattr(record, field)
+        if not raw_value:
+            continue
+        for candidate in _candidate_values(field, raw_value):
+            target = _target_from_candidate(record, field, raw_value, candidate)
+            if target is None:
+                continue
+            key = (target.kind, target.url.lower())
+            if key in seen:
+                continue
+            targets.append(target)
+            seen.add(key)
+    return targets
+
+
+def _candidate_values(field: str, raw_value: str) -> list[str]:
+    candidates: list[str] = []
+    if field in {"github_repo", "subnet_url"}:
+        candidates.append(raw_value.strip())
+    candidates.extend(match.group(0).strip().rstrip(".,;") for match in REPOSITORY_URL_RE.finditer(raw_value))
+    return [candidate for candidate in candidates if candidate]
+
+
+def _target_from_candidate(
+    record: SubnetIdentityRecord,
+    field: str,
+    raw_value: str,
+    candidate: str,
+) -> GitHubTarget | None:
+    owner = _parse_owner_root(candidate)
+    if owner is not None:
+        confidence = "medium" if field in {"github_repo", "subnet_url"} else "low"
+        return GitHubTarget(
+            netuid=record.netuid,
+            kind="owner",
+            url=f"https://github.com/{owner}",
+            owner=owner,
+            repo=None,
+            repo_full_name=None,
+            source_field=field,
+            raw_value=raw_value,
+            confidence=confidence,  # type: ignore[arg-type]
+            subnet_name=record.subnet_name,
+        )
+
+    repository = _parse_repository_candidate(candidate)
+    if repository is not None:
+        confidence = FIELD_CONFIDENCE[field]
+        return GitHubTarget(
+            netuid=record.netuid,
+            kind="repository",
+            url=repository.html_url,
+            owner=repository.owner,
+            repo=repository.repo,
+            repo_full_name=repository.full_name,
+            source_field=field,
+            raw_value=raw_value,
+            confidence=confidence,  # type: ignore[arg-type]
+            subnet_name=record.subnet_name,
+        )
+    return None
+
+
+def _parse_repository_candidate(candidate: str):
+    prepared = _prepare_repository_url(candidate)
+    try:
+        return parse_github_repo_url(prepared)
+    except GitHubURLParseError:
+        return None
+
+
+def _prepare_repository_url(candidate: str) -> str:
+    candidate = candidate.strip()
+    bare = BARE_OWNER_REPO_RE.fullmatch(candidate)
+    if bare:
+        owner = bare.group("owner")
+        repo = bare.group("repo").removesuffix(".git")
+        if GITHUB_OWNER_RE.fullmatch(owner) and GITHUB_REPO_RE.fullmatch(repo):
+            return f"https://github.com/{owner}/{repo}"
+    if candidate.startswith("github.com/") or candidate.startswith("www.github.com/"):
+        return f"https://{candidate}"
+    return candidate
+
+
+def _parse_owner_root(candidate: str) -> str | None:
+    candidate = candidate.strip().rstrip("/")
+    if candidate.startswith("github.com/") or candidate.startswith("www.github.com/"):
+        candidate = f"https://{candidate}"
+    parsed = urllib.parse.urlparse(candidate)
+    if (parsed.hostname or "").lower() != "github.com":
+        return None
+    path_parts = [part for part in parsed.path.strip("/").split("/") if part]
+    if len(path_parts) == 2 and path_parts[0] == "orgs":
+        path_parts = [path_parts[1]]
+    if len(path_parts) != 1:
+        return None
+    owner = urllib.parse.unquote(path_parts[0])
+    if not GITHUB_OWNER_RE.fullmatch(owner):
+        return None
+    return owner

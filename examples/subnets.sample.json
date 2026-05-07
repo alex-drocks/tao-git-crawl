@@ -1,0 +1,25 @@
+{
+  "subnets": [
+    {
+      "netuid": 64,
+      "subnet_identity": {
+        "subnet_name": "Example exact repository subnet",
+        "github_repo": "https://github.com/chutesai/api"
+      }
+    },
+    {
+      "netuid": 12,
+      "subnet_identity": {
+        "subnet_name": "Example owner-root subnet",
+        "github_repo": "https://github.com/opentensor"
+      }
+    },
+    {
+      "netuid": 99,
+      "subnet_identity": {
+        "subnet_name": "Example fallback subnet",
+        "description": "Source: https://github.com/opentensor/subtensor"
+      }
+    }
+  ]
+}

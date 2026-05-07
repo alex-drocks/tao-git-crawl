@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tao-git-crawl"
+version = "0.1.0"
+description = "Resolve Bittensor subnet GitHub metadata and feed git-crawl."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [{ name = "Alex Desroches" }]
+dependencies = [
+  "git-crawl>=0.1.0",
+]
+
+[project.optional-dependencies]
+chain = ["substrate-interface>=1.7.11,<2"]
+dev = ["pytest>=8.0", "ruff>=0.8", "build>=1.2"]
+
+[project.scripts]
+tao-git-crawl = "tao_git_crawl.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/alex-drocks/tao-git-crawl"
+Repository = "https://github.com/alex-drocks/tao-git-crawl"
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/README.md",
+  "/LICENSE",
+  "/docs",
+  "/tests",
+  "/tao_git_crawl",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["tao_git_crawl"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
