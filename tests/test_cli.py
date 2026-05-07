@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 from tao_git_crawl.cli import main
 
@@ -48,3 +49,161 @@ def test_resolve_cli_writes_resolution_manifest_owner_targets_and_unresolved(tmp
             ],
         }
     ]
+
+
+def test_resolve_cli_applies_config_py_subnet_overrides_and_writes_split_subnet_outputs(tmp_path, capsys):
+    input_path = tmp_path / "subnets.json"
+    input_path.write_text(
+        json.dumps(
+            {
+                "subnets": [
+                    {
+                        "netuid": 64,
+                        "subnet_identity": {
+                            "subnet_name": "Chutes",
+                            "github_repo": "github.com/chutesai/api",
+                        },
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    config_path = tmp_path / "config.py"
+    config_path.write_text(
+        """
+DEFAULT_REPOSITORY_POLICY = "repository"
+SUBNET_OVERRIDES = {
+    64: {
+        "replace": True,
+        "targets": [
+            {"kind": "owner", "url": "https://github.com/chutesai"},
+        ],
+    }
+}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "out"
+
+    exit_code = main(
+        [
+            "resolve",
+            "--from-json",
+            str(input_path),
+            "--config",
+            str(config_path),
+            "--output-dir",
+            str(output_dir),
+            "--target",
+            "tao",
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "Resolved 0 repository targets, 1 owner targets, 0 unresolved subnet records." in captured.out
+    manifest = json.loads((output_dir / "repository-manifest.json").read_text(encoding="utf-8"))
+    assert manifest == {"target": "tao", "repositories": []}
+    owner_targets = json.loads((output_dir / "owner-targets.json").read_text(encoding="utf-8"))
+    assert [(item["netuid"], item["kind"], item["owner"], item["source_field"]) for item in owner_targets] == [
+        (64, "owner", "chutesai", "manual_override")
+    ]
+    subnet_owner_targets = json.loads(
+        (output_dir / "subnets" / "64" / "owner-targets.json").read_text(encoding="utf-8")
+    )
+    assert subnet_owner_targets == owner_targets
+
+
+def test_resolve_cli_repository_policy_owner_promotes_repo_links_to_owner_targets(tmp_path, capsys):
+    input_path = tmp_path / "subnets.json"
+    input_path.write_text(
+        json.dumps({"subnets": [{"netuid": 64, "subnet_identity": {"github_repo": "github.com/chutesai/api"}}]}),
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "out"
+
+    exit_code = main(
+        [
+            "resolve",
+            "--from-json",
+            str(input_path),
+            "--repository-policy",
+            "owner",
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "Resolved 0 repository targets, 1 owner targets, 0 unresolved subnet records." in captured.out
+    owner_targets = json.loads((output_dir / "owner-targets.json").read_text(encoding="utf-8"))
+    assert [(item["netuid"], item["kind"], item["owner"], item["source_field"]) for item in owner_targets] == [
+        (64, "owner", "chutesai", "github_repo")
+    ]
+
+
+def test_crawl_cli_resolves_writes_manifests_and_crawls_each_subnet(monkeypatch, tmp_path, capsys):
+    input_path = tmp_path / "subnets.json"
+    input_path.write_text(
+        json.dumps({"subnets": [{"netuid": 64, "subnet_identity": {"github_repo": "github.com/chutesai/api"}}]}),
+        encoding="utf-8",
+    )
+    calls = []
+
+    def fake_crawl_resolved_subnets(document, **kwargs):
+        calls.append((document.target_label, [target.owner for target in document.owner_targets], kwargs))
+        return SimpleNamespace(succeeded_netuids=[64], failed=[], skipped_unresolved_netuids=[])
+
+    monkeypatch.setattr("tao_git_crawl.cli.crawl_resolved_subnets", fake_crawl_resolved_subnets)
+    output_dir = tmp_path / "out"
+    cache_dir = tmp_path / "cache"
+
+    exit_code = main(
+        [
+            "crawl",
+            "--from-json",
+            str(input_path),
+            "--repository-policy",
+            "owner",
+            "--output-dir",
+            str(output_dir),
+            "--cache-dir",
+            str(cache_dir),
+            "--since",
+            "2026-01-01",
+            "--workers",
+            "2",
+            "--format",
+            "jsonl",
+        ]
+    )
+
+    assert exit_code == 0
+    assert calls == [
+        (
+            "bittensor-subnets",
+            ["chutesai"],
+            {
+                "output_dir": output_dir,
+                "cache_dir": cache_dir,
+                "token": None,
+                "active_since": None,
+                "since": "2026-01-01",
+                "until": None,
+                "include_archived": False,
+                "include_forks": False,
+                "max_repos": None,
+                "prefer_ssh": False,
+                "ref_scope": "default-branch",
+                "workers": 2,
+                "fail_fast": False,
+                "output_format": "jsonl",
+            },
+        )
+    ]
+    assert (output_dir / "subnets" / "64" / "owner-targets.json").exists()
+    captured = capsys.readouterr()
+    assert "Crawled 1 subnets, 0 failed, 0 unresolved skipped." in captured.out

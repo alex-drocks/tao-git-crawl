@@ -12,3 +12,5 @@ def test_ci_workflow_validates_package_build_and_offline_resolve_smoke():
     assert 'python -m ruff check tao_git_crawl tests' in content
     assert 'python -m build' in content
     assert 'resolve --from-json examples/subnets.sample.json' in content
+    assert 'tao-git-crawl" crawl --help' in content
+    assert '--config examples/config.overrides.py' in content

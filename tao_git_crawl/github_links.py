@@ -54,6 +54,52 @@ def extract_github_targets(record: SubnetIdentityRecord) -> list[GitHubTarget]:
     return targets
 
 
+def manual_github_target_from_url(
+    record: SubnetIdentityRecord,
+    *,
+    kind: str,
+    url: str,
+    confidence: str = "high",
+) -> GitHubTarget:
+    """Build a normalized target from a manual config override URL."""
+    if kind == "owner":
+        owner = _parse_owner_candidate(url)
+        if owner is None:
+            repository = _parse_repository_candidate(url)
+            if repository is None:
+                raise ValueError(f"manual owner override is not a GitHub owner or repository URL: {url!r}")
+            owner = repository.owner
+        return GitHubTarget(
+            netuid=record.netuid,
+            kind="owner",
+            url=f"https://github.com/{owner}",
+            owner=owner,
+            repo=None,
+            repo_full_name=None,
+            source_field="manual_override",
+            raw_value=url,
+            confidence=confidence,  # type: ignore[arg-type]
+            subnet_name=record.subnet_name,
+        )
+    if kind == "repository":
+        repository = _parse_repository_candidate(url)
+        if repository is None:
+            raise ValueError(f"manual repository override is not a GitHub repository URL: {url!r}")
+        return GitHubTarget(
+            netuid=record.netuid,
+            kind="repository",
+            url=repository.html_url,
+            owner=repository.owner,
+            repo=repository.repo,
+            repo_full_name=repository.full_name,
+            source_field="manual_override",
+            raw_value=url,
+            confidence=confidence,  # type: ignore[arg-type]
+            subnet_name=record.subnet_name,
+        )
+    raise ValueError("manual override kind must be one of 'repository' or 'owner'")
+
+
 def _candidate_values(field: str, raw_value: str) -> list[str]:
     candidates: list[str] = []
     if field in {"github_repo", "subnet_url"}:
@@ -121,6 +167,13 @@ def _prepare_repository_url(candidate: str) -> str:
     if candidate.startswith("github.com/") or candidate.startswith("www.github.com/"):
         return f"https://{candidate}"
     return candidate
+
+
+def _parse_owner_candidate(candidate: str) -> str | None:
+    candidate = candidate.strip().rstrip("/")
+    if GITHUB_OWNER_RE.fullmatch(candidate):
+        return candidate
+    return _parse_owner_root(candidate)
 
 
 def _parse_owner_root(candidate: str) -> str | None:
