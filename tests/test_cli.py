@@ -1,4 +1,5 @@
 import json
+import os
 from types import SimpleNamespace
 
 from tao_git_crawl.cli import main
@@ -145,7 +146,128 @@ def test_resolve_cli_repository_policy_owner_promotes_repo_links_to_owner_target
     ]
 
 
+def test_crawl_cli_loads_github_token_from_default_dotenv(monkeypatch, tmp_path):
+    input_path = tmp_path / "subnets.json"
+    input_path.write_text(
+        json.dumps({"subnets": [{"netuid": 64, "subnet_identity": {"github_repo": "github.com/chutesai/api"}}]}),
+        encoding="utf-8",
+    )
+    (tmp_path / ".env").write_text("GITHUB_TOKEN=dotenv-token\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    os.environ.pop("GITHUB_TOKEN", None)
+    calls = []
+
+    def fake_crawl_resolved_subnets(document, **kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(succeeded_netuids=[64], failed=[], skipped_unresolved_netuids=[])
+
+    monkeypatch.setattr("tao_git_crawl.cli.crawl_resolved_subnets", fake_crawl_resolved_subnets)
+
+    try:
+        exit_code = main(
+            [
+                "crawl",
+                "--from-json",
+                str(input_path),
+                "--repository-policy",
+                "owner",
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--cache-dir",
+                str(tmp_path / "cache"),
+            ]
+        )
+
+        assert exit_code == 0
+        assert calls[0]["token"] == "dotenv-token"
+    finally:
+        os.environ.pop("GITHUB_TOKEN", None)
+
+
+def test_crawl_cli_loads_github_token_from_repo_root_dotenv_when_run_from_subdir(monkeypatch, tmp_path):
+    input_path = tmp_path / "subnets.json"
+    input_path.write_text(
+        json.dumps({"subnets": [{"netuid": 64, "subnet_identity": {"github_repo": "github.com/chutesai/api"}}]}),
+        encoding="utf-8",
+    )
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "tao-git-crawl"\n', encoding="utf-8")
+    (tmp_path / ".env").write_text("GITHUB_TOKEN=repo-root-dotenv-token\n", encoding="utf-8")
+    subdir = tmp_path / "scripts"
+    subdir.mkdir()
+    monkeypatch.chdir(subdir)
+    os.environ.pop("GITHUB_TOKEN", None)
+    calls = []
+
+    def fake_crawl_resolved_subnets(document, **kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(succeeded_netuids=[64], failed=[], skipped_unresolved_netuids=[])
+
+    monkeypatch.setattr("tao_git_crawl.cli.crawl_resolved_subnets", fake_crawl_resolved_subnets)
+
+    try:
+        exit_code = main(
+            [
+                "crawl",
+                "--from-json",
+                str(input_path),
+                "--repository-policy",
+                "owner",
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--cache-dir",
+                str(tmp_path / "cache"),
+            ]
+        )
+
+        assert exit_code == 0
+        assert calls[0]["token"] == "repo-root-dotenv-token"
+    finally:
+        os.environ.pop("GITHUB_TOKEN", None)
+
+
+def test_crawl_cli_loads_github_token_from_custom_dotenv(monkeypatch, tmp_path):
+    input_path = tmp_path / "subnets.json"
+    input_path.write_text(
+        json.dumps({"subnets": [{"netuid": 64, "subnet_identity": {"github_repo": "github.com/chutesai/api"}}]}),
+        encoding="utf-8",
+    )
+    env_path = tmp_path / "config" / "github.env"
+    env_path.parent.mkdir()
+    env_path.write_text("GITHUB_TOKEN=custom-dotenv-token\n", encoding="utf-8")
+    os.environ.pop("GITHUB_TOKEN", None)
+    calls = []
+
+    def fake_crawl_resolved_subnets(document, **kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(succeeded_netuids=[64], failed=[], skipped_unresolved_netuids=[])
+
+    monkeypatch.setattr("tao_git_crawl.cli.crawl_resolved_subnets", fake_crawl_resolved_subnets)
+
+    try:
+        exit_code = main(
+            [
+                "crawl",
+                "--from-json",
+                str(input_path),
+                "--repository-policy",
+                "owner",
+                "--env-file",
+                str(env_path),
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--cache-dir",
+                str(tmp_path / "cache"),
+            ]
+        )
+
+        assert exit_code == 0
+        assert calls[0]["token"] == "custom-dotenv-token"
+    finally:
+        os.environ.pop("GITHUB_TOKEN", None)
+
+
 def test_crawl_cli_resolves_writes_manifests_and_crawls_each_subnet(monkeypatch, tmp_path, capsys):
+    os.environ.pop("GITHUB_TOKEN", None)
     input_path = tmp_path / "subnets.json"
     input_path.write_text(
         json.dumps({"subnets": [{"netuid": 64, "subnet_identity": {"github_repo": "github.com/chutesai/api"}}]}),
@@ -175,6 +297,8 @@ def test_crawl_cli_resolves_writes_manifests_and_crawls_each_subnet(monkeypatch,
             str(cache_dir),
             "--state-db",
             str(state_db),
+            "--env-file",
+            str(tmp_path / "missing.env"),
             "--since",
             "2026-01-01",
             "--workers",

@@ -12,6 +12,7 @@ license = "MIT"
 authors = [{ name = "Alex Desroches" }]
 dependencies = [
   "git-crawl>=0.1.0",
+  "python-dotenv>=1.0,<2",
 ]
 
 [project.optional-dependencies]
@@ -27,6 +28,7 @@ Repository = "https://github.com/alex-drocks/tao-git-crawl"
 
 [tool.hatch.build.targets.sdist]
 include = [
+  "/.env.example",
   "/README.md",
   "/LICENSE",
   "/docs",
