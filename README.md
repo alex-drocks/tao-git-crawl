@@ -32,7 +32,7 @@ Until `git-crawl` is published to PyPI, install the pinned GitHub dependency fir
 
 ```bash
 python3.12 -m pip install \
-  'git-crawl @ git+https://github.com/alex-drocks/git-crawl.git@0f2eb881296e591a81e806c0689797c65cfdde77'
+  'git-crawl @ git+https://github.com/alex-drocks/git-crawl.git@72b2b5941a9c6d8313ffa637d3c46d16d99f4ad3'
 ```
 
 ```bash
@@ -44,6 +44,7 @@ tao-git-crawl crawl \
   --config examples/config.overrides.py \
   --output-dir out/tao-crawl \
   --cache-dir .cache/git-crawl \
+  --state-db .state/git-crawl.sqlite \
   --since 2026-01-01 \
   --workers 4
 
@@ -60,6 +61,8 @@ git-crawl crawl-repos out/tao/subnets/64/repository-manifest.json \
   --output-dir out/git-crawl/subnets/64 \
   --workers 4
 ```
+
+The `--state-db` path should be stable across scheduled runs so `git-crawl` can persist run metadata and incremental default-branch heads.
 
 ## Manual target overrides
 
@@ -97,6 +100,7 @@ tao-git-crawl crawl \
   --config examples/config.overrides.py \
   --output-dir out/tao-crawl \
   --cache-dir .cache/git-crawl \
+  --state-db .state/git-crawl.sqlite \
   --since 2026-01-01
 ```
 
@@ -116,6 +120,7 @@ tao-git-crawl crawl \
   --repository-policy owner \
   --output-dir out/tao-owner-crawl \
   --cache-dir .cache/git-crawl \
+  --state-db .state/git-crawl.sqlite \
   --since 2026-01-01
 ```
 

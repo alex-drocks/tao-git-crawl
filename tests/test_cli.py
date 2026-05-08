@@ -160,6 +160,7 @@ def test_crawl_cli_resolves_writes_manifests_and_crawls_each_subnet(monkeypatch,
     monkeypatch.setattr("tao_git_crawl.cli.crawl_resolved_subnets", fake_crawl_resolved_subnets)
     output_dir = tmp_path / "out"
     cache_dir = tmp_path / "cache"
+    state_db = tmp_path / "state" / "git-crawl.sqlite"
 
     exit_code = main(
         [
@@ -172,6 +173,8 @@ def test_crawl_cli_resolves_writes_manifests_and_crawls_each_subnet(monkeypatch,
             str(output_dir),
             "--cache-dir",
             str(cache_dir),
+            "--state-db",
+            str(state_db),
             "--since",
             "2026-01-01",
             "--workers",
@@ -189,6 +192,7 @@ def test_crawl_cli_resolves_writes_manifests_and_crawls_each_subnet(monkeypatch,
             {
                 "output_dir": output_dir,
                 "cache_dir": cache_dir,
+                "state_db": state_db,
                 "token": None,
                 "active_since": None,
                 "since": "2026-01-01",
