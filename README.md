@@ -32,8 +32,10 @@ Until `git-crawl` is published to PyPI, install the pinned GitHub dependency fir
 
 ```bash
 python3.12 -m pip install \
-  'git-crawl @ git+https://github.com/alex-drocks/git-crawl.git@72b2b5941a9c6d8313ffa637d3c46d16d99f4ad3'
+  'git-crawl @ git+https://github.com/alex-drocks/git-crawl.git@v0.1.0'
 ```
+
+The sample fixture keeps the no-override path live-smokeable by using a public Chutes repository for SN64. Use the override example below when a subnet's exact repository metadata is private, inaccessible, or too narrow for company-level metrics.
 
 ```bash
 tao-git-crawl resolve --from-json examples/subnets.sample.json --output-dir out/tao
