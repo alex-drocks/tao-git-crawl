@@ -72,6 +72,32 @@ def test_github_orgs_owner_root_is_preserved_as_owner_target_not_repo_manifest_c
     assert target.url == "https://github.com/chutesai"
 
 
+def test_github_orgs_repositories_page_is_preserved_as_owner_target():
+    record = SubnetIdentityRecord(netuid=44, github_repo="https://github.com/orgs/chutesai/repositories")
+
+    targets = extract_github_targets(record)
+
+    assert len(targets) == 1
+    assert targets[0].kind == "owner"
+    assert targets[0].owner == "chutesai"
+    assert targets[0].url == "https://github.com/chutesai"
+
+
+def test_unsupported_github_subpath_is_not_truncated_to_repository_target():
+    record = SubnetIdentityRecord(
+        netuid=45,
+        description="Bug report lives at https://github.com/opentensor/subtensor/issues/123",
+    )
+
+    assert extract_github_targets(record) == []
+
+
+def test_reserved_github_page_is_not_treated_as_owner_target():
+    record = SubnetIdentityRecord(netuid=46, subnet_url="https://github.com/search?q=bittensor")
+
+    assert extract_github_targets(record) == []
+
+
 def test_invalid_github_repo_field_becomes_no_target():
     record = SubnetIdentityRecord(netuid=9, github_repo="https://example.com/not-github")
 
