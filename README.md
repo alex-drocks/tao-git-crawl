@@ -37,6 +37,15 @@ python3.12 -m pip install \
 
 The sample fixture keeps the no-override path live-smokeable by using a public Chutes repository for SN64. Use the override example below when a subnet's exact repository metadata is private, inaccessible, or too narrow for company-level metrics.
 
+For authenticated GitHub API rate limits, keep a local repo-root `.env` file. It is ignored by git and loaded automatically by `tao-git-crawl crawl` before reading `GITHUB_TOKEN`:
+
+```bash
+cp .env.example .env
+# Edit .env and set GITHUB_TOKEN=<your GitHub token>
+```
+
+Use `--env-file path/to/.env` if you keep the token file somewhere else.
+
 ```bash
 tao-git-crawl resolve --from-json examples/subnets.sample.json --output-dir out/tao
 

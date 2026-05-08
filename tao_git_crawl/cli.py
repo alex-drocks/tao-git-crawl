@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
 
+from dotenv import load_dotenv
 from git_crawl.github import token_from_env
 
 from .crawler import crawl_resolved_subnets
@@ -121,6 +122,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="environment variable containing a GitHub token (default: GITHUB_TOKEN)",
     )
     crawl.add_argument(
+        "--env-file",
+        type=Path,
+        help=(
+            "dotenv file to load before reading --token-env "
+            "(default: .env in the tao-git-crawl repo root when run inside the repo; otherwise ./.env)"
+        ),
+    )
+    crawl.add_argument(
         "--format",
         choices=["all", "jsonl", "csv"],
         default="all",
@@ -191,6 +200,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"failed to resolve subnet GitHub targets: {exc}", file=sys.stderr)
             return 1
         written = write_resolution_outputs(document, args.output_dir)
+        _load_env_file(args.env_file)
         token = token_from_env(args.token_env)
         report = crawl_resolved_subnets(
             document,
@@ -224,6 +234,38 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     parser.error(f"Unknown command {args.command!r}")
     return 2
+
+
+def _load_env_file(env_file: Path | None) -> None:
+    dotenv_path = env_file if env_file is not None else _default_env_file()
+    if dotenv_path is None:
+        return
+    load_dotenv(dotenv_path=dotenv_path, override=False)
+
+
+def _default_env_file() -> Path | None:
+    start = Path.cwd().resolve()
+    repo_root = _find_tao_git_crawl_repo_root(start)
+    if repo_root is not None:
+        candidate = repo_root / ".env"
+        return candidate if candidate.exists() else None
+
+    candidate = start / ".env"
+    return candidate if candidate.exists() else None
+
+
+def _find_tao_git_crawl_repo_root(start: Path) -> Path | None:
+    for directory in (start, *start.parents):
+        pyproject = directory / "pyproject.toml"
+        if not pyproject.exists():
+            continue
+        try:
+            pyproject_text = pyproject.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if 'name = "tao-git-crawl"' in pyproject_text or "name = 'tao-git-crawl'" in pyproject_text:
+            return directory
+    return None
 
 
 def _positive_int(value: str) -> int:
