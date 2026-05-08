@@ -334,4 +334,4 @@ def test_crawl_cli_resolves_writes_manifests_and_crawls_each_subnet(monkeypatch,
     ]
     assert (output_dir / "subnets" / "64" / "owner-targets.json").exists()
     captured = capsys.readouterr()
-    assert "Crawled 1 subnets, 0 failed, 0 unresolved skipped." in captured.out
+    assert "Crawled 1 subnets, 0 failed, 0 unresolved skipped, 0 inaccessible skipped." in captured.out

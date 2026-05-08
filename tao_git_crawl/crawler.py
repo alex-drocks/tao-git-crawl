@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from git_crawl.github import list_owner_repositories, list_repositories_from_urls
+from git_crawl.github import GitHubAPIError, list_owner_repositories, list_repositories_from_urls
 from git_crawl.pipeline import REF_SCOPE_DEFAULT_BRANCH, crawl_repositories, write_crawl_outputs
 from git_crawl.redaction import redact_text
 
@@ -21,6 +21,22 @@ class SubnetCrawlFailure:
 
     def to_dict(self) -> dict[str, object]:
         return {"netuid": self.netuid, "target": self.target_label, "reason": self.reason}
+
+
+@dataclass(frozen=True)
+class SubnetCrawlSkip:
+    netuid: int
+    target_label: str
+    reason: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {"netuid": self.netuid, "target": self.target_label, "reason": self.reason}
+
+
+@dataclass(frozen=True)
+class RepositoryResolution:
+    repositories: list[Any]
+    skipped_inaccessible: list[str]
 
 
 @dataclass(frozen=True)
@@ -48,6 +64,7 @@ class SubnetCrawlReport:
     succeeded: list[SubnetCrawlSuccess]
     failed: list[SubnetCrawlFailure]
     skipped_unresolved_netuids: list[int]
+    skipped_inaccessible: list[SubnetCrawlSkip]
     report_path: Path | None = None
 
     @property
@@ -59,6 +76,7 @@ class SubnetCrawlReport:
             "succeeded": [item.to_dict() for item in self.succeeded],
             "failed": [item.to_dict() for item in self.failed],
             "skipped_unresolved_netuids": list(self.skipped_unresolved_netuids),
+            "skipped_inaccessible": [item.to_dict() for item in self.skipped_inaccessible],
         }
 
 
@@ -86,6 +104,7 @@ def crawl_resolved_subnets(
     cache_path = Path(cache_dir)
     succeeded: list[SubnetCrawlSuccess] = []
     failed: list[SubnetCrawlFailure] = []
+    skipped_inaccessible: list[SubnetCrawlSkip] = []
     unresolved_netuids = {item.netuid for item in document.unresolved}
 
     for netuid in document.netuids:
@@ -94,10 +113,16 @@ def crawl_resolved_subnets(
             continue
         target_label = subnet_document.target_label
         try:
-            repositories = _resolve_repositories_for_subnet(subnet_document.targets, token=token, max_repos=max_repos)
+            resolution = _resolve_repositories_for_subnet(subnet_document.targets, token=token, max_repos=max_repos)
+            skipped_inaccessible.extend(
+                SubnetCrawlSkip(netuid=netuid, target_label=target_label, reason=reason)
+                for reason in resolution.skipped_inaccessible
+            )
+            if not resolution.repositories and resolution.skipped_inaccessible:
+                continue
             result = crawl_repositories(
                 target_label,
-                repositories,
+                resolution.repositories,
                 cache_dir=cache_path,
                 state_db=state_db,
                 active_since=active_since,
@@ -139,6 +164,7 @@ def crawl_resolved_subnets(
         succeeded=succeeded,
         failed=failed,
         skipped_unresolved_netuids=sorted(unresolved_netuids),
+        skipped_inaccessible=skipped_inaccessible,
     )
     report_path = output_path / "crawl-report.json"
     _write_report(report_path, report.to_dict())
@@ -146,6 +172,7 @@ def crawl_resolved_subnets(
         succeeded=report.succeeded,
         failed=report.failed,
         skipped_unresolved_netuids=report.skipped_unresolved_netuids,
+        skipped_inaccessible=report.skipped_inaccessible,
         report_path=report_path,
     )
 
@@ -155,15 +182,32 @@ def _resolve_repositories_for_subnet(
     *,
     token: str | None,
     max_repos: int | None,
-) -> list[Any]:
+) -> RepositoryResolution:
     repositories: list[Any] = []
+    skipped_inaccessible: list[str] = []
     repo_urls = [target.url for target in targets if target.kind == "repository"]
-    if repo_urls:
-        repositories.extend(list_repositories_from_urls(repo_urls, token=token, max_repos=max_repos))
+    for repo_url in repo_urls:
+        if max_repos is not None and len(_dedupe_repositories(repositories)) >= max_repos:
+            break
+        try:
+            repositories.extend(list_repositories_from_urls([repo_url], token=token, max_repos=1))
+        except GitHubAPIError as exc:
+            if exc.status_code != 404:
+                raise
+            skipped_inaccessible.append(redact_text(exc))
     for target in targets:
-        if target.kind == "owner":
+        if target.kind != "owner":
+            continue
+        try:
             repositories.extend(list_owner_repositories(target.owner, owner_type="auto", token=token))
-    return _dedupe_repositories(repositories)
+        except GitHubAPIError as exc:
+            if exc.status_code != 404:
+                raise
+            skipped_inaccessible.append(redact_text(exc))
+    return RepositoryResolution(
+        repositories=_dedupe_repositories(repositories),
+        skipped_inaccessible=skipped_inaccessible,
+    )
 
 
 def _dedupe_repositories(repositories: list[Any]) -> list[Any]:
