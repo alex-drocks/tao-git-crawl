@@ -4,7 +4,7 @@
       "netuid": 64,
       "subnet_identity": {
         "subnet_name": "Example exact repository subnet",
-        "github_repo": "https://github.com/chutesai/api"
+        "github_repo": "https://github.com/chutesai/sek8s"
       }
     },
     {
