@@ -4,7 +4,7 @@ from git_crawl.github import GitHubAPIError
 
 from tao_git_crawl.crawler import crawl_resolved_subnets
 from tao_git_crawl.models import SubnetIdentityRecord
-from tao_git_crawl.overrides import ResolverConfig
+from tao_git_crawl.overrides import ResolverConfig, SubnetOverride, TargetOverride
 from tao_git_crawl.resolver import resolve_subnets
 
 
@@ -160,3 +160,90 @@ def test_crawl_resolved_subnets_continues_after_unresolved_and_per_subnet_failur
     assert [(failure.netuid, failure.reason) for failure in report.failed] == [(2, "not found")]
     assert report.skipped_unresolved_netuids == [3]
     assert (tmp_path / "out" / "subnets" / "1" / "crawl" / "summary.json").exists()
+
+
+def test_crawl_resolved_subnets_treats_non_success_crawl_status_as_failure(monkeypatch, tmp_path):
+    document = resolve_subnets(
+        [SubnetIdentityRecord(netuid=1, subnet_name="Partial", github_repo="https://github.com/alice/api")],
+        target_label="bittensor-subnets",
+    )
+
+    def fake_list_repositories_from_urls(urls, **kwargs):
+        return [SimpleNamespace(name="api", full_name="alice/api")]
+
+    def fake_crawl_repositories(target_label, repositories, **kwargs):
+        return SimpleNamespace(
+            run=SimpleNamespace(status="partial"),
+            repositories=list(repositories),
+            failed_repositories=[
+                SimpleNamespace(full_name="alice/api", error="clone failed for https://token@example.com/repo.git")
+            ],
+        )
+
+    def fake_write_crawl_outputs(result, output_dir, **kwargs):
+        output_dir.mkdir(parents=True, exist_ok=True)
+        path = output_dir / "summary.json"
+        path.write_text("{}\n", encoding="utf-8")
+        return [path]
+
+    monkeypatch.setattr("tao_git_crawl.crawler.list_repositories_from_urls", fake_list_repositories_from_urls)
+    monkeypatch.setattr("tao_git_crawl.crawler.crawl_repositories", fake_crawl_repositories)
+    monkeypatch.setattr("tao_git_crawl.crawler.write_crawl_outputs", fake_write_crawl_outputs)
+
+    report = crawl_resolved_subnets(document, output_dir=tmp_path / "out", cache_dir=tmp_path / "cache")
+
+    assert report.succeeded_netuids == []
+    assert len(report.failed) == 1
+    assert report.failed[0].netuid == 1
+    assert "crawl completed with status partial" in report.failed[0].reason
+    assert "https://[REDACTED]@example.com/repo.git" in report.failed[0].reason
+    assert (tmp_path / "out" / "subnets" / "1" / "crawl" / "summary.json").exists()
+
+
+def test_crawl_resolved_subnets_does_not_fetch_owner_targets_after_max_repos_is_reached(monkeypatch, tmp_path):
+    document = resolve_subnets(
+        [SubnetIdentityRecord(netuid=64, subnet_name="Chutes", github_repo="https://github.com/chutesai/api")],
+        target_label="bittensor-subnets",
+        config=ResolverConfig(
+            subnet_overrides={
+                64: SubnetOverride(
+                    replace=False,
+                    targets=(TargetOverride(kind="owner", url="https://github.com/chutesai"),),
+                )
+            }
+        ),
+    )
+    calls = {"owners": 0, "crawls": []}
+
+    def fake_list_repositories_from_urls(urls, **kwargs):
+        return [SimpleNamespace(name="api", full_name="chutesai/api")]
+
+    def fake_list_owner_repositories(owner, **kwargs):
+        calls["owners"] += 1
+        return [SimpleNamespace(name="sdk", full_name="chutesai/sdk")]
+
+    def fake_crawl_repositories(target_label, repositories, **kwargs):
+        calls["crawls"].append([repo.full_name for repo in repositories])
+        return SimpleNamespace(run=SimpleNamespace(status="success"), repositories=list(repositories))
+
+    def fake_write_crawl_outputs(result, output_dir, **kwargs):
+        output_dir.mkdir(parents=True, exist_ok=True)
+        path = output_dir / "summary.json"
+        path.write_text("{}\n", encoding="utf-8")
+        return [path]
+
+    monkeypatch.setattr("tao_git_crawl.crawler.list_repositories_from_urls", fake_list_repositories_from_urls)
+    monkeypatch.setattr("tao_git_crawl.crawler.list_owner_repositories", fake_list_owner_repositories)
+    monkeypatch.setattr("tao_git_crawl.crawler.crawl_repositories", fake_crawl_repositories)
+    monkeypatch.setattr("tao_git_crawl.crawler.write_crawl_outputs", fake_write_crawl_outputs)
+
+    report = crawl_resolved_subnets(
+        document,
+        output_dir=tmp_path / "out",
+        cache_dir=tmp_path / "cache",
+        max_repos=1,
+    )
+
+    assert report.succeeded_netuids == [64]
+    assert calls["owners"] == 0
+    assert calls["crawls"] == [["chutesai/api"]]

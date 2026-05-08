@@ -7,21 +7,42 @@ from git_crawl.github import GITHUB_OWNER_RE, GITHUB_REPO_RE, GitHubURLParseErro
 
 from .models import GITHUB_DISCOVERY_FIELDS, GitHubTarget, SubnetIdentityRecord
 
+GITHUB_OWNER_PATTERN = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?"
+GITHUB_RESERVED_OWNER_PATHS = {
+    "about",
+    "codespaces",
+    "explore",
+    "features",
+    "issues",
+    "join",
+    "login",
+    "marketplace",
+    "new",
+    "notifications",
+    "orgs",
+    "organizations",
+    "pricing",
+    "pulls",
+    "search",
+    "settings",
+    "topics",
+}
 REPOSITORY_URL_RE = re.compile(
     r"(?:"
-    r"git@github\.com:[A-Za-z0-9][A-Za-z0-9-]{0,37}[A-Za-z0-9]/[A-Za-z0-9._-]+(?:\.git)?"
+    rf"git@github\.com:{GITHUB_OWNER_PATTERN}/[A-Za-z0-9._-]+(?:\.git)?"
     r"|"
     r"(?:https?://)?(?:www\.)?github\.com/"
-    r"[A-Za-z0-9][A-Za-z0-9-]{0,37}[A-Za-z0-9]/[A-Za-z0-9._-]+(?:\.git)?"
+    rf"{GITHUB_OWNER_PATTERN}/[A-Za-z0-9._-]+(?:\.git)?"
     r"(?:/(?:tree|blob|commit|releases)/[^\s<>'\")]+)?"
     r")"
+    r"(?![A-Za-z0-9._/-])"
 )
 
 OWNER_ROOT_RE = re.compile(
-    r"^(?:https?://)?(?:www\.)?github\.com/(?:orgs/)?(?P<owner>[A-Za-z0-9][A-Za-z0-9-]{0,37}[A-Za-z0-9])/?$"
+    rf"^(?:https?://)?(?:www\.)?github\.com/(?:orgs/)?(?P<owner>{GITHUB_OWNER_PATTERN})/?$"
 )
 BARE_OWNER_REPO_RE = re.compile(
-    r"^(?P<owner>[A-Za-z0-9][A-Za-z0-9-]{0,37}[A-Za-z0-9])/(?P<repo>[A-Za-z0-9._-]+)(?:\.git)?$"
+    rf"^(?P<owner>{GITHUB_OWNER_PATTERN})/(?P<repo>[A-Za-z0-9._-]+)(?:\.git)?$"
 )
 
 FIELD_CONFIDENCE = {
@@ -184,11 +205,11 @@ def _parse_owner_root(candidate: str) -> str | None:
     if (parsed.hostname or "").lower() != "github.com":
         return None
     path_parts = [part for part in parsed.path.strip("/").split("/") if part]
-    if len(path_parts) == 2 and path_parts[0] == "orgs":
+    if len(path_parts) in {2, 3} and path_parts[0] == "orgs" and path_parts[-1] in {path_parts[1], "repositories"}:
         path_parts = [path_parts[1]]
     if len(path_parts) != 1:
         return None
     owner = urllib.parse.unquote(path_parts[0])
-    if not GITHUB_OWNER_RE.fullmatch(owner):
+    if owner.lower() in GITHUB_RESERVED_OWNER_PATHS or not GITHUB_OWNER_RE.fullmatch(owner):
         return None
     return owner

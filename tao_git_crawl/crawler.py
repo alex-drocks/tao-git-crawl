@@ -145,16 +145,26 @@ def crawl_resolved_subnets(
                     write_csv_files=output_format in {"all", "csv"},
                 )
             )
-            succeeded.append(
-                SubnetCrawlSuccess(
+            success = SubnetCrawlSuccess(
+                netuid=netuid,
+                target_label=target_label,
+                output_dir=subnet_output_dir,
+                repositories=len(result.repositories),
+                status=result.run.status,
+                written_files=written_files,
+            )
+            if result.run.status == "success":
+                succeeded.append(success)
+                continue
+            failed.append(
+                SubnetCrawlFailure(
                     netuid=netuid,
                     target_label=target_label,
-                    output_dir=subnet_output_dir,
-                    repositories=len(result.repositories),
-                    status=result.run.status,
-                    written_files=written_files,
+                    reason=_crawl_status_failure_reason(result),
                 )
             )
+            if fail_fast:
+                break
         except Exception as exc:  # noqa: BLE001 - per-subnet failures should not abort the whole dataset
             failed.append(SubnetCrawlFailure(netuid=netuid, target_label=target_label, reason=redact_text(exc)))
             if fail_fast:
@@ -187,7 +197,7 @@ def _resolve_repositories_for_subnet(
     skipped_inaccessible: list[str] = []
     repo_urls = [target.url for target in targets if target.kind == "repository"]
     for repo_url in repo_urls:
-        if max_repos is not None and len(_dedupe_repositories(repositories)) >= max_repos:
+        if _has_reached_max_repos(repositories, max_repos):
             break
         try:
             repositories.extend(list_repositories_from_urls([repo_url], token=token, max_repos=1))
@@ -198,6 +208,8 @@ def _resolve_repositories_for_subnet(
     for target in targets:
         if target.kind != "owner":
             continue
+        if _has_reached_max_repos(repositories, max_repos):
+            break
         try:
             repositories.extend(list_owner_repositories(target.owner, owner_type="auto", token=token))
         except GitHubAPIError as exc:
@@ -208,6 +220,26 @@ def _resolve_repositories_for_subnet(
         repositories=_dedupe_repositories(repositories),
         skipped_inaccessible=skipped_inaccessible,
     )
+
+
+def _crawl_status_failure_reason(result: Any) -> str:
+    status = str(getattr(getattr(result, "run", None), "status", "unknown"))
+    failed_repositories = list(getattr(result, "failed_repositories", []) or [])
+    if not failed_repositories:
+        return f"crawl completed with status {status}"
+
+    details: list[str] = []
+    for failure in failed_repositories[:5]:
+        full_name = getattr(failure, "full_name", getattr(failure, "repo", "repository"))
+        error = getattr(failure, "error", "")
+        details.append(f"{full_name}: {error}" if error else str(full_name))
+    if len(failed_repositories) > len(details):
+        details.append(f"{len(failed_repositories) - len(details)} more failed repositories")
+    return redact_text(f"crawl completed with status {status}; failed repositories: {'; '.join(details)}")
+
+
+def _has_reached_max_repos(repositories: list[Any], max_repos: int | None) -> bool:
+    return max_repos is not None and len(_dedupe_repositories(repositories)) >= max_repos
 
 
 def _dedupe_repositories(repositories: list[Any]) -> list[Any]:
