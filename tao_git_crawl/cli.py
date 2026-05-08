@@ -220,10 +220,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             fail_fast=args.fail_fast,
             output_format=args.format,
         )
+        skipped_inaccessible = getattr(report, "skipped_inaccessible", [])
         print(
             f"Crawled {len(report.succeeded_netuids)} subnets, "
             f"{len(report.failed)} failed, "
-            f"{len(report.skipped_unresolved_netuids)} unresolved skipped."
+            f"{len(report.skipped_unresolved_netuids)} unresolved skipped, "
+            f"{len(skipped_inaccessible)} inaccessible skipped."
         )
         for path in written:
             print(path)
