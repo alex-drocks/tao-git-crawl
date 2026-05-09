@@ -211,7 +211,13 @@ def _resolve_repositories_for_subnet(
         if _has_reached_max_repos(repositories, max_repos):
             break
         try:
-            repositories.extend(list_owner_repositories(target.owner, owner_type="auto", token=token))
+            owner_repos = list_owner_repositories(target.owner, owner_type="auto", token=token)
+            if max_repos is not None:
+                remaining = max_repos - len(_dedupe_repositories(repositories))
+                if remaining <= 0:
+                    break
+                owner_repos = owner_repos[:remaining]
+            repositories.extend(owner_repos)
         except GitHubAPIError as exc:
             if exc.status_code != 404:
                 raise
