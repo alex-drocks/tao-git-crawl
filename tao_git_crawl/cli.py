@@ -148,6 +148,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="maximum repos to crawl concurrently per subnet",
     )
     crawl.add_argument("--fail-fast", action="store_true", help="stop after the first subnet/repo failure")
+    crawl.add_argument(
+        "--commit-changes-filtration-level",
+        choices=["all", "non_binary", "source_like"],
+        default="source_like",
+        help=(
+            "how to filter file changes written into aggregate outputs; "
+            "'source_like' excludes generated/lockfile/spec/vendored files (default)"
+        ),
+    )
     return parser
 
 
@@ -219,6 +228,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             workers=args.workers,
             fail_fast=args.fail_fast,
             output_format=args.format,
+            commit_changes_filtration_level=args.commit_changes_filtration_level,
         )
         skipped_inaccessible = getattr(report, "skipped_inaccessible", [])
         print(
