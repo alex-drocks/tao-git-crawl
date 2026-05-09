@@ -46,6 +46,7 @@ class SubnetCrawlSuccess:
     output_dir: Path
     repositories: int
     status: str
+    run_id: str
     written_files: tuple[Path, ...]
 
     def to_dict(self) -> dict[str, object]:
@@ -54,6 +55,7 @@ class SubnetCrawlSuccess:
             "target": self.target_label,
             "output_dir": str(self.output_dir),
             "repositories": self.repositories,
+            "run_id": self.run_id,
             "status": self.status,
             "written_files": [str(path) for path in self.written_files],
         }
@@ -151,6 +153,7 @@ def crawl_resolved_subnets(
                 output_dir=subnet_output_dir,
                 repositories=len(result.repositories),
                 status=result.run.status,
+                run_id=getattr(result.run, "run_id", ""),
                 written_files=written_files,
             )
             if result.run.status == "success":
