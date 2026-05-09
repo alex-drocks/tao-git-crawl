@@ -16,7 +16,7 @@ def test_ci_workflow_validates_package_build_and_offline_resolve_smoke():
     assert '72b2b5941a9c6d8313ffa637d3c46d16d99f4ad3' not in content
     assert 'resolve --from-json examples/subnets.sample.json' in content
     assert 'tao-git-crawl" crawl --help' in content
-    assert '--config examples/config.overrides.py' in content
+    assert 'subnets/64/owner-targets.json' in content
 
 
 def test_public_sample_fixture_avoids_inaccessible_chutes_repository():
