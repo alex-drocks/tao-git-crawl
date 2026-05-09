@@ -27,7 +27,10 @@ def test_crawl_resolved_subnets_discovers_owner_repos_and_labels_metrics_by_subn
 
     def fake_crawl_repositories(target_label, repositories, **kwargs):
         calls["crawls"].append((target_label, [item.full_name for item in repositories], kwargs))
-        return SimpleNamespace(run=SimpleNamespace(status="success"), repositories=list(repositories))
+        return SimpleNamespace(
+            run=SimpleNamespace(status="success", run_id="test-run-0"),
+            repositories=list(repositories),
+        )
 
     def fake_write_crawl_outputs(result, output_dir, *, write_json=True, write_csv_files=True):
         calls["writes"].append((output_dir, write_json, write_csv_files))
@@ -100,7 +103,10 @@ def test_crawl_resolved_subnets_skips_inaccessible_github_404_targets(monkeypatc
         return [SimpleNamespace(name="api", full_name="alice/api")]
 
     def fake_crawl_repositories(target_label, repositories, **kwargs):
-        return SimpleNamespace(run=SimpleNamespace(status="success"), repositories=list(repositories))
+        return SimpleNamespace(
+            run=SimpleNamespace(status="success", run_id="test-run-0"),
+            repositories=list(repositories),
+        )
 
     def fake_write_crawl_outputs(result, output_dir, **kwargs):
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -142,7 +148,10 @@ def test_crawl_resolved_subnets_continues_after_unresolved_and_per_subnet_failur
         return [SimpleNamespace(name="api", full_name="alice/api")]
 
     def fake_crawl_repositories(target_label, repositories, **kwargs):
-        return SimpleNamespace(run=SimpleNamespace(status="success"), repositories=list(repositories))
+        return SimpleNamespace(
+            run=SimpleNamespace(status="success", run_id="test-run-0"),
+            repositories=list(repositories),
+        )
 
     def fake_write_crawl_outputs(result, output_dir, **kwargs):
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -173,7 +182,7 @@ def test_crawl_resolved_subnets_treats_non_success_crawl_status_as_failure(monke
 
     def fake_crawl_repositories(target_label, repositories, **kwargs):
         return SimpleNamespace(
-            run=SimpleNamespace(status="partial"),
+            run=SimpleNamespace(status="partial", run_id=""),
             repositories=list(repositories),
             failed_repositories=[
                 SimpleNamespace(full_name="alice/api", error="clone failed for https://token@example.com/repo.git")
@@ -224,7 +233,10 @@ def test_crawl_resolved_subnets_does_not_fetch_owner_targets_after_max_repos_is_
 
     def fake_crawl_repositories(target_label, repositories, **kwargs):
         calls["crawls"].append([repo.full_name for repo in repositories])
-        return SimpleNamespace(run=SimpleNamespace(status="success"), repositories=list(repositories))
+        return SimpleNamespace(
+            run=SimpleNamespace(status="success", run_id="test-run-0"),
+            repositories=list(repositories),
+        )
 
     def fake_write_crawl_outputs(result, output_dir, **kwargs):
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -265,7 +277,10 @@ def test_owner_fetch_respects_max_repos_and_does_not_overfetch(monkeypatch, tmp_
 
     def fake_crawl_repositories(target_label, repositories, **kwargs):
         calls["crawls"].append([repo.full_name for repo in repositories])
-        return SimpleNamespace(run=SimpleNamespace(status="success"), repositories=list(repositories))
+        return SimpleNamespace(
+            run=SimpleNamespace(status="success", run_id="test-run-0"),
+            repositories=list(repositories),
+        )
 
     def fake_write_crawl_outputs(result, output_dir, **kwargs):
         output_dir.mkdir(parents=True, exist_ok=True)
