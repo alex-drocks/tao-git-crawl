@@ -120,7 +120,7 @@ SUBNET_OVERRIDES = {
 def test_resolve_cli_repository_policy_owner_promotes_repo_links_to_owner_targets(tmp_path, capsys):
     input_path = tmp_path / "subnets.json"
     input_path.write_text(
-        json.dumps({"subnets": [{"netuid": 64, "subnet_identity": {"github_repo": "github.com/chutesai/api"}}]}),
+        json.dumps({"subnets": [{"netuid": 65, "subnet_identity": {"github_repo": "github.com/chutesai/api"}}]}),
         encoding="utf-8",
     )
     output_dir = tmp_path / "out"
@@ -142,7 +142,7 @@ def test_resolve_cli_repository_policy_owner_promotes_repo_links_to_owner_target
     assert "Resolved 0 repository targets, 1 owner targets, 0 unresolved subnet records." in captured.out
     owner_targets = json.loads((output_dir / "owner-targets.json").read_text(encoding="utf-8"))
     assert [(item["netuid"], item["kind"], item["owner"], item["source_field"]) for item in owner_targets] == [
-        (64, "owner", "chutesai", "github_repo")
+        (65, "owner", "chutesai", "github_repo")
     ]
 
 
