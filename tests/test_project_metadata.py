@@ -7,7 +7,7 @@ def test_runtime_dependencies_are_package_index_compatible_and_reference_git_cra
 
     dependencies = metadata['project']['dependencies']
 
-    assert 'git-crawl>=0.1.0' in dependencies
+    assert 'git-crawl>=0.2.0' in dependencies
     assert 'python-dotenv>=1.0,<2' in dependencies
     assert not any('git+' in dependency or ' @ http' in dependency for dependency in dependencies)
 
