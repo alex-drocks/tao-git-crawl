@@ -33,8 +33,21 @@ REPOSITORY_URL_RE = re.compile(
     r"|"
     r"(?:https?://)?(?:www\.)?github\.com/"
     rf"{GITHUB_OWNER_PATTERN}/[A-Za-z0-9._-]+(?:\.git)?"
-    r"(?:/(?:tree|blob|commit|releases)/[^\s<>'\")]+)?"
+    r"(?:(?:/(?:tree|blob|commit|releases)(?:/[^\s<>'\")]+)?)|/)?"
+    r"(?:[?#][^\s<>'\")]+)?"
     r")"
+    r"(?![A-Za-z0-9._/-])"
+)
+
+OWNER_URL_RE = re.compile(
+    r"(?:https?://)?(?:www\.)?github\.com/"
+    r"(?:"
+    rf"orgs/{GITHUB_OWNER_PATTERN}(?:/repositories)?"
+    r"|"
+    rf"{GITHUB_OWNER_PATTERN}"
+    r")"
+    r"/?"
+    r"(?:[?#][^\s<>'\")]+)?"
     r"(?![A-Za-z0-9._/-])"
 )
 
@@ -126,6 +139,7 @@ def _candidate_values(field: str, raw_value: str) -> list[str]:
     if field in {"github_repo", "subnet_url"}:
         candidates.append(raw_value.strip())
     candidates.extend(match.group(0).strip().rstrip(".,;") for match in REPOSITORY_URL_RE.finditer(raw_value))
+    candidates.extend(match.group(0).strip().rstrip(".,;") for match in OWNER_URL_RE.finditer(raw_value))
     return [candidate for candidate in candidates if candidate]
 
 
@@ -172,9 +186,12 @@ def _target_from_candidate(
 def _parse_repository_candidate(candidate: str):
     prepared = _prepare_repository_url(candidate)
     try:
-        return parse_github_repo_url(prepared)
+        repository = parse_github_repo_url(prepared)
     except GitHubURLParseError:
         return None
+    if repository.owner.lower() in GITHUB_RESERVED_OWNER_PATHS:
+        return None
+    return repository
 
 
 def _prepare_repository_url(candidate: str) -> str:

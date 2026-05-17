@@ -1,3 +1,5 @@
+import pytest
+
 from tao_git_crawl.github_links import extract_github_targets
 from tao_git_crawl.models import SubnetIdentityRecord
 
@@ -42,6 +44,31 @@ def test_scans_fallback_text_fields_and_deduplicates_repositories():
     assert [target.repo_full_name for target in targets] == ["latent-to/bittensor"]
     assert targets[0].source_field == "description"
     assert targets[0].confidence == "low"
+
+
+def test_scans_fallback_text_fields_for_owner_roots():
+    record = SubnetIdentityRecord(
+        netuid=8,
+        description="Code is maintained by the org at https://github.com/chutesai/",
+        additional="Repositories page: https://github.com/orgs/chutesai/repositories",
+    )
+
+    targets = extract_github_targets(record)
+
+    assert [(target.kind, target.url, target.confidence) for target in targets] == [
+        ("owner", "https://github.com/chutesai", "low")
+    ]
+
+
+def test_scans_repository_urls_with_trailing_slashes_in_fallback_text():
+    record = SubnetIdentityRecord(
+        netuid=9,
+        description="Source: https://github.com/opentensor/subtensor/",
+    )
+
+    targets = extract_github_targets(record)
+
+    assert [target.repo_full_name for target in targets] == ["opentensor/subtensor"]
 
 
 def test_owner_root_is_preserved_as_lower_confidence_owner_target_not_repo():
@@ -94,6 +121,19 @@ def test_unsupported_github_subpath_is_not_truncated_to_repository_target():
 
 def test_reserved_github_page_is_not_treated_as_owner_target():
     record = SubnetIdentityRecord(netuid=46, subnet_url="https://github.com/search?q=bittensor")
+
+    assert extract_github_targets(record) == []
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://github.com/topics/bittensor",
+        "https://github.com/pulls/foo",
+    ],
+)
+def test_reserved_github_top_level_paths_are_not_treated_as_repository_targets(url):
+    record = SubnetIdentityRecord(netuid=47, description=f"See {url}")
 
     assert extract_github_targets(record) == []
 
