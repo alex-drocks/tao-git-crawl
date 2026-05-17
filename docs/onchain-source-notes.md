@@ -1,14 +1,12 @@
-# On-chain source notes
+# On-Chain Source
 
-Primary source inspected: `opentensor/subtensor`.
-
-The canonical subnet identity map is:
+`tao-git-crawl` reads subnet identity metadata from:
 
 ```text
 SubtensorModule.SubnetIdentitiesV3(netuid) -> Option<SubnetIdentityV3>
 ```
 
-`SubnetIdentityV3` fields relevant for GitHub discovery:
+GitHub discovery uses these `SubnetIdentityV3` fields:
 
 - `github_repo`
 - `subnet_url`
@@ -16,16 +14,15 @@ SubtensorModule.SubnetIdentitiesV3(netuid) -> Option<SubnetIdentityV3>
 - `additional`
 - `subnet_contact`
 
-Implementation stance for this scaffold:
+`github_repo` is the primary source. The other fields are fallback text sources.
 
-- Query `SubtensorModule.SubnetIdentitiesV3` directly through runtime metadata using a substrate client.
-- Treat `github_repo` as the highest-confidence field.
-- Accept exact repository URLs and bare `owner/repo` values because ecosystem tooling has used both forms.
-- Preserve GitHub owner roots as owner targets, but do not silently expand them into repositories.
-- Emit unresolved subnet records when identity metadata has no usable GitHub target.
+Exact repository URLs and bare `owner/repo` values become repository targets. GitHub owner roots become owner targets. Subnets with no usable GitHub target are written to `unresolved.json`.
 
-Tooling comparison:
+Live chain reads use the optional `chain` extra:
 
-- The Python `bittensor` SDK exposes subnet identity through dynamic subnet info, but is heavier than needed as a required dependency.
-- `agcli` has Rust code that reads `SubtensorModule.SubnetIdentitiesV3`, but its CLI does not expose subnet identity as a JSON read command suitable for this package.
-- This package therefore owns a small provider layer and keeps chain access behind an optional `chain` extra.
+```bash
+python3.12 -m pip install -e '.[chain]'
+tao-git-crawl resolve --network finney --output-dir out/tao
+```
+
+The default Finney endpoint is `wss://entrypoint-finney.opentensor.ai:443`. Use `--endpoint` to query another node.
