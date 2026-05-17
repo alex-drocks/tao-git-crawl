@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from git_crawl.github import token_from_env
 
 from .crawler import crawl_resolved_subnets
-from .overrides import ResolverConfig, ResolverConfigError, load_resolver_config
+from .overrides import EMPTY_RESOLVER_CONFIG, ResolverConfig, ResolverConfigError, load_resolver_config
 from .providers import (
     DEFAULT_ENDPOINT,
     DEFAULT_NETWORK,
@@ -148,6 +148,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="maximum repos to crawl concurrently per subnet",
     )
     crawl.add_argument("--fail-fast", action="store_true", help="stop after the first subnet/repo failure")
+    crawl.add_argument(
+        "--commit-changes-filtration-level",
+        choices=["all", "non_binary", "source_like"],
+        default="source_like",
+        help=(
+            "how to filter file changes written into aggregate outputs; "
+            "'source_like' excludes generated/lockfile/spec/vendored files (default)"
+        ),
+    )
     return parser
 
 
@@ -219,6 +228,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             workers=args.workers,
             fail_fast=args.fail_fast,
             output_format=args.format,
+            commit_changes_filtration_level=args.commit_changes_filtration_level,
         )
         skipped_inaccessible = getattr(report, "skipped_inaccessible", [])
         print(
@@ -285,7 +295,7 @@ def _provider_from_args(args: argparse.Namespace):
 
 
 def _resolver_config_from_args(args: argparse.Namespace) -> ResolverConfig:
-    config = load_resolver_config(args.config) if args.config else ResolverConfig()
+    config = load_resolver_config(args.config) if args.config else EMPTY_RESOLVER_CONFIG
     if args.repository_policy:
         config = replace(config, default_repository_policy=args.repository_policy)
     return config

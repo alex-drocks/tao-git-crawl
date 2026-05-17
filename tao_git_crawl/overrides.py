@@ -50,7 +50,14 @@ class ResolverConfig:
             raise ResolverConfigError("default_repository_policy must be one of 'repository' or 'owner'")
 
 
-EMPTY_RESOLVER_CONFIG = ResolverConfig()
+EMPTY_RESOLVER_CONFIG = ResolverConfig(
+    subnet_overrides={
+        64: SubnetOverride(
+            replace=True,
+            targets=(TargetOverride(kind="owner", url="https://github.com/chutesai"),),
+        ),
+    },
+)
 
 
 def load_resolver_config(path: str | Path) -> ResolverConfig:

@@ -6,7 +6,13 @@ from pathlib import Path
 from typing import Any
 
 from git_crawl.github import GitHubAPIError, list_owner_repositories, list_repositories_from_urls
-from git_crawl.pipeline import REF_SCOPE_DEFAULT_BRANCH, crawl_repositories, write_crawl_outputs
+from git_crawl.metrics import CommitChangesFiltrationLevel
+from git_crawl.pipeline import (
+    DEFAULT_COMMIT_CHANGES_FILTRATION_LEVEL,
+    REF_SCOPE_DEFAULT_BRANCH,
+    crawl_repositories,
+    write_crawl_outputs,
+)
 from git_crawl.redaction import redact_text
 
 from .models import GitHubTarget
@@ -100,6 +106,7 @@ def crawl_resolved_subnets(
     workers: int = 1,
     fail_fast: bool = False,
     output_format: str = "all",
+    commit_changes_filtration_level: CommitChangesFiltrationLevel = DEFAULT_COMMIT_CHANGES_FILTRATION_LEVEL,
 ) -> SubnetCrawlReport:
     """Crawl each resolved subnet independently under subnet-scoped target labels."""
     output_path = Path(output_dir)
@@ -137,6 +144,7 @@ def crawl_resolved_subnets(
                 ref_scope=ref_scope,
                 workers=workers,
                 fail_fast=fail_fast,
+                commit_changes_filtration_level=commit_changes_filtration_level,
             )
             subnet_output_dir = output_path / "subnets" / str(netuid) / "crawl"
             written_files = tuple(

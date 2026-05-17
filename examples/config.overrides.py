@@ -9,13 +9,6 @@ you trust. Only load config files you control; Python configs execute as local c
 # its GitHub owner by default.
 DEFAULT_REPOSITORY_POLICY = "repository"
 
-SUBNET_OVERRIDES = {
-    # Chutes subnet identity currently points at one repo, but the company-level
-    # activity lives across the chutesai GitHub owner.
-    64: {
-        "replace": True,
-        "targets": [
-            {"kind": "owner", "url": "https://github.com/chutesai"},
-        ],
-    },
-}
+# Subnet 64 (Chutes) is now baked into the default config. You only need to add
+# overrides here for other subnets, or to change the default policy.
+SUBNET_OVERRIDES = {}

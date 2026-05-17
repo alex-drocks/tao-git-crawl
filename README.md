@@ -10,8 +10,9 @@ This package resolves subnet identity links from `SubtensorModule.SubnetIdentiti
 
 - Exact repository links become high-confidence `repository` targets and are included in `repository-manifest.json` for `git-crawl crawl-repos`.
 - GitHub owner roots become `owner` targets in `owner-targets.json`.
-- Manual config overrides can replace wrong or too-narrow on-chain links, for example SN64 Chutes resolving to the `chutesai` owner instead of one repo.
-- `--repository-policy owner` can promote exact repository links to owner targets when you intentionally want old `git-crawler`-style owner/org crawling.
+- SN64 (Chutes) is baked into the default resolver config — it resolves to the `chutesai` GitHub owner instead of one on-chain repo link.
+- Manual config overrides can replace wrong or too-narrow on-chain links for any other subnet.
+- `--repository-policy owner` promotes *every* exact repository link to its parent owner when you want old `git-crawler`-style owner/org crawling.
 - Missing or invalid metadata becomes structured unresolved output instead of fake zero metrics.
 - Outputs are also split under `subnets/<netuid>/` so each subnet can be crawled and reported like a separate company.
 - `tao-git-crawl crawl` resolves targets, writes the manifests, then writes per-subnet metrics under `subnets/<netuid>/crawl/`.
@@ -35,7 +36,7 @@ python3.12 -m pip install \
   'git-crawl @ git+https://github.com/alex-drocks/git-crawl.git@v0.1.0'
 ```
 
-The sample fixture keeps the no-override path live-smokeable by using a public Chutes repository for SN64. Use the override example below when a subnet's exact repository metadata is private, inaccessible, or too narrow for company-level metrics.
+The sample fixture keeps the no-override path live-smokeable for subnets other than 64. SN64 is baked into the default config — no `--config` needed for Chutes.
 
 For authenticated GitHub API rate limits, keep a local repo-root `.env` file. It is ignored by git and loaded automatically by `tao-git-crawl crawl` before reading `GITHUB_TOKEN`:
 
@@ -50,9 +51,9 @@ Use `--env-file path/to/.env` if you keep the token file somewhere else.
 tao-git-crawl resolve --from-json examples/subnets.sample.json --output-dir out/tao
 
 # Resolve + crawl each valid subnet as its own company-like target.
+# (No --config needed; SN64 override is baked into the default.)
 tao-git-crawl crawl \
   --from-json examples/subnets.sample.json \
-  --config examples/config.overrides.py \
   --output-dir out/tao-crawl \
   --cache-dir .cache/git-crawl \
   --state-db .state/git-crawl.sqlite \
@@ -77,18 +78,19 @@ The `--state-db` path should be stable across scheduled runs so `git-crawl` can 
 
 ## Manual target overrides
 
-On-chain metadata is not always the best company-level crawl target. For example, SN64 may point to one Chutes repo even though the meaningful engineering activity spans the `chutesai` GitHub owner.
+On-chain metadata is not always the best company-level crawl target. For example, a subnet may point to one repo even though the meaningful engineering activity spans the full GitHub owner.
 
-Create a user-owned `config.py`:
+Subnet 64 (Chutes) is already baked into the default config, so no override is needed there. To override a different subnet, create a user-owned `config.py`:
 
 ```python
 DEFAULT_REPOSITORY_POLICY = "repository"
 
+# Add overrides for subnets other than 64.
 SUBNET_OVERRIDES = {
-    64: {
+    42: {
         "replace": True,
         "targets": [
-            {"kind": "owner", "url": "https://github.com/chutesai"},
+            {"kind": "owner", "url": "https://github.com/example-org"},
         ],
     },
 }
@@ -99,7 +101,6 @@ Then resolve with the override:
 ```bash
 tao-git-crawl resolve \
   --from-json examples/subnets.sample.json \
-  --config examples/config.overrides.py \
   --output-dir out/tao
 ```
 
@@ -108,7 +109,6 @@ Or resolve and crawl each subnet immediately:
 ```bash
 tao-git-crawl crawl \
   --from-json examples/subnets.sample.json \
-  --config examples/config.overrides.py \
   --output-dir out/tao-crawl \
   --cache-dir .cache/git-crawl \
   --state-db .state/git-crawl.sqlite \

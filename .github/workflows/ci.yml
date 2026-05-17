@@ -38,6 +38,7 @@ jobs:
           "$tmpdir/.venv/bin/tao-git-crawl" --help >/tmp/tao-git-crawl-help.txt
           "$tmpdir/.venv/bin/tao-git-crawl" crawl --help >/tmp/tao-git-crawl-crawl-help.txt
           "$tmpdir/.venv/bin/tao-git-crawl" resolve --from-json examples/subnets.sample.json --output-dir "$tmpdir/out" --target smoke
-          "$tmpdir/.venv/bin/tao-git-crawl" resolve --from-json examples/subnets.sample.json --config examples/config.overrides.py --output-dir "$tmpdir/out-config" --target smoke
+          "$tmpdir/.venv/bin/tao-git-crawl" resolve --from-json examples/subnets.sample.json --output-dir "$tmpdir/out-config" --target smoke
           test -s "$tmpdir/out/repository-manifest.json"
+          test -s "$tmpdir/out/subnets/64/owner-targets.json"
           test -s "$tmpdir/out-config/subnets/64/owner-targets.json"
