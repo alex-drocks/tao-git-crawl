@@ -142,3 +142,23 @@ def test_invalid_github_repo_field_becomes_no_target():
     record = SubnetIdentityRecord(netuid=9, github_repo="https://example.com/not-github")
 
     assert extract_github_targets(record) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "https://notgithub.com/opentensor/subtensor",
+        "https://example.com/github.com/opentensor/subtensor",
+        "support@github.com/opentensor/subtensor",
+    ],
+)
+def test_github_urls_are_not_extracted_from_larger_hosts_or_addresses(text):
+    record = SubnetIdentityRecord(netuid=48, description=f"See {text}")
+
+    assert extract_github_targets(record) == []
+
+
+def test_more_reserved_github_pages_are_not_treated_as_repository_targets():
+    record = SubnetIdentityRecord(netuid=49, description="Trending code: https://github.com/trending/python")
+
+    assert extract_github_targets(record) == []

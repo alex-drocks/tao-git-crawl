@@ -10,24 +10,42 @@ from .models import GITHUB_DISCOVERY_FIELDS, GitHubTarget, SubnetIdentityRecord
 GITHUB_OWNER_PATTERN = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?"
 GITHUB_RESERVED_OWNER_PATHS = {
     "about",
+    "apps",
     "codespaces",
+    "collections",
+    "customer-stories",
+    "dashboard",
+    "enterprise",
+    "enterprises",
     "explore",
     "features",
+    "github-copilot",
+    "gist",
     "issues",
     "join",
     "login",
     "marketplace",
+    "mobile",
     "new",
     "notifications",
+    "open-source",
     "orgs",
     "organizations",
     "pricing",
     "pulls",
+    "readme",
     "search",
+    "security",
     "settings",
+    "site",
+    "solutions",
+    "sponsors",
     "topics",
+    "trending",
 }
+URL_LEFT_BOUNDARY = r"(?<![A-Za-z0-9._/@:-])"
 REPOSITORY_URL_RE = re.compile(
+    URL_LEFT_BOUNDARY +
     r"(?:"
     rf"git@github\.com:{GITHUB_OWNER_PATTERN}/[A-Za-z0-9._-]+(?:\.git)?"
     r"|"
@@ -40,6 +58,7 @@ REPOSITORY_URL_RE = re.compile(
 )
 
 OWNER_URL_RE = re.compile(
+    URL_LEFT_BOUNDARY +
     r"(?:https?://)?(?:www\.)?github\.com/"
     r"(?:"
     rf"orgs/{GITHUB_OWNER_PATTERN}(?:/repositories)?"
@@ -209,7 +228,7 @@ def _prepare_repository_url(candidate: str) -> str:
 
 def _parse_owner_candidate(candidate: str) -> str | None:
     candidate = candidate.strip().rstrip("/")
-    if GITHUB_OWNER_RE.fullmatch(candidate):
+    if GITHUB_OWNER_RE.fullmatch(candidate) and candidate.lower() not in GITHUB_RESERVED_OWNER_PATHS:
         return candidate
     return _parse_owner_root(candidate)
 

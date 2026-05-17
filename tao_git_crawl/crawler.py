@@ -211,7 +211,11 @@ def _resolve_repositories_for_subnet(
         if _has_reached_max_repos(repositories, max_repos):
             break
         try:
-            repositories.extend(list_repositories_from_urls([repo_url], token=token, max_repos=1))
+            _append_unique_repositories(
+                repositories,
+                list_repositories_from_urls([repo_url], token=token, max_repos=1),
+                max_repos=max_repos,
+            )
         except GitHubAPIError as exc:
             if exc.status_code != 404:
                 raise
@@ -223,12 +227,7 @@ def _resolve_repositories_for_subnet(
             break
         try:
             owner_repos = list_owner_repositories(target.owner, owner_type="auto", token=token)
-            if max_repos is not None:
-                remaining = max_repos - len(_dedupe_repositories(repositories))
-                if remaining <= 0:
-                    break
-                owner_repos = owner_repos[:remaining]
-            repositories.extend(owner_repos)
+            _append_unique_repositories(repositories, owner_repos, max_repos=max_repos)
         except GitHubAPIError as exc:
             if exc.status_code != 404:
                 raise
@@ -259,16 +258,33 @@ def _has_reached_max_repos(repositories: list[Any], max_repos: int | None) -> bo
     return max_repos is not None and len(_dedupe_repositories(repositories)) >= max_repos
 
 
+def _append_unique_repositories(repositories: list[Any], candidates: list[Any], *, max_repos: int | None) -> None:
+    seen = {_repository_key(repo) for repo in repositories}
+    seen.discard("")
+    for repo in candidates:
+        key = _repository_key(repo)
+        if not key or key in seen:
+            continue
+        repositories.append(repo)
+        seen.add(key)
+        if max_repos is not None and len(seen) >= max_repos:
+            break
+
+
 def _dedupe_repositories(repositories: list[Any]) -> list[Any]:
     seen: set[str] = set()
     deduped: list[Any] = []
     for repo in repositories:
-        key = str(getattr(repo, "full_name", getattr(repo, "name", ""))).lower()
+        key = _repository_key(repo)
         if not key or key in seen:
             continue
         seen.add(key)
         deduped.append(repo)
     return deduped
+
+
+def _repository_key(repo: Any) -> str:
+    return str(getattr(repo, "full_name", getattr(repo, "name", ""))).lower()
 
 
 def _write_report(path: Path, payload: dict[str, object]) -> None:

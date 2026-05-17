@@ -121,7 +121,7 @@ def _parse_subnet_override(value: object) -> SubnetOverride:
         return SubnetOverride(targets=tuple(_parse_target_override(item) for item in value), replace=True)
     if not isinstance(value, dict):
         raise ResolverConfigError("each subnet override must be a dict, list of targets, or SubnetOverride")
-    replace = bool(value.get("replace", True))
+    replace = _parse_replace(value.get("replace", True))
     raw_targets = value.get("targets", [])
     if not isinstance(raw_targets, list | tuple):
         raise ResolverConfigError("subnet override 'targets' must be a list")
@@ -146,3 +146,9 @@ def _require_string(value: dict[str, Any], key: str) -> str:
     if not isinstance(item, str) or not item.strip():
         raise ResolverConfigError(f"target override {key!r} must be a non-empty string")
     return item.strip()
+
+
+def _parse_replace(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    raise ResolverConfigError("subnet override 'replace' must be a boolean")

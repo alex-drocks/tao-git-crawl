@@ -127,6 +127,23 @@ def test_parse_registry_json_invalid_confidence():
         )
 
 
+def test_parse_registry_json_rejects_non_boolean_replace():
+    with pytest.raises(RegistryError, match="'replace' must be a boolean"):
+        parse_registry_json(
+            json.dumps(
+                {
+                    "schema_version": DEFAULT_REGISTRY_SCHEMA_VERSION,
+                    "overrides": {
+                        "64": {
+                            "replace": "false",
+                            "targets": [{"kind": "owner", "url": "https://github.com/chutesai"}],
+                        }
+                    },
+                }
+            )
+        )
+
+
 def test_load_registry_from_path(tmp_path):
     path = tmp_path / "registry.json"
     path.write_text(json.dumps(GOOD_REGISTRY), encoding="utf-8")
