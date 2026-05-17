@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from git_crawl.github import GitHubAPIError
+from git_crawl.metrics import CommitChangesFiltrationLevel
 
 from tao_git_crawl.crawler import crawl_resolved_subnets
 from tao_git_crawl.models import SubnetIdentityRecord
@@ -73,6 +74,7 @@ def test_crawl_resolved_subnets_discovers_owner_repos_and_labels_metrics_by_subn
                 "ref_scope": "default-branch",
                 "workers": 2,
                 "fail_fast": False,
+                "commit_changes_filtration_level": CommitChangesFiltrationLevel.SOURCE_LIKE,
             },
         )
     ]

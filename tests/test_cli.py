@@ -2,9 +2,10 @@ import json
 import os
 from types import SimpleNamespace
 
+import pytest
+
+from git_crawl.metrics import CommitChangesFiltrationLevel
 from tao_git_crawl.cli import main
-
-
 def test_resolve_cli_writes_resolution_manifest_owner_targets_and_unresolved(tmp_path, capsys):
     input_path = tmp_path / "subnets.json"
     input_path.write_text(
@@ -329,6 +330,7 @@ def test_crawl_cli_resolves_writes_manifests_and_crawls_each_subnet(monkeypatch,
                 "workers": 2,
                 "fail_fast": False,
                 "output_format": "jsonl",
+                "commit_changes_filtration_level": CommitChangesFiltrationLevel.SOURCE_LIKE,
             },
         )
     ]
