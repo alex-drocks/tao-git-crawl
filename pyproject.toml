@@ -11,7 +11,7 @@ requires-python = ">=3.12"
 license = "MIT"
 authors = [{ name = "Alex Desroches" }]
 dependencies = [
-  "git-crawl>=0.1.0",
+  "git-crawl>=0.2.0",
   "python-dotenv>=1.0,<2",
 ]
 

@@ -33,7 +33,7 @@ Until `git-crawl` is published to PyPI, install the pinned GitHub dependency fir
 
 ```bash
 python3.12 -m pip install \
-  'git-crawl @ git+https://github.com/alex-drocks/git-crawl.git@v0.1.0'
+  'git-crawl @ git+https://github.com/alex-drocks/git-crawl.git@v0.2.0'
 ```
 
 The sample fixture keeps the no-override path live-smokeable for subnets other than 64. SN64 is baked into the default config — no `--config` needed for Chutes.
