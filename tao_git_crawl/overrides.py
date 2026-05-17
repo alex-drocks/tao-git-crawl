@@ -51,12 +51,7 @@ class ResolverConfig:
 
 
 EMPTY_RESOLVER_CONFIG = ResolverConfig(
-    subnet_overrides={
-        64: SubnetOverride(
-            replace=True,
-            targets=(TargetOverride(kind="owner", url="https://github.com/chutesai"),),
-        ),
-    },
+    subnet_overrides={},
 )
 
 

@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from git_crawl.github import token_from_env
 
 from .crawler import crawl_resolved_subnets
-from .overrides import EMPTY_RESOLVER_CONFIG, ResolverConfig, ResolverConfigError, load_resolver_config
+from .overrides import ResolverConfig, ResolverConfigError, load_resolver_config
 from .providers import (
     DEFAULT_ENDPOINT,
     DEFAULT_NETWORK,
@@ -18,6 +18,7 @@ from .providers import (
     JsonSubnetIdentityProvider,
     SubstrateSubnetIdentityProvider,
 )
+from .registry import RegistryError, load_registry, resolver_config_from_registry, DEFAULT_REGISTRY
 from .resolver import resolve_subnets, write_resolution_outputs
 
 
@@ -43,6 +44,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--config",
         type=Path,
         help="user-owned Python config.py with DEFAULT_REPOSITORY_POLICY and SUBNET_OVERRIDES",
+    )
+    resolve.add_argument(
+        "--registry",
+        type=Path,
+        help="local JSON registry file with subnet overrides (merged over built-in defaults)",
+    )
+    resolve.add_argument(
+        "--registry-url",
+        help="remote URL of a JSON registry with subnet overrides (fetched and cached, merged over built-in defaults)",
     )
     resolve.add_argument(
         "--repository-policy",
@@ -71,6 +81,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--config",
         type=Path,
         help="user-owned Python config.py with DEFAULT_REPOSITORY_POLICY and SUBNET_OVERRIDES",
+    )
+    crawl.add_argument(
+        "--registry",
+        type=Path,
+        help="local JSON registry file with subnet overrides (merged over built-in defaults)",
+    )
+    crawl.add_argument(
+        "--registry-url",
+        help="remote URL of a JSON registry with subnet overrides (fetched and cached, merged over built-in defaults)",
     )
     crawl.add_argument(
         "--repository-policy",
@@ -295,7 +314,26 @@ def _provider_from_args(args: argparse.Namespace):
 
 
 def _resolver_config_from_args(args: argparse.Namespace) -> ResolverConfig:
-    config = load_resolver_config(args.config) if args.config else EMPTY_RESOLVER_CONFIG
+    try:
+        registry = load_registry(
+            registry_path=args.registry,
+            registry_url=args.registry_url,
+            use_built_in=True,
+        )
+    except RegistryError as exc:
+        print(f"failed to load registry: {exc}", file=sys.stderr)
+        raise ResolverConfigError(str(exc)) from exc
+    config = resolver_config_from_registry(registry)
+    if args.config:
+        user_config = load_resolver_config(args.config)
+        # User config overrides take precedence over registry
+        merged_overrides = dict(config.subnet_overrides)
+        merged_overrides.update(user_config.subnet_overrides)
+        config = replace(
+            config,
+            default_repository_policy=user_config.default_repository_policy,
+            subnet_overrides=merged_overrides,
+        )
     if args.repository_policy:
         config = replace(config, default_repository_policy=args.repository_policy)
     return config
