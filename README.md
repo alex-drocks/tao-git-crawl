@@ -186,7 +186,7 @@ docker compose up --build -d
 docker compose logs -f scheduler
 
 # 5. Output persists in a named volume
-ls $(docker volume inspect -f '{{ .Mountpoint }}' tao-git-crawl_tao-output)
+ls $(docker volume inspect -f '{{ .Mountpoint }}' tao-git-crawl_tao-data)
 ```
 
 ### Environment variables
@@ -208,14 +208,16 @@ ls $(docker volume inspect -f '{{ .Mountpoint }}' tao-git-crawl_tao-output)
 | `TAO_CRAWL_LOG_DIR` | `/data/logs` | Per-run log directory |
 | `TAO_CRAWL_RUN_ON_START` | `true` | Run immediately on container start |
 
-### Persistent volumes
+### Persistent data
 
-Compose creates four named volumes so data survives container restarts:
+Compose creates one named volume, `tao-data`, mounted at `/data`, so crawler state survives container restarts:
 
-- **tao-output** — JSON/CSV metrics written by each run
-- **tao-cache** — Bare git mirrors (reused across runs)
-- **tao-state** — SQLite DB for incremental default-branch tracking
-- **tao-logs** — Per-run log files (`crawl_YYYYMMDD_HHMMSS.log`)
+- `/data/output` — JSON/CSV metrics written by each run
+- `/data/cache` — bare git mirrors reused across runs
+- `/data/state` — SQLite DB for incremental default-branch tracking
+- `/data/logs` — per-run log files (`crawl_YYYYMMDD_HHMMSS.log`)
+
+These are separate directories instead of separate Docker volumes. Keeping one volume is easier to inspect, move, and back up. If you want to prune clone caches without deleting crawl outputs or state, remove `/data/cache` inside the volume rather than deleting the whole volume.
 
 ### Customising the schedule or inputs
 
@@ -255,9 +257,6 @@ docker build -t tao-git-crawl:latest .
 docker run -d \
   --name tao-scheduler \
   -e GITHUB_TOKEN=$GITHUB_TOKEN \
-  -v tao-output:/data/output \
-  -v tao-cache:/data/cache \
-  -v tao-state:/data/state \
-  -v tao-logs:/data/logs \
+  -v tao-data:/data \
   tao-git-crawl:latest
 ```
