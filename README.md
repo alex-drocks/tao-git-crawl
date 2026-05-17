@@ -33,7 +33,7 @@ Until `git-crawl` is published to PyPI, install the pinned GitHub dependency fir
 
 ```bash
 python3.12 -m pip install \
-  'git-crawl @ git+https://github.com/alex-drocks/git-crawl.git@v0.1.0'
+  'git-crawl @ git+https://github.com/alex-drocks/git-crawl.git@v0.2.0'
 ```
 
 The sample fixture keeps the no-override path live-smokeable for subnets other than 64. SN64 is baked into the default config — no `--config` needed for Chutes.
@@ -147,3 +147,95 @@ tao-git-crawl resolve --network finney --output-dir out/tao
 ```
 
 The default Finney endpoint is `wss://entrypoint-finney.opentensor.ai:443`; pass `--endpoint` to use a self-hosted or archive node.
+
+## Docker deployment (recommended)
+
+The repo ships a `Dockerfile` + `docker-compose.yml` so you can deploy `tao-git-crawl` as a long-running scheduled container without managing Python environments or cron.
+
+### Quick start
+
+```bash
+# 1. Clone
+git clone https://github.com/alex-drocks/tao-git-crawl.git
+cd tao-git-crawl
+
+# 2. Set your GitHub token
+cp .env.example .env
+# Edit .env and set GITHUB_TOKEN=ghp_...
+
+# 3. Start the scheduler (runs once on start, then every 24 h)
+docker compose up --build -d
+
+# 4. Inspect logs
+docker compose logs -f scheduler
+
+# 5. Output persists in a named volume
+ls $(docker volume inspect -f '{{ .Mountpoint }}' tao-git-crawl_tao-output)
+```
+
+### Environment variables
+
+| Variable | Default | Description |
+| -------- | ------- | ----------- |
+| `GITHUB_TOKEN` | **required** | GitHub personal access token |
+| `TAO_CRAWL_INTERVAL_SECONDS` | `86400` | Seconds between crawl runs |
+| `TAO_CRAWL_NETWORK` | `finney` | Bittensor network preset |
+| `TAO_CRAWL_WORKERS` | `4` | Concurrent repo workers per subnet |
+| `TAO_CRAWL_SINCE` | `2025-01-01` | Commit since date |
+| `TAO_CRAWL_COMMIT_CHANGES_FILTRATION_LEVEL` | `source_like` | `all` / `non_binary` / `source_like` |
+| `TAO_CRAWL_REGISTRY_URL` | (none) | Remote override registry URL |
+| `TAO_CRAWL_REGISTRY` | (none) | Local override registry path |
+| `TAO_CRAWL_CONFIG` | (none) | User Python config path |
+| `TAO_CRAWL_RUN_ON_START` | `true` | Run immediately on container start |
+
+### Persistent volumes
+
+Compose creates four named volumes so data survives container restarts:
+
+- **tao-output** — JSON/CSV metrics written by each run
+- **tao-cache** — Bare git mirrors (reused across runs)
+- **tao-state** — SQLite DB for incremental default-branch tracking
+- **tao-logs** — Per-run log files (`crawl_YYYYMMDD_HHMMSS.log`)
+
+### Customising the schedule or inputs
+
+Edit `.env` and restart:
+
+```bash
+# Example: run every 6 hours with a remote community registry
+TAO_CRAWL_INTERVAL_SECONDS=21600
+TAO_CRAWL_REGISTRY_URL=https://raw.githubusercontent.com/alex-drocks/tao-git-crawl/main/registry.json
+
+# Then restart
+docker compose up -d
+```
+
+### Running a one-off crawl manually
+
+```bash
+docker compose run --rm scheduler \
+  python -m tao_git_crawl.cli crawl \
+  --network finney \
+  --output-dir /data/output \
+  --cache-dir /data/cache \
+  --state-db /data/state/db.sqlite \
+  --since 2026-01-01
+```
+
+### Healthcheck
+
+The compose service defines a healthcheck that verifies the output directory is writable. Use it for uptime monitoring or orchestrator health probes.
+
+### Building manually (no compose)
+
+```bash
+docker build -t tao-git-crawl:latest .
+docker run -d \
+  --name tao-scheduler \
+  -e GITHUB_TOKEN=$GITHUB_TOKEN \
+  -v tao-output:/data/output \
+  -v tao-cache:/data/cache \
+  -v tao-state:/data/state \
+  -v tao-logs:/data/logs \
+  tao-git-crawl:latest
+```

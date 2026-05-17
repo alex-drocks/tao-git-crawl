@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
+from tao_git_crawl.overrides import TargetOverride
 from tao_git_crawl.registry import (
     DEFAULT_REGISTRY_SCHEMA_VERSION,
     RegistryError,
@@ -14,8 +14,6 @@ from tao_git_crawl.registry import (
     parse_registry_json,
     resolver_config_from_registry,
 )
-from tao_git_crawl.overrides import SubnetOverride, TargetOverride, ResolverConfig
-
 
 GOOD_REGISTRY = {
     "schema_version": "tao-git-crawl-registry-v1",

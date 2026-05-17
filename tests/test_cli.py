@@ -2,10 +2,11 @@ import json
 import os
 from types import SimpleNamespace
 
-import pytest
-
 from git_crawl.metrics import CommitChangesFiltrationLevel
+
 from tao_git_crawl.cli import main
+
+
 def test_resolve_cli_writes_resolution_manifest_owner_targets_and_unresolved(tmp_path, capsys):
     input_path = tmp_path / "subnets.json"
     input_path.write_text(
