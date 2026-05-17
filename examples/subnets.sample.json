@@ -3,7 +3,7 @@
     {
       "netuid": 64,
       "subnet_identity": {
-        "subnet_name": "Example exact repository subnet",
+        "subnet_name": "Example built-in override subnet",
         "github_repo": "https://github.com/chutesai/sek8s"
       }
     },

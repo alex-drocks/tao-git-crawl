@@ -52,7 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     resolve.add_argument(
         "--registry-url",
-        help="remote URL of a JSON registry with subnet overrides (fetched and cached, merged over built-in defaults)",
+        help="remote URL of a JSON registry with subnet overrides (merged over built-in defaults)",
     )
     resolve.add_argument(
         "--repository-policy",
@@ -89,7 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     crawl.add_argument(
         "--registry-url",
-        help="remote URL of a JSON registry with subnet overrides (fetched and cached, merged over built-in defaults)",
+        help="remote URL of a JSON registry with subnet overrides (merged over built-in defaults)",
     )
     crawl.add_argument(
         "--repository-policy",

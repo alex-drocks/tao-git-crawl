@@ -10,7 +10,7 @@ This package resolves subnet identity links from `SubtensorModule.SubnetIdentiti
 
 - Exact repository links become high-confidence `repository` targets and are included in `repository-manifest.json` for `git-crawl crawl-repos`.
 - GitHub owner roots become `owner` targets in `owner-targets.json`.
-- SN64 (Chutes) is baked into the default resolver config — it resolves to the `chutesai` GitHub owner instead of one on-chain repo link.
+- SN64 (Chutes) is included in the built-in resolver registry - it resolves to the `chutesai` GitHub owner instead of one on-chain repo link.
 - Manual config overrides can replace wrong or too-narrow on-chain links for any other subnet.
 - `--repository-policy owner` promotes *every* exact repository link to its parent owner when you want old `git-crawler`-style owner/org crawling.
 - Missing or invalid metadata becomes structured unresolved output instead of fake zero metrics.
@@ -36,7 +36,7 @@ python3.12 -m pip install \
   'git-crawl @ git+https://github.com/alex-drocks/git-crawl.git@v0.2.0'
 ```
 
-The sample fixture keeps the no-override path live-smokeable for subnets other than 64. SN64 is baked into the default config — no `--config` needed for Chutes.
+The sample fixture keeps the no-override path live-smokeable for subnets other than 64. SN64 is included in the built-in registry, so no `--config` is needed for Chutes when using the CLI.
 
 For authenticated GitHub API rate limits, keep a local repo-root `.env` file. It is ignored by git and loaded automatically by `tao-git-crawl crawl` before reading `GITHUB_TOKEN`:
 
@@ -51,7 +51,7 @@ Use `--env-file path/to/.env` if you keep the token file somewhere else.
 tao-git-crawl resolve --from-json examples/subnets.sample.json --output-dir out/tao
 
 # Resolve + crawl each valid subnet as its own company-like target.
-# (No --config needed; SN64 override is baked into the default.)
+# (No --config needed; SN64 is included in the built-in registry.)
 tao-git-crawl crawl \
   --from-json examples/subnets.sample.json \
   --output-dir out/tao-crawl \
@@ -66,31 +66,33 @@ git-crawl crawl-repos out/tao/repository-manifest.json \
   --output-dir out/git-crawl \
   --workers 4
 
-# Or crawl one subnet as its own company-like target.
-git-crawl crawl-repos out/tao/subnets/64/repository-manifest.json \
-  --target bittensor-subnet-64 \
+# Or crawl one exact-repository subnet as its own company-like target.
+git-crawl crawl-repos out/tao/subnets/99/repository-manifest.json \
+  --target bittensor-subnet-99 \
   --cache-dir .cache/git-crawl \
-  --output-dir out/git-crawl/subnets/64 \
+  --output-dir out/git-crawl/subnets/99 \
   --workers 4
 ```
 
 The `--state-db` path should be stable across scheduled runs so `git-crawl` can persist run metadata and incremental default-branch heads.
 
+Owner targets such as the built-in SN64 override are crawled by `tao-git-crawl crawl`, which expands owner targets before invoking `git-crawl`.
+
 ## Manual target overrides
 
 On-chain metadata is not always the best company-level crawl target. For example, a subnet may point to one repo even though the meaningful engineering activity spans the full GitHub owner.
 
-Subnet 64 (Chutes) is already baked into the default config, so no override is needed there. To override a different subnet, create a user-owned `config.py`:
+Subnet 64 (Chutes) is already included in the built-in registry, so no override is needed there when using the CLI. To override a different subnet, create a user-owned `config.py`:
 
 ```python
 DEFAULT_REPOSITORY_POLICY = "repository"
 
-# Add overrides for subnets other than 64.
+# Add overrides for subnets other than 64. Netuid 99 exists in the sample fixture.
 SUBNET_OVERRIDES = {
-    42: {
+    99: {
         "replace": True,
         "targets": [
-            {"kind": "owner", "url": "https://github.com/example-org"},
+            {"kind": "owner", "url": "https://github.com/opentensor"},
         ],
     },
 }
@@ -101,6 +103,7 @@ Then resolve with the override:
 ```bash
 tao-git-crawl resolve \
   --from-json examples/subnets.sample.json \
+  --config config.py \
   --output-dir out/tao
 ```
 
@@ -109,13 +112,14 @@ Or resolve and crawl each subnet immediately:
 ```bash
 tao-git-crawl crawl \
   --from-json examples/subnets.sample.json \
+  --config config.py \
   --output-dir out/tao-crawl \
   --cache-dir .cache/git-crawl \
   --state-db .state/git-crawl.sqlite \
   --since 2026-01-01
 ```
 
-The effective crawl target for subnet 64 becomes the `chutesai` owner in both top-level `owner-targets.json` and `subnets/64/owner-targets.json`.
+The configured override for subnet 99 becomes the `opentensor` owner in both top-level `owner-targets.json` and `subnets/99/owner-targets.json`. Subnet 64 still uses the built-in `chutesai` owner unless you override it explicitly.
 
 If you want old `git-crawler`-style owner crawling for every exact GitHub repo link, use:
 
@@ -180,12 +184,16 @@ ls $(docker volume inspect -f '{{ .Mountpoint }}' tao-git-crawl_tao-output)
 | `GITHUB_TOKEN` | **required** | GitHub personal access token |
 | `TAO_CRAWL_INTERVAL_SECONDS` | `86400` | Seconds between crawl runs |
 | `TAO_CRAWL_NETWORK` | `finney` | Bittensor network preset |
+| `TAO_CRAWL_OUTPUT_DIR` | `/data/output` | Container output directory |
+| `TAO_CRAWL_CACHE_DIR` | `/data/cache` | Bare git mirror cache directory |
+| `TAO_CRAWL_STATE_DB` | `/data/state/db.sqlite` | SQLite state DB path |
 | `TAO_CRAWL_WORKERS` | `4` | Concurrent repo workers per subnet |
 | `TAO_CRAWL_SINCE` | `2025-01-01` | Commit since date |
 | `TAO_CRAWL_COMMIT_CHANGES_FILTRATION_LEVEL` | `source_like` | `all` / `non_binary` / `source_like` |
 | `TAO_CRAWL_REGISTRY_URL` | (none) | Remote override registry URL |
-| `TAO_CRAWL_REGISTRY` | (none) | Local override registry path |
-| `TAO_CRAWL_CONFIG` | (none) | User Python config path |
+| `TAO_CRAWL_REGISTRY` | (none) | Local override registry path inside the container |
+| `TAO_CRAWL_CONFIG` | (none) | User Python config path inside the container |
+| `TAO_CRAWL_LOG_DIR` | `/data/logs` | Per-run log directory |
 | `TAO_CRAWL_RUN_ON_START` | `true` | Run immediately on container start |
 
 ### Persistent volumes
@@ -202,13 +210,15 @@ Compose creates four named volumes so data survives container restarts:
 Edit `.env` and restart:
 
 ```bash
-# Example: run every 6 hours with a remote community registry
+# Example: run every 6 hours with your hosted registry
 TAO_CRAWL_INTERVAL_SECONDS=21600
-TAO_CRAWL_REGISTRY_URL=https://raw.githubusercontent.com/alex-drocks/tao-git-crawl/main/registry.json
+TAO_CRAWL_REGISTRY_URL=https://example.com/path/to/registry.json
 
 # Then restart
 docker compose up -d
 ```
+
+For local registry or Python config files, mount the file into the container and set `TAO_CRAWL_REGISTRY` or `TAO_CRAWL_CONFIG` to that container path, for example `/data/registry.json`.
 
 ### Running a one-off crawl manually
 

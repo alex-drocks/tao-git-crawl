@@ -20,3 +20,36 @@ def test_local_dotenv_file_is_ignored_and_example_is_tracked():
     assert '.env' in gitignore
     assert 'GITHUB_TOKEN=<paste-token-here>' in example
     assert '/.env.example' in metadata['tool']['hatch']['build']['targets']['sdist']['include']
+
+
+def test_readme_manual_override_and_per_subnet_examples_match_cli_behavior():
+    readme = Path('README.md').read_text(encoding='utf-8')
+
+    assert '--config config.py' in readme
+    assert 'out/tao/subnets/99/repository-manifest.json' in readme
+    assert 'out/tao/subnets/64/repository-manifest.json' not in readme
+
+
+def test_docker_docs_and_compose_pass_documented_scheduler_environment():
+    readme = Path('README.md').read_text(encoding='utf-8')
+    compose = Path('docker-compose.yml').read_text(encoding='utf-8')
+    dockerfile = Path('Dockerfile').read_text(encoding='utf-8')
+
+    for name in [
+        'TAO_CRAWL_OUTPUT_DIR',
+        'TAO_CRAWL_CACHE_DIR',
+        'TAO_CRAWL_STATE_DB',
+        'TAO_CRAWL_LOG_DIR',
+        'TAO_CRAWL_RUN_ON_START',
+        'TAO_CRAWL_REGISTRY_URL',
+        'TAO_CRAWL_REGISTRY',
+        'TAO_CRAWL_CONFIG',
+    ]:
+        assert name in readme
+        assert name in compose
+
+    assert 'git-crawl.git@v0.2.0' in dockerfile
+    assert 'git-crawl.git@v0.2.0' in compose
+    assert 'git-crawl.git@main' not in dockerfile
+    assert 'git-crawl.git@main' not in compose
+    assert 'raw.githubusercontent.com/alex-drocks/tao-git-crawl/main/registry.json' not in readme

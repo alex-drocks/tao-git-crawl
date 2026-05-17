@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile
       args:
         # Pin git-crawl to a specific ref if desired.
-        GIT_CRAWL_URL: "git+https://github.com/alex-drocks/git-crawl.git@main"
+        GIT_CRAWL_URL: "git+https://github.com/alex-drocks/git-crawl.git@v0.2.0"
     container_name: tao-git-crawl-scheduler
     restart: unless-stopped
     environment:
@@ -24,13 +24,14 @@ services:
       TAO_CRAWL_SINCE: "${TAO_CRAWL_SINCE:-2025-01-01}"
       TAO_CRAWL_COMMIT_CHANGES_FILTRATION_LEVEL: "${TAO_CRAWL_COMMIT_CHANGES_FILTRATION_LEVEL:-source_like}"
       TAO_CRAWL_LOG_DIR: "/data/logs"
+      TAO_CRAWL_RUN_ON_START: "${TAO_CRAWL_RUN_ON_START:-true}"
 
       # Optional remote registry URL.
-      # TAO_CRAWL_REGISTRY_URL: "https://raw.githubusercontent.com/alex-drocks/tao-git-crawl/main/registry.json"
+      TAO_CRAWL_REGISTRY_URL: "${TAO_CRAWL_REGISTRY_URL:-}"
 
       # Optional local overrides.
-      # TAO_CRAWL_REGISTRY: "/data/registry.json"
-      # TAO_CRAWL_CONFIG: "/data/config.py"
+      TAO_CRAWL_REGISTRY: "${TAO_CRAWL_REGISTRY:-}"
+      TAO_CRAWL_CONFIG: "${TAO_CRAWL_CONFIG:-}"
     volumes:
       - tao-output:/data/output
       - tao-cache:/data/cache

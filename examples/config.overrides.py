@@ -9,6 +9,6 @@ you trust. Only load config files you control; Python configs execute as local c
 # its GitHub owner by default.
 DEFAULT_REPOSITORY_POLICY = "repository"
 
-# Subnet 64 (Chutes) is now baked into the default config. You only need to add
-# overrides here for other subnets, or to change the default policy.
+# Subnet 64 (Chutes) is included in the built-in CLI registry. You only need to
+# add overrides here for other subnets, or to change the default policy.
 SUBNET_OVERRIDES = {}
