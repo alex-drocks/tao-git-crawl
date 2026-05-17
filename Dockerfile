@@ -11,7 +11,7 @@ WORKDIR /app
 
 # Build arguments let operators pin the git-crawl source without editing files.
 ARG GIT_CRAWL_URL="git+https://github.com/alex-drocks/git-crawl.git@main"
-ARG INSTALL_EXTRAS="[chain]"
+ARG INSTALL_EXTRAS="[chain,api]"
 
 # Install git-crawl first (from GitHub) so tao-git-crawl's dependency is met.
 # If the operator already cloned tao-git-crawl locally, we still reinstall in

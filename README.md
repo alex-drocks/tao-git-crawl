@@ -239,3 +239,76 @@ docker run -d \
   -v tao-logs:/data/logs \
   tao-git-crawl:latest
 ```
+
+## HTTP API (read-only)
+
+`docker-compose.yml` also spins up an API service on port `8000` that serves crawl results read-only.
+
+### Start with API
+
+```bash
+docker compose up --build -d
+# API is available at http://localhost:8000
+curl http://localhost:8000/health
+```
+
+### Endpoints
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| GET | `/health` | Service health |
+| GET | `/api/v1/subnets` | List all resolved/crawled subnets |
+| GET | `/api/v1/subnets/{netuid}` | Targets + crawl status for one subnet |
+| GET | `/api/v1/subnets/{netuid}/metrics/summary` | `summary.json` |
+| GET | `/api/v1/subnets/{netuid}/metrics/{dataset}` | JSONL dataset rows |
+| GET | `/api/v1/aggregate/summary` | Overall crawl summary |
+| GET | `/api/v1/registries` | Built-in override registry entries |
+
+### Query parameters
+
+- `since` — ISO date filter (inclusive)
+- `until` — ISO date filter (inclusive)
+- `limit` — Max rows to return (1–10,000)
+
+### Examples
+
+```bash
+# List subnets
+curl http://localhost:8000/api/v1/subnets | jq
+
+# Subnet 64 detail
+curl http://localhost:8000/api/v1/subnets/64 | jq
+
+# Org-day commits for January 2026
+curl "http://localhost:8000/api/v1/subnets/64/metrics/org_days?since=2026-01-01&until=2026-01-31" | jq
+
+# Top 100 file changes
+curl "http://localhost:8000/api/v1/subnets/64/metrics/file_changes?limit=100" | jq
+```
+
+### API environment variables
+
+| Variable | Default | Description |
+| -------- | ------- | ----------- |
+| `TAO_API_PORT` | `8000` | Host port mapping |
+| `TAO_API_LOG_LEVEL` | `info` | Uvicorn log level |
+| `TAO_API_CORS_ORIGINS` | `*` | Comma-separated allowed origins |
+
+### Run API standalone (no scheduler)
+
+```bash
+docker run -d \
+  --name tao-api \
+  -p 8000:8000 \
+  -e TAO_API_OUTPUT_DIR=/data/output \
+  -v tao-output:/data/output:ro \
+  tao-git-crawl:latest \
+  python -m tao_git_crawl.api_server
+```
+
+Or locally:
+
+```bash
+pip install 'tao-git-crawl[api]'
+python -m tao_git_crawl.api_server
+```
