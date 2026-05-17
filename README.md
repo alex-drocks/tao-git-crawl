@@ -159,6 +159,8 @@ Owner crawling gives broader coverage, but can include unrelated repositories wh
 
 The repo includes a scheduler container. It runs once on start, then repeats every 24 hours by default.
 
+Docker builds install `git-crawl` from `git+https://github.com/alex-drocks/git-crawl.git@v0.2.0` by default.
+
 ```bash
 cp .env.example .env
 # Edit .env and set GITHUB_TOKEN=ghp_...
