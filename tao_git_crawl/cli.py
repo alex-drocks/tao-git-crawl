@@ -18,7 +18,7 @@ from .providers import (
     JsonSubnetIdentityProvider,
     SubstrateSubnetIdentityProvider,
 )
-from .registry import RegistryError, load_registry, resolver_config_from_registry, DEFAULT_REGISTRY
+from .registry import RegistryError, load_registry, resolver_config_from_registry
 from .resolver import resolve_subnets, write_resolution_outputs
 
 
