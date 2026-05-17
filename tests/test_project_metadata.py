@@ -26,7 +26,13 @@ def test_readme_manual_override_and_per_subnet_examples_match_cli_behavior():
     readme = Path('README.md').read_text(encoding='utf-8')
 
     assert '--config config.py' in readme
+    assert '--netuid 64' in readme
+    assert 'Do not pass --max-repos if you want full owner coverage.' in readme
+    assert 'Add --include-forks or --include-archived if you also want those repos.' in readme
+    assert "SN64's `repository-manifest.json` is intentionally empty" in readme
     assert 'out/tao/subnets/99/repository-manifest.json' in readme
+    assert 'https://github.com/RendixNetwork' in readme
+    assert 'https://github.com/opentensor"},' not in readme
     assert 'out/tao/subnets/64/repository-manifest.json' not in readme
 
 

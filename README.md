@@ -10,7 +10,7 @@ This package resolves subnet identity links from `SubtensorModule.SubnetIdentiti
 
 - Exact repository links become high-confidence `repository` targets and are included in `repository-manifest.json` for `git-crawl crawl-repos`.
 - GitHub owner roots become `owner` targets in `owner-targets.json`.
-- SN64 (Chutes) is included in the built-in resolver registry - it resolves to the `chutesai` GitHub owner instead of one on-chain repo link.
+- SN64 (Chutes) is included in the built-in resolver registry - it resolves to the full `chutesai` GitHub owner instead of one on-chain repo link.
 - Manual config overrides can replace wrong or too-narrow on-chain links for any other subnet.
 - `--repository-policy owner` promotes *every* exact repository link to its parent owner when you want old `git-crawler`-style owner/org crawling.
 - Missing or invalid metadata becomes structured unresolved output instead of fake zero metrics.
@@ -60,6 +60,18 @@ tao-git-crawl crawl \
   --since 2026-01-01 \
   --workers 4
 
+# Crawl SN64 (Chutes) from the full chutesai GitHub organization.
+# Do not pass --max-repos if you want full owner coverage.
+# Add --include-forks or --include-archived if you also want those repos.
+tao-git-crawl crawl \
+  --from-json examples/subnets.sample.json \
+  --netuid 64 \
+  --output-dir out/tao-chutes \
+  --cache-dir .cache/git-crawl \
+  --state-db .state/git-crawl.sqlite \
+  --since 2026-01-01 \
+  --workers 4
+
 # Aggregate exact repository targets across all resolved subnets.
 git-crawl crawl-repos out/tao/repository-manifest.json \
   --cache-dir .cache/git-crawl \
@@ -76,7 +88,7 @@ git-crawl crawl-repos out/tao/subnets/99/repository-manifest.json \
 
 The `--state-db` path should be stable across scheduled runs so `git-crawl` can persist run metadata and incremental default-branch heads.
 
-Owner targets such as the built-in SN64 override are crawled by `tao-git-crawl crawl`, which expands owner targets before invoking `git-crawl`.
+Owner targets such as the built-in SN64 override are crawled by `tao-git-crawl crawl`, which expands owner targets before invoking `git-crawl`. SN64's `repository-manifest.json` is intentionally empty because Chutes is represented as an owner target, not an exact repository target.
 
 ## Manual target overrides
 
@@ -87,12 +99,12 @@ Subnet 64 (Chutes) is already included in the built-in registry, so no override 
 ```python
 DEFAULT_REPOSITORY_POLICY = "repository"
 
-# Add overrides for subnets other than 64. Netuid 99 exists in the sample fixture.
+# Add overrides for subnets other than 64. For example, promote SN99's repo to its owner.
 SUBNET_OVERRIDES = {
     99: {
         "replace": True,
         "targets": [
-            {"kind": "owner", "url": "https://github.com/opentensor"},
+            {"kind": "owner", "url": "https://github.com/RendixNetwork"},
         ],
     },
 }
@@ -119,7 +131,7 @@ tao-git-crawl crawl \
   --since 2026-01-01
 ```
 
-The configured override for subnet 99 becomes the `opentensor` owner in both top-level `owner-targets.json` and `subnets/99/owner-targets.json`. Subnet 64 still uses the built-in `chutesai` owner unless you override it explicitly.
+The configured override for subnet 99 becomes the `RendixNetwork` owner in both top-level `owner-targets.json` and `subnets/99/owner-targets.json`. Subnet 64 still uses the built-in `chutesai` owner unless you override it explicitly.
 
 If you want old `git-crawler`-style owner crawling for every exact GitHub repo link, use:
 

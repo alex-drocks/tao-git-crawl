@@ -23,6 +23,9 @@ def test_public_sample_fixture_avoids_inaccessible_chutes_repository():
     sample = Path('examples/subnets.sample.json').read_text(encoding='utf-8')
     readme = Path('README.md').read_text(encoding='utf-8')
 
+    assert 'Chutes AI' in sample
     assert 'https://github.com/chutesai/sek8s' in sample
+    assert 'https://github.com/RendixNetwork/nexisgen' in sample
+    assert 'https://github.com/opentensor/subtensor' not in sample
     assert 'https://github.com/chutesai/api' not in sample
     assert '@v0.2.0' in readme
