@@ -29,7 +29,7 @@ import os
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 logger = logging.getLogger("tao-git-crawl.scheduler")
@@ -89,7 +89,7 @@ def build_crawl_command() -> list[str]:
 def run_crawl(log_dir: Path) -> int:
     """Execute one crawl run. Return exit code."""
     cmd = build_crawl_command()
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     log_file = log_dir / f"crawl_{timestamp}.log"
 
     logger.info("Starting crawl run — log: %s", log_file)
@@ -97,7 +97,7 @@ def run_crawl(log_dir: Path) -> int:
 
     log_dir.mkdir(parents=True, exist_ok=True)
     with log_file.open("w", encoding="utf-8") as fh:
-        fh.write(f"# crawl run started at {datetime.now(timezone.utc).isoformat()}\n")
+        fh.write(f"# crawl run started at {datetime.now(UTC).isoformat()}\n")
         fh.write(f"# command: {' '.join(cmd)}\n")
         fh.flush()
         result = subprocess.run(cmd, stdout=fh, stderr=subprocess.STDOUT)
@@ -136,12 +136,12 @@ def main() -> int:  # noqa: D401
         run_crawl(log_dir)
 
     while True:
-        next_run = datetime.now(timezone.utc).timestamp() + interval
-        logger.info("Next crawl scheduled at %s", datetime.fromtimestamp(next_run, tz=timezone.utc).isoformat())
+        next_run = datetime.now(UTC).timestamp() + interval
+        logger.info("Next crawl scheduled at %s", datetime.fromtimestamp(next_run, tz=UTC).isoformat())
         time.sleep(interval)
 
         # Sleep can wake up early on signals; realign to interval boundary.
-        now = datetime.now(timezone.utc).timestamp()
+        now = datetime.now(UTC).timestamp()
         remaining = next_run - now
         if remaining > 0:
             time.sleep(max(0, remaining))

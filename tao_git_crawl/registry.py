@@ -6,8 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .models import Confidence, TargetKind
-from .overrides import SubnetOverride, TargetOverride, ResolverConfig, ResolverConfigError
+from .overrides import ResolverConfig, SubnetOverride, TargetOverride
 
 # This is the built-in default registry so SN64 and any other well-known subnets
 # work out of the box even when running offline. The registry is merged before
