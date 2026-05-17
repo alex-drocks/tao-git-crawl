@@ -127,7 +127,7 @@ def parse_registry_json(text: str) -> Registry:
 def _parse_registry_subnet_override(netuid_key: str, value: Any) -> SubnetOverride:
     if not isinstance(value, dict):
         raise RegistryError(f"override for netuid {netuid_key} must be a JSON object")
-    replace = bool(value.get("replace", True))
+    replace = _parse_registry_replace(netuid_key, value.get("replace", True))
     raw_targets = value.get("targets", [])
     if not isinstance(raw_targets, list):
         raise RegistryError(f"override for netuid {netuid_key}: 'targets' must be a list")
@@ -162,6 +162,12 @@ def _parse_registry_target_override(netuid_key: str, idx: int, item: Any) -> Tar
         raise RegistryError(f"override for netuid {netuid_key}: target {idx}: 'confidence' must be high/medium/low")
 
     return TargetOverride(kind=kind, url=url_item.strip(), confidence=confidence)  # type: ignore[arg-type]
+
+
+def _parse_registry_replace(netuid_key: str, value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    raise RegistryError(f"override for netuid {netuid_key}: 'replace' must be a boolean")
 
 
 def _fetch_url_text(url: str) -> str:

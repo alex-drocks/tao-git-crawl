@@ -33,10 +33,7 @@ services:
       TAO_CRAWL_REGISTRY: "${TAO_CRAWL_REGISTRY:-}"
       TAO_CRAWL_CONFIG: "${TAO_CRAWL_CONFIG:-}"
     volumes:
-      - tao-output:/data/output
-      - tao-cache:/data/cache
-      - tao-state:/data/state
-      - tao-logs:/data/logs
+      - tao-data:/data
       # Mount a local registry or config if you use the optional env vars above.
       # - ./registry.json:/data/registry.json:ro
       # - ./config.py:/data/config.py:ro
@@ -48,7 +45,4 @@ services:
       start_period: 30s
 
 volumes:
-  tao-output:
-  tao-cache:
-  tao-state:
-  tao-logs:
+  tao-data:

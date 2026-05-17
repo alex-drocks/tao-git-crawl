@@ -3,7 +3,7 @@
     {
       "netuid": 64,
       "subnet_identity": {
-        "subnet_name": "Example built-in override subnet",
+        "subnet_name": "Chutes AI",
         "github_repo": "https://github.com/chutesai/sek8s"
       }
     },
@@ -17,8 +17,8 @@
     {
       "netuid": 99,
       "subnet_identity": {
-        "subnet_name": "Example fallback subnet",
-        "description": "Source: https://github.com/opentensor/subtensor"
+        "subnet_name": "Rendix Network",
+        "github_repo": "https://github.com/RendixNetwork/nexisgen"
       }
     }
   ]
