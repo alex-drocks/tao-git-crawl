@@ -1,0 +1,53 @@
+services:
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Pin git-crawl to a specific ref if desired.
+        GIT_CRAWL_URL: "git+https://github.com/alex-drocks/git-crawl.git@main"
+    container_name: tao-git-crawl-scheduler
+    restart: unless-stopped
+    environment:
+      # Required — set in .env or inline.
+      GITHUB_TOKEN: ${GITHUB_TOKEN:?GITHUB_TOKEN is required}
+
+      # Scheduler timing.
+      TAO_CRAWL_INTERVAL_SECONDS: "${TAO_CRAWL_INTERVAL_SECONDS:-86400}"
+
+      # Crawl settings.
+      TAO_CRAWL_NETWORK: "${TAO_CRAWL_NETWORK:-finney}"
+      TAO_CRAWL_OUTPUT_DIR: "/data/output"
+      TAO_CRAWL_CACHE_DIR: "/data/cache"
+      TAO_CRAWL_STATE_DB: "/data/state/db.sqlite"
+      TAO_CRAWL_WORKERS: "${TAO_CRAWL_WORKERS:-4}"
+      TAO_CRAWL_SINCE: "${TAO_CRAWL_SINCE:-2025-01-01}"
+      TAO_CRAWL_COMMIT_CHANGES_FILTRATION_LEVEL: "${TAO_CRAWL_COMMIT_CHANGES_FILTRATION_LEVEL:-source_like}"
+      TAO_CRAWL_LOG_DIR: "/data/logs"
+
+      # Optional remote registry URL.
+      # TAO_CRAWL_REGISTRY_URL: "https://raw.githubusercontent.com/alex-drocks/tao-git-crawl/main/registry.json"
+
+      # Optional local overrides.
+      # TAO_CRAWL_REGISTRY: "/data/registry.json"
+      # TAO_CRAWL_CONFIG: "/data/config.py"
+    volumes:
+      - tao-output:/data/output
+      - tao-cache:/data/cache
+      - tao-state:/data/state
+      - tao-logs:/data/logs
+      # Mount a local registry or config if you use the optional env vars above.
+      # - ./registry.json:/data/registry.json:ro
+      # - ./config.py:/data/config.py:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import tao_git_crawl.scheduler; tao_git_crawl.scheduler.healthcheck()"]
+      interval: 5m
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  tao-output:
+  tao-cache:
+  tao-state:
+  tao-logs:

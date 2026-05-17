@@ -1,0 +1,21 @@
+.venv/
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+out/
+.cache/
+.coverage
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Data volumes (if mounted locally for dev)
+data/
+logs/
