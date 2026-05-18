@@ -24,10 +24,14 @@ Docker builds install `git-crawl` from `git+https://github.com/alex-drocks/git-c
 cp .env.example .env
 # Edit .env and set GITHUB_TOKEN=ghp_...
 
-docker compose up --build -d
+docker compose build
+docker compose up -d
 docker compose logs -f scheduler
+curl http://localhost:8080/health
 ls $(docker volume inspect -f '{{ .Mountpoint }}' tao-git-crawl_tao-data)
 ```
+
+On hosts with legacy Compose, use `docker-compose build` and `docker-compose up -d`.
 
 Compose creates one named volume, `tao-data`, mounted at `/data`:
 
@@ -54,14 +58,30 @@ Scheduler environment:
 | `TAO_CRAWL_CONFIG` | unset | Python config path in the container |
 | `TAO_CRAWL_LOG_DIR` | `/data/logs` | Per-run log directory |
 | `TAO_CRAWL_RUN_ON_START` | `true` | Run immediately on container start |
+| `TAO_API_PORT` | `8080` | Host port for the read-only output API |
+| `TAO_API_CORS_ORIGIN` | `*` | CORS origin for frontend requests |
 
 For local registry or config files, mount the file into the container and set `TAO_CRAWL_REGISTRY` or `TAO_CRAWL_CONFIG` to that container path, for example `/data/registry.json`.
+
+The API service mounts the same `tao-data` volume read-only and exposes frontend-friendly JSON endpoints:
+
+- `GET /health`
+- `GET /api/subnets`
+- `GET /api/subnets/<netuid>`
+- `GET /api/subnets/<netuid>/summary`
+- `GET /api/subnets/<netuid>/repositories?limit=100&offset=0`
+- `GET /api/subnets/<netuid>/commits?limit=100&offset=0`
+- `GET /api/subnets/<netuid>/contributors?limit=100&offset=0`
+- `GET /api/subnets/<netuid>/repo-days?limit=100&offset=0`
+- `GET /api/subnets/<netuid>/org-days?limit=100&offset=0`
+- `GET /api/subnets/<netuid>/file-changes?limit=100&offset=0`
+- `GET /api/crawl-report`
 
 Run one crawl manually through Compose:
 
 ```bash
-docker compose run --rm scheduler \
-  python -m tao_git_crawl.cli crawl \
+docker compose run --rm --entrypoint python scheduler \
+  -m tao_git_crawl.cli crawl \
   --network finney \
   --output-dir /data/output \
   --cache-dir /data/cache \
@@ -104,6 +124,12 @@ cp .env.example .env
 ```
 
 Use `--env-file path/to/.env` for another token file.
+
+Serve existing output locally:
+
+```bash
+tao-git-crawl-api --output-dir out/tao-crawl --port 8080
+```
 
 ## Resolve Targets
 
