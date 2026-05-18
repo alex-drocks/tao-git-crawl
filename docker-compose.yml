@@ -44,5 +44,38 @@ services:
       retries: 3
       start_period: 30s
 
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        GIT_CRAWL_URL: "git+https://github.com/alex-drocks/git-crawl.git@v0.2.0"
+    container_name: tao-git-crawl-api
+    restart: unless-stopped
+    entrypoint: ["python", "-m", "tao_git_crawl.api"]
+    environment:
+      TAO_API_OUTPUT_DIR: "/data/output"
+      TAO_API_HOST: "0.0.0.0"
+      TAO_API_PORT: "8080"
+      TAO_API_CORS_ORIGIN: "${TAO_API_CORS_ORIGIN:-*}"
+    ports:
+      - "${TAO_API_PORT:-8080}:8080"
+    volumes:
+      - tao-data:/data:ro
+    depends_on:
+      - scheduler
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=5).read()",
+        ]
+      interval: 5m
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
 volumes:
   tao-data:
