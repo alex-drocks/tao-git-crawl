@@ -24,10 +24,13 @@ Docker builds install `git-crawl` from `git+https://github.com/alex-drocks/git-c
 cp .env.example .env
 # Edit .env and set GITHUB_TOKEN=ghp_...
 
-docker compose up --build -d
+docker compose build
+docker compose up -d
 docker compose logs -f scheduler
 ls $(docker volume inspect -f '{{ .Mountpoint }}' tao-git-crawl_tao-data)
 ```
+
+On hosts with legacy Compose, use `docker-compose build` and `docker-compose up -d`.
 
 Compose creates one named volume, `tao-data`, mounted at `/data`:
 
