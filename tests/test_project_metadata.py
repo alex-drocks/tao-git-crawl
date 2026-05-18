@@ -70,6 +70,7 @@ def test_docker_compose_uses_single_data_volume_for_persistent_paths():
     readme = Path('README.md').read_text(encoding='utf-8')
     compose = Path('docker-compose.yml').read_text(encoding='utf-8')
 
+    assert 'container_name:' not in compose
     assert 'tao-data:/data' in compose
     assert 'tao-data:' in compose
     for old_volume in ['tao-output', 'tao-cache', 'tao-state', 'tao-logs']:

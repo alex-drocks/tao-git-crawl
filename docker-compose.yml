@@ -6,7 +6,6 @@ services:
       args:
         # Pin git-crawl to a specific ref if desired.
         GIT_CRAWL_URL: "git+https://github.com/alex-drocks/git-crawl.git@v0.2.0"
-    container_name: tao-git-crawl-scheduler
     restart: unless-stopped
     environment:
       # Required — set in .env or inline.
@@ -50,7 +49,6 @@ services:
       dockerfile: Dockerfile
       args:
         GIT_CRAWL_URL: "git+https://github.com/alex-drocks/git-crawl.git@v0.2.0"
-    container_name: tao-git-crawl-api
     restart: unless-stopped
     entrypoint: ["python", "-m", "tao_git_crawl.api"]
     environment:
