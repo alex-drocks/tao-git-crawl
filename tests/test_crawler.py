@@ -1,12 +1,45 @@
 from types import SimpleNamespace
 
-from git_crawl.github import GitHubAPIError
+from git_crawl.github import GitHubAPIError, partition_repositories
 from git_crawl.metrics import CommitChangesFiltrationLevel
 
 from tao_git_crawl.crawler import crawl_resolved_subnets
 from tao_git_crawl.models import SubnetIdentityRecord
 from tao_git_crawl.overrides import ResolverConfig, SubnetOverride, TargetOverride
 from tao_git_crawl.resolver import resolve_subnets
+
+
+def _repo(
+    full_name,
+    *,
+    archived=False,
+    fork=False,
+    private=False,
+    pushed_at="2026-02-01T00:00:00Z",
+):
+    return SimpleNamespace(
+        name=full_name.rsplit("/", 1)[-1],
+        full_name=full_name,
+        clone_url=f"https://github.com/{full_name}.git",
+        ssh_url=f"git@github.com:{full_name}.git",
+        default_branch="main",
+        pushed_at=pushed_at,
+        archived=archived,
+        fork=fork,
+        private=private,
+        language=None,
+    )
+
+
+def _selected_repo_names_for_crawl(repositories, kwargs):
+    selected, _excluded = partition_repositories(
+        repositories,
+        active_since=kwargs["active_since"],
+        include_archived=kwargs["include_archived"],
+        include_forks=kwargs["include_forks"],
+        max_repos=kwargs["max_repos"],
+    )
+    return [repo.full_name for repo in selected], selected
 
 
 def test_crawl_resolved_subnets_discovers_owner_repos_and_labels_metrics_by_subnet(monkeypatch, tmp_path):
@@ -357,3 +390,99 @@ def test_owner_fetch_max_repos_counts_unique_repositories_after_explicit_repo_ov
 
     assert report.succeeded_netuids == [64]
     assert calls["crawls"] == [["chutesai/api", "chutesai/sdk"]]
+
+
+def test_owner_fetch_max_repos_counts_only_crawlable_repositories(monkeypatch, tmp_path):
+    document = resolve_subnets(
+        [SubnetIdentityRecord(netuid=77, subnet_name="Acme", github_repo="https://github.com/acme")],
+        target_label="bittensor-subnets",
+    )
+    calls = {"crawls": []}
+
+    def fake_list_owner_repositories(owner, **kwargs):
+        return [
+            _repo("acme/archived", archived=True),
+            _repo("acme/api"),
+            _repo("acme/sdk"),
+        ]
+
+    def fake_crawl_repositories(target_label, repositories, **kwargs):
+        selected_names, selected = _selected_repo_names_for_crawl(list(repositories), kwargs)
+        calls["crawls"].append(selected_names)
+        return SimpleNamespace(
+            run=SimpleNamespace(status="success", run_id="test-run-0"),
+            repositories=selected,
+        )
+
+    def fake_write_crawl_outputs(result, output_dir, **kwargs):
+        output_dir.mkdir(parents=True, exist_ok=True)
+        path = output_dir / "summary.json"
+        path.write_text("{}\n", encoding="utf-8")
+        return [path]
+
+    monkeypatch.setattr("tao_git_crawl.crawler.list_owner_repositories", fake_list_owner_repositories)
+    monkeypatch.setattr("tao_git_crawl.crawler.crawl_repositories", fake_crawl_repositories)
+    monkeypatch.setattr("tao_git_crawl.crawler.write_crawl_outputs", fake_write_crawl_outputs)
+
+    report = crawl_resolved_subnets(
+        document,
+        output_dir=tmp_path / "out",
+        cache_dir=tmp_path / "cache",
+        max_repos=1,
+    )
+
+    assert report.succeeded_netuids == [77]
+    assert calls["crawls"] == [["acme/api"]]
+
+
+def test_owner_fetch_still_runs_when_exact_repo_is_excluded_by_crawl_filters(monkeypatch, tmp_path):
+    document = resolve_subnets(
+        [SubnetIdentityRecord(netuid=78, subnet_name="Acme", github_repo="https://github.com/acme/archived")],
+        target_label="bittensor-subnets",
+        config=ResolverConfig(
+            subnet_overrides={
+                78: SubnetOverride(
+                    replace=False,
+                    targets=(TargetOverride(kind="owner", url="https://github.com/acme"),),
+                )
+            }
+        ),
+    )
+    calls = {"owners": 0, "crawls": []}
+
+    def fake_list_repositories_from_urls(urls, **kwargs):
+        return [_repo("acme/archived", archived=True)]
+
+    def fake_list_owner_repositories(owner, **kwargs):
+        calls["owners"] += 1
+        return [_repo("acme/api"), _repo("acme/sdk")]
+
+    def fake_crawl_repositories(target_label, repositories, **kwargs):
+        selected_names, selected = _selected_repo_names_for_crawl(list(repositories), kwargs)
+        calls["crawls"].append(selected_names)
+        return SimpleNamespace(
+            run=SimpleNamespace(status="success", run_id="test-run-0"),
+            repositories=selected,
+        )
+
+    def fake_write_crawl_outputs(result, output_dir, **kwargs):
+        output_dir.mkdir(parents=True, exist_ok=True)
+        path = output_dir / "summary.json"
+        path.write_text("{}\n", encoding="utf-8")
+        return [path]
+
+    monkeypatch.setattr("tao_git_crawl.crawler.list_repositories_from_urls", fake_list_repositories_from_urls)
+    monkeypatch.setattr("tao_git_crawl.crawler.list_owner_repositories", fake_list_owner_repositories)
+    monkeypatch.setattr("tao_git_crawl.crawler.crawl_repositories", fake_crawl_repositories)
+    monkeypatch.setattr("tao_git_crawl.crawler.write_crawl_outputs", fake_write_crawl_outputs)
+
+    report = crawl_resolved_subnets(
+        document,
+        output_dir=tmp_path / "out",
+        cache_dir=tmp_path / "cache",
+        max_repos=1,
+    )
+
+    assert report.succeeded_netuids == [78]
+    assert calls["owners"] == 1
+    assert calls["crawls"] == [["acme/api"]]

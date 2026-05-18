@@ -6,7 +6,6 @@ services:
       args:
         # Pin git-crawl to a specific ref if desired.
         GIT_CRAWL_URL: "git+https://github.com/alex-drocks/git-crawl.git@v0.2.0"
-    container_name: tao-git-crawl-scheduler
     restart: unless-stopped
     environment:
       # Required — set in .env or inline.
@@ -50,7 +49,6 @@ services:
       dockerfile: Dockerfile
       args:
         GIT_CRAWL_URL: "git+https://github.com/alex-drocks/git-crawl.git@v0.2.0"
-    container_name: tao-git-crawl-api
     restart: unless-stopped
     entrypoint: ["python", "-m", "tao_git_crawl.api"]
     environment:
@@ -58,8 +56,10 @@ services:
       TAO_API_HOST: "0.0.0.0"
       TAO_API_PORT: "8080"
       TAO_API_CORS_ORIGIN: "${TAO_API_CORS_ORIGIN:-*}"
+      TAO_API_RATE_LIMIT_REQUESTS: "${TAO_API_RATE_LIMIT_REQUESTS:-1200}"
+      TAO_API_RATE_LIMIT_WINDOW_SECONDS: "${TAO_API_RATE_LIMIT_WINDOW_SECONDS:-60}"
     ports:
-      - "${TAO_API_PORT:-8080}:8080"
+      - "${TAO_API_BIND_HOST:-127.0.0.1}:${TAO_API_PORT:-8080}:8080"
     volumes:
       - tao-data:/data:ro
     depends_on:

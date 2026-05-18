@@ -2,7 +2,13 @@ import json
 from http import HTTPStatus
 from pathlib import Path
 
-from tao_git_crawl.api import get_subnet_dataset, get_subnet_detail, handle_api_request, list_subnets
+from tao_git_crawl.api import (
+    SlidingWindowRateLimiter,
+    get_subnet_dataset,
+    get_subnet_detail,
+    handle_api_request,
+    list_subnets,
+)
 
 
 def test_list_subnets_includes_summary_and_target_counts(tmp_path):
@@ -91,6 +97,37 @@ def test_handle_api_request_returns_json_errors(tmp_path):
 
     assert response.status == HTTPStatus.BAD_REQUEST
     assert response.payload == {"error": "netuid must be an integer"}
+
+
+def test_sliding_window_rate_limiter_blocks_and_recovers():
+    now = 100.0
+    limiter = SlidingWindowRateLimiter(max_requests=2, window_seconds=10, now=lambda: now)
+
+    first = limiter.check("127.0.0.1")
+    second = limiter.check("127.0.0.1")
+    blocked = limiter.check("127.0.0.1")
+
+    assert first.allowed is True
+    assert first.remaining == 1
+    assert second.allowed is True
+    assert second.remaining == 0
+    assert blocked.allowed is False
+    assert blocked.retry_after_seconds == 10
+
+    now = 110.0
+    recovered = limiter.check("127.0.0.1")
+
+    assert recovered.allowed is True
+    assert recovered.remaining == 1
+
+
+def test_sliding_window_rate_limiter_can_be_disabled():
+    limiter = SlidingWindowRateLimiter(max_requests=0, window_seconds=60)
+
+    decision = limiter.check("127.0.0.1")
+
+    assert decision.allowed is True
+    assert decision.remaining == 0
 
 
 def test_api_is_exposed_in_project_metadata_and_compose():

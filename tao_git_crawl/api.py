@@ -4,10 +4,15 @@ import argparse
 import json
 import os
 import sys
+import time
+from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from math import ceil
 from pathlib import Path
+from threading import Lock
 from urllib.parse import parse_qs, unquote, urlparse
 
 DEFAULT_OUTPUT_DIR = Path("/data/output")
@@ -15,6 +20,8 @@ DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8080
 DEFAULT_LIMIT = 100
 MAX_LIMIT = 1000
+DEFAULT_RATE_LIMIT_REQUESTS = 1200
+DEFAULT_RATE_LIMIT_WINDOW_SECONDS = 60
 
 JSON_DATASETS = {
     "summary": "summary.json",
@@ -45,11 +52,57 @@ class ApiResponse:
     payload: object
 
 
+@dataclass(frozen=True)
+class RateLimitDecision:
+    allowed: bool
+    remaining: int
+    retry_after_seconds: int = 0
+
+
 class ApiProblem(ValueError):
     def __init__(self, status: HTTPStatus, message: str):
         super().__init__(message)
         self.status = status
         self.message = message
+
+
+class SlidingWindowRateLimiter:
+    """Small in-memory per-client limiter for direct Docker exposure guardrails."""
+
+    def __init__(
+        self,
+        *,
+        max_requests: int = DEFAULT_RATE_LIMIT_REQUESTS,
+        window_seconds: int = DEFAULT_RATE_LIMIT_WINDOW_SECONDS,
+        now: Callable[[], float] | None = None,
+    ):
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self._now = now or time.monotonic
+        self._hits: dict[str, deque[float]] = {}
+        self._lock = Lock()
+
+    @property
+    def enabled(self) -> bool:
+        return self.max_requests > 0 and self.window_seconds > 0
+
+    def check(self, client_id: str) -> RateLimitDecision:
+        if not self.enabled:
+            return RateLimitDecision(allowed=True, remaining=0)
+
+        now = self._now()
+        cutoff = now - self.window_seconds
+        with self._lock:
+            hits = self._hits.setdefault(client_id, deque())
+            while hits and hits[0] <= cutoff:
+                hits.popleft()
+
+            if len(hits) >= self.max_requests:
+                retry_after = max(1, ceil(hits[0] + self.window_seconds - now))
+                return RateLimitDecision(allowed=False, remaining=0, retry_after_seconds=retry_after)
+
+            hits.append(now)
+            return RateLimitDecision(allowed=True, remaining=self.max_requests - len(hits))
 
 
 def handle_api_request(output_dir: str | Path, raw_target: str) -> ApiResponse:
@@ -131,8 +184,14 @@ def serve(
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
     cors_origin: str = "*",
+    rate_limit_requests: int = DEFAULT_RATE_LIMIT_REQUESTS,
+    rate_limit_window_seconds: int = DEFAULT_RATE_LIMIT_WINDOW_SECONDS,
 ) -> None:
-    handler_class = _make_handler(Path(output_dir), cors_origin=cors_origin)
+    rate_limiter = SlidingWindowRateLimiter(
+        max_requests=rate_limit_requests,
+        window_seconds=rate_limit_window_seconds,
+    )
+    handler_class = _make_handler(Path(output_dir), cors_origin=cors_origin, rate_limiter=rate_limiter)
     server = ThreadingHTTPServer((host, port), handler_class)
     print(f"tao-git-crawl API serving {Path(output_dir)} on http://{host}:{port}", flush=True)
     try:
@@ -151,41 +210,118 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--host", default=os.environ.get("TAO_API_HOST", DEFAULT_HOST))
     parser.add_argument("--port", type=int, default=int(os.environ.get("TAO_API_PORT", str(DEFAULT_PORT))))
     parser.add_argument("--cors-origin", default=os.environ.get("TAO_API_CORS_ORIGIN", "*"))
+    parser.add_argument(
+        "--rate-limit-requests",
+        type=int,
+        default=int(os.environ.get("TAO_API_RATE_LIMIT_REQUESTS", str(DEFAULT_RATE_LIMIT_REQUESTS))),
+        help=(
+            "maximum requests per client within the rate-limit window; "
+            "set to 0 to disable (default: 1200)"
+        ),
+    )
+    parser.add_argument(
+        "--rate-limit-window-seconds",
+        type=int,
+        default=int(os.environ.get("TAO_API_RATE_LIMIT_WINDOW_SECONDS", str(DEFAULT_RATE_LIMIT_WINDOW_SECONDS))),
+        help="rate-limit window in seconds; set to 0 to disable (default: 60)",
+    )
     args = parser.parse_args(argv)
-    serve(output_dir=args.output_dir, host=args.host, port=args.port, cors_origin=args.cors_origin)
+    serve(
+        output_dir=args.output_dir,
+        host=args.host,
+        port=args.port,
+        cors_origin=args.cors_origin,
+        rate_limit_requests=args.rate_limit_requests,
+        rate_limit_window_seconds=args.rate_limit_window_seconds,
+    )
     return 0
 
 
-def _make_handler(output_dir: Path, *, cors_origin: str) -> type[BaseHTTPRequestHandler]:
+def _make_handler(
+    output_dir: Path,
+    *,
+    cors_origin: str,
+    rate_limiter: SlidingWindowRateLimiter,
+) -> type[BaseHTTPRequestHandler]:
     class OutputApiHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
+            rate_limit = rate_limiter.check(self._client_id())
+            rate_headers = _rate_limit_headers(rate_limiter, rate_limit)
+            if not rate_limit.allowed:
+                self._send_json(
+                    HTTPStatus.TOO_MANY_REQUESTS,
+                    {
+                        "error": "rate limit exceeded",
+                        "retry_after_seconds": rate_limit.retry_after_seconds,
+                    },
+                    extra_headers=rate_headers,
+                )
+                return
+
             response = handle_api_request(output_dir, self.path)
-            self._send_json(response.status, response.payload)
+            self._send_json(response.status, response.payload, extra_headers=rate_headers)
 
         def do_OPTIONS(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
             self.send_response(HTTPStatus.NO_CONTENT)
             self._send_headers()
             self.end_headers()
 
-        def _send_json(self, status: HTTPStatus, payload: object) -> None:
+        def _send_json(
+            self,
+            status: HTTPStatus,
+            payload: object,
+            *,
+            extra_headers: dict[str, str] | None = None,
+        ) -> None:
             body = json.dumps(payload, sort_keys=True).encode("utf-8")
             self.send_response(status)
-            self._send_headers(content_length=len(body))
+            self._send_headers(content_length=len(body), extra_headers=extra_headers)
             self.end_headers()
             self.wfile.write(body)
 
-        def _send_headers(self, *, content_length: int | None = None) -> None:
+        def _send_headers(
+            self,
+            *,
+            content_length: int | None = None,
+            extra_headers: dict[str, str] | None = None,
+        ) -> None:
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Access-Control-Allow-Origin", cors_origin)
             self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
             self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.send_header(
+                "Access-Control-Expose-Headers",
+                "Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining",
+            )
             if content_length is not None:
                 self.send_header("Content-Length", str(content_length))
+            for name, value in (extra_headers or {}).items():
+                self.send_header(name, value)
+
+        def _client_id(self) -> str:
+            if isinstance(self.client_address, tuple) and self.client_address:
+                return str(self.client_address[0])
+            return "unknown"
 
         def log_message(self, fmt: str, *args: object) -> None:
             sys.stderr.write(f"{self.address_string()} - {fmt % args}\n")
 
     return OutputApiHandler
+
+
+def _rate_limit_headers(
+    rate_limiter: SlidingWindowRateLimiter,
+    decision: RateLimitDecision,
+) -> dict[str, str]:
+    if not rate_limiter.enabled:
+        return {}
+    headers = {
+        "X-RateLimit-Limit": str(rate_limiter.max_requests),
+        "X-RateLimit-Remaining": str(decision.remaining),
+    }
+    if not decision.allowed:
+        headers["Retry-After"] = str(decision.retry_after_seconds)
+    return headers
 
 
 def _routes_payload() -> dict[str, object]:

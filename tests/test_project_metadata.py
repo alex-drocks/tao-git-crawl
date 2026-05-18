@@ -29,6 +29,7 @@ def test_readme_manual_override_and_per_subnet_examples_match_cli_behavior():
     assert '--netuid 64' in readme
     assert 'Do not pass --max-repos if you want full owner coverage.' in readme
     assert 'Add --include-forks or --include-archived if you also want those repos.' in readme
+    assert 'excluded repositories do not consume the limit.' in readme
     assert "SN64's `repository-manifest.json` is intentionally empty" in readme
     assert 'out/tao/subnets/99/repository-manifest.json' in readme
     assert 'https://github.com/RendixNetwork' in readme
@@ -50,6 +51,13 @@ def test_docker_docs_and_compose_pass_documented_scheduler_environment():
         'TAO_CRAWL_REGISTRY_URL',
         'TAO_CRAWL_REGISTRY',
         'TAO_CRAWL_CONFIG',
+        'TAO_API_OUTPUT_DIR',
+        'TAO_API_HOST',
+        'TAO_API_BIND_HOST',
+        'TAO_API_PORT',
+        'TAO_API_CORS_ORIGIN',
+        'TAO_API_RATE_LIMIT_REQUESTS',
+        'TAO_API_RATE_LIMIT_WINDOW_SECONDS',
     ]:
         assert name in readme
         assert name in compose
@@ -59,12 +67,16 @@ def test_docker_docs_and_compose_pass_documented_scheduler_environment():
     assert 'git-crawl.git@main' not in dockerfile
     assert 'git-crawl.git@main' not in compose
     assert 'raw.githubusercontent.com/alex-drocks/tao-git-crawl/main/registry.json' not in readme
+    assert '${TAO_API_BIND_HOST:-127.0.0.1}:${TAO_API_PORT:-8080}:8080' in compose
+    assert 'reverse_proxy 127.0.0.1:8080' in readme
+    assert '1200` requests per `60` seconds per TCP peer' in readme
 
 
 def test_docker_compose_uses_single_data_volume_for_persistent_paths():
     readme = Path('README.md').read_text(encoding='utf-8')
     compose = Path('docker-compose.yml').read_text(encoding='utf-8')
 
+    assert 'container_name:' not in compose
     assert 'tao-data:/data' in compose
     assert 'tao-data:' in compose
     for old_volume in ['tao-output', 'tao-cache', 'tao-state', 'tao-logs']:
@@ -72,3 +84,12 @@ def test_docker_compose_uses_single_data_volume_for_persistent_paths():
 
     assert 'Compose creates one named volume' in readme
     assert 'tao-git-crawl_tao-data' in readme
+
+
+def test_env_example_keeps_api_local_by_default():
+    example = Path('.env.example').read_text(encoding='utf-8')
+
+    assert 'TAO_API_BIND_HOST=127.0.0.1' in example
+    assert 'TAO_API_BIND_HOST=0.0.0.0' in example
+    assert 'TAO_API_RATE_LIMIT_REQUESTS=1200' in example
+    assert 'TAO_API_RATE_LIMIT_WINDOW_SECONDS=60' in example

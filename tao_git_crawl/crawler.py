@@ -5,7 +5,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from git_crawl.github import GitHubAPIError, list_owner_repositories, list_repositories_from_urls
+from git_crawl.github import (
+    GitHubAPIError,
+    list_owner_repositories,
+    list_repositories_from_urls,
+    partition_repositories,
+)
 from git_crawl.metrics import CommitChangesFiltrationLevel
 from git_crawl.pipeline import (
     DEFAULT_COMMIT_CHANGES_FILTRATION_LEVEL,
@@ -43,6 +48,15 @@ class SubnetCrawlSkip:
 class RepositoryResolution:
     repositories: list[Any]
     skipped_inaccessible: list[str]
+
+
+@dataclass(frozen=True)
+class _RepositoryLimitView:
+    full_name: str
+    pushed_at: str | None
+    archived: bool
+    fork: bool
+    private: bool
 
 
 @dataclass(frozen=True)
@@ -122,7 +136,14 @@ def crawl_resolved_subnets(
             continue
         target_label = subnet_document.target_label
         try:
-            resolution = _resolve_repositories_for_subnet(subnet_document.targets, token=token, max_repos=max_repos)
+            resolution = _resolve_repositories_for_subnet(
+                subnet_document.targets,
+                token=token,
+                active_since=active_since,
+                include_archived=include_archived,
+                include_forks=include_forks,
+                max_repos=max_repos,
+            )
             skipped_inaccessible.extend(
                 SubnetCrawlSkip(netuid=netuid, target_label=target_label, reason=reason)
                 for reason in resolution.skipped_inaccessible
@@ -202,18 +223,30 @@ def _resolve_repositories_for_subnet(
     targets: list[GitHubTarget] | tuple[GitHubTarget, ...],
     *,
     token: str | None,
+    active_since: str | None,
+    include_archived: bool,
+    include_forks: bool,
     max_repos: int | None,
 ) -> RepositoryResolution:
     repositories: list[Any] = []
     skipped_inaccessible: list[str] = []
     repo_urls = [target.url for target in targets if target.kind == "repository"]
     for repo_url in repo_urls:
-        if _has_reached_max_repos(repositories, max_repos):
+        if _has_reached_selected_repo_limit(
+            repositories,
+            active_since=active_since,
+            include_archived=include_archived,
+            include_forks=include_forks,
+            max_repos=max_repos,
+        ):
             break
         try:
             _append_unique_repositories(
                 repositories,
                 list_repositories_from_urls([repo_url], token=token, max_repos=1),
+                active_since=active_since,
+                include_archived=include_archived,
+                include_forks=include_forks,
                 max_repos=max_repos,
             )
         except GitHubAPIError as exc:
@@ -223,11 +256,24 @@ def _resolve_repositories_for_subnet(
     for target in targets:
         if target.kind != "owner":
             continue
-        if _has_reached_max_repos(repositories, max_repos):
+        if _has_reached_selected_repo_limit(
+            repositories,
+            active_since=active_since,
+            include_archived=include_archived,
+            include_forks=include_forks,
+            max_repos=max_repos,
+        ):
             break
         try:
             owner_repos = list_owner_repositories(target.owner, owner_type="auto", token=token)
-            _append_unique_repositories(repositories, owner_repos, max_repos=max_repos)
+            _append_unique_repositories(
+                repositories,
+                owner_repos,
+                active_since=active_since,
+                include_archived=include_archived,
+                include_forks=include_forks,
+                max_repos=max_repos,
+            )
         except GitHubAPIError as exc:
             if exc.status_code != 404:
                 raise
@@ -254,11 +300,35 @@ def _crawl_status_failure_reason(result: Any) -> str:
     return redact_text(f"crawl completed with status {status}; failed repositories: {'; '.join(details)}")
 
 
-def _has_reached_max_repos(repositories: list[Any], max_repos: int | None) -> bool:
-    return max_repos is not None and len(_dedupe_repositories(repositories)) >= max_repos
+def _has_reached_selected_repo_limit(
+    repositories: list[Any],
+    *,
+    active_since: str | None,
+    include_archived: bool,
+    include_forks: bool,
+    max_repos: int | None,
+) -> bool:
+    if max_repos is None:
+        return False
+    selected, _excluded = partition_repositories(
+        [_repository_limit_view(repo) for repo in _dedupe_repositories(repositories)],
+        active_since=active_since,
+        include_archived=include_archived,
+        include_forks=include_forks,
+        max_repos=max_repos,
+    )
+    return len(selected) >= max_repos
 
 
-def _append_unique_repositories(repositories: list[Any], candidates: list[Any], *, max_repos: int | None) -> None:
+def _append_unique_repositories(
+    repositories: list[Any],
+    candidates: list[Any],
+    *,
+    active_since: str | None,
+    include_archived: bool,
+    include_forks: bool,
+    max_repos: int | None,
+) -> None:
     seen = {_repository_key(repo) for repo in repositories}
     seen.discard("")
     for repo in candidates:
@@ -267,7 +337,15 @@ def _append_unique_repositories(repositories: list[Any], candidates: list[Any], 
             continue
         repositories.append(repo)
         seen.add(key)
-        if max_repos is not None and len(seen) >= max_repos:
+        # Count the same selected repository set that git-crawl will crawl; excluded
+        # archived/fork/private/inactive repos should not consume --max-repos.
+        if _has_reached_selected_repo_limit(
+            repositories,
+            active_since=active_since,
+            include_archived=include_archived,
+            include_forks=include_forks,
+            max_repos=max_repos,
+        ):
             break
 
 
@@ -285,6 +363,16 @@ def _dedupe_repositories(repositories: list[Any]) -> list[Any]:
 
 def _repository_key(repo: Any) -> str:
     return str(getattr(repo, "full_name", getattr(repo, "name", ""))).lower()
+
+
+def _repository_limit_view(repo: Any) -> _RepositoryLimitView:
+    return _RepositoryLimitView(
+        full_name=_repository_key(repo),
+        pushed_at=getattr(repo, "pushed_at", None),
+        archived=bool(getattr(repo, "archived", False)),
+        fork=bool(getattr(repo, "fork", False)),
+        private=bool(getattr(repo, "private", False)),
+    )
 
 
 def _write_report(path: Path, payload: dict[str, object]) -> None:
