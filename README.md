@@ -14,7 +14,75 @@ It does not host data or run a service for you. You provide the chain endpoint o
 - Records missing or invalid GitHub metadata in `unresolved.json`.
 - Uses a built-in registry entry for subnet 64, Chutes AI, so SN64 resolves to the `https://github.com/chutesai` owner.
 
-## Install
+## Run With Docker
+
+Docker Compose is the main way to run `tao-git-crawl` as a scheduled crawler. The scheduler runs once on start, then repeats every 24 hours by default.
+
+Docker builds install `git-crawl` from `git+https://github.com/alex-drocks/git-crawl.git@v0.2.0` by default.
+
+```bash
+cp .env.example .env
+# Edit .env and set GITHUB_TOKEN=ghp_...
+
+docker compose up --build -d
+docker compose logs -f scheduler
+ls $(docker volume inspect -f '{{ .Mountpoint }}' tao-git-crawl_tao-data)
+```
+
+Compose creates one named volume, `tao-data`, mounted at `/data`:
+
+- `/data/output`: resolver outputs and per-subnet crawl metrics.
+- `/data/cache`: bare git mirrors.
+- `/data/state`: SQLite state.
+- `/data/logs`: per-run crawl logs.
+
+Scheduler environment:
+
+| Variable | Default | Description |
+| -------- | ------- | ----------- |
+| `GITHUB_TOKEN` | required | GitHub personal access token |
+| `TAO_CRAWL_INTERVAL_SECONDS` | `86400` | Seconds between crawl runs |
+| `TAO_CRAWL_NETWORK` | `finney` | Bittensor network preset |
+| `TAO_CRAWL_OUTPUT_DIR` | `/data/output` | Output directory |
+| `TAO_CRAWL_CACHE_DIR` | `/data/cache` | Bare git mirror cache |
+| `TAO_CRAWL_STATE_DB` | `/data/state/db.sqlite` | SQLite state DB |
+| `TAO_CRAWL_WORKERS` | `4` | Concurrent repo workers per subnet |
+| `TAO_CRAWL_SINCE` | `2025-01-01` | Commit since date |
+| `TAO_CRAWL_COMMIT_CHANGES_FILTRATION_LEVEL` | `source_like` | `all`, `non_binary`, or `source_like` |
+| `TAO_CRAWL_REGISTRY_URL` | unset | Remote JSON override registry |
+| `TAO_CRAWL_REGISTRY` | unset | Local JSON override registry path in the container |
+| `TAO_CRAWL_CONFIG` | unset | Python config path in the container |
+| `TAO_CRAWL_LOG_DIR` | `/data/logs` | Per-run log directory |
+| `TAO_CRAWL_RUN_ON_START` | `true` | Run immediately on container start |
+
+For local registry or config files, mount the file into the container and set `TAO_CRAWL_REGISTRY` or `TAO_CRAWL_CONFIG` to that container path, for example `/data/registry.json`.
+
+Run one crawl manually through Compose:
+
+```bash
+docker compose run --rm scheduler \
+  python -m tao_git_crawl.cli crawl \
+  --network finney \
+  --output-dir /data/output \
+  --cache-dir /data/cache \
+  --state-db /data/state/db.sqlite \
+  --since 2026-01-01
+```
+
+Build without Compose:
+
+```bash
+docker build -t tao-git-crawl:latest .
+docker run -d \
+  --name tao-scheduler \
+  -e GITHUB_TOKEN=$GITHUB_TOKEN \
+  -v tao-data:/data \
+  tao-git-crawl:latest
+```
+
+## Local CLI
+
+Use the local Python CLI for development, fixture checks, and one-off runs.
 
 Python 3.12+ is required.
 
@@ -154,69 +222,3 @@ tao-git-crawl crawl \
 ```
 
 Owner crawling gives broader coverage, but can include unrelated repositories when a subnet points into a shared organization or user account.
-
-## Docker
-
-The repo includes a scheduler container. It runs once on start, then repeats every 24 hours by default.
-
-Docker builds install `git-crawl` from `git+https://github.com/alex-drocks/git-crawl.git@v0.2.0` by default.
-
-```bash
-cp .env.example .env
-# Edit .env and set GITHUB_TOKEN=ghp_...
-
-docker compose up --build -d
-docker compose logs -f scheduler
-ls $(docker volume inspect -f '{{ .Mountpoint }}' tao-git-crawl_tao-data)
-```
-
-Compose creates one named volume, `tao-data`, mounted at `/data`:
-
-- `/data/output`: resolver outputs and per-subnet crawl metrics.
-- `/data/cache`: bare git mirrors.
-- `/data/state`: SQLite state.
-- `/data/logs`: per-run crawl logs.
-
-Scheduler environment:
-
-| Variable | Default | Description |
-| -------- | ------- | ----------- |
-| `GITHUB_TOKEN` | required | GitHub personal access token |
-| `TAO_CRAWL_INTERVAL_SECONDS` | `86400` | Seconds between crawl runs |
-| `TAO_CRAWL_NETWORK` | `finney` | Bittensor network preset |
-| `TAO_CRAWL_OUTPUT_DIR` | `/data/output` | Output directory |
-| `TAO_CRAWL_CACHE_DIR` | `/data/cache` | Bare git mirror cache |
-| `TAO_CRAWL_STATE_DB` | `/data/state/db.sqlite` | SQLite state DB |
-| `TAO_CRAWL_WORKERS` | `4` | Concurrent repo workers per subnet |
-| `TAO_CRAWL_SINCE` | `2025-01-01` | Commit since date |
-| `TAO_CRAWL_COMMIT_CHANGES_FILTRATION_LEVEL` | `source_like` | `all`, `non_binary`, or `source_like` |
-| `TAO_CRAWL_REGISTRY_URL` | unset | Remote JSON override registry |
-| `TAO_CRAWL_REGISTRY` | unset | Local JSON override registry path in the container |
-| `TAO_CRAWL_CONFIG` | unset | Python config path in the container |
-| `TAO_CRAWL_LOG_DIR` | `/data/logs` | Per-run log directory |
-| `TAO_CRAWL_RUN_ON_START` | `true` | Run immediately on container start |
-
-For local registry or config files, mount the file into the container and set `TAO_CRAWL_REGISTRY` or `TAO_CRAWL_CONFIG` to that container path, for example `/data/registry.json`.
-
-Run one crawl manually through Compose:
-
-```bash
-docker compose run --rm scheduler \
-  python -m tao_git_crawl.cli crawl \
-  --network finney \
-  --output-dir /data/output \
-  --cache-dir /data/cache \
-  --state-db /data/state/db.sqlite \
-  --since 2026-01-01
-```
-
-Build without Compose:
-
-```bash
-docker build -t tao-git-crawl:latest .
-docker run -d \
-  --name tao-scheduler \
-  -e GITHUB_TOKEN=$GITHUB_TOKEN \
-  -v tao-data:/data \
-  tao-git-crawl:latest
-```
