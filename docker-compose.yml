@@ -56,8 +56,10 @@ services:
       TAO_API_HOST: "0.0.0.0"
       TAO_API_PORT: "8080"
       TAO_API_CORS_ORIGIN: "${TAO_API_CORS_ORIGIN:-*}"
+      TAO_API_RATE_LIMIT_REQUESTS: "${TAO_API_RATE_LIMIT_REQUESTS:-1200}"
+      TAO_API_RATE_LIMIT_WINDOW_SECONDS: "${TAO_API_RATE_LIMIT_WINDOW_SECONDS:-60}"
     ports:
-      - "${TAO_API_PORT:-8080}:8080"
+      - "${TAO_API_BIND_HOST:-127.0.0.1}:${TAO_API_PORT:-8080}:8080"
     volumes:
       - tao-data:/data:ro
     depends_on:

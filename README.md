@@ -2,7 +2,7 @@
 
 `tao-git-crawl` resolves GitHub targets from Bittensor subnet identity metadata and runs subnet-scoped `git-crawl` metrics.
 
-It does not host data or run a service for you. You provide the chain endpoint or JSON export, GitHub token, storage paths, and schedule.
+It is self-hosted. You provide the chain endpoint or JSON export, GitHub token, storage paths, and schedule.
 
 ## What It Does
 
@@ -30,6 +30,8 @@ docker compose logs -f scheduler
 curl http://localhost:8080/health
 ls $(docker volume inspect -f '{{ .Mountpoint }}' tao-git-crawl_tao-data)
 ```
+
+By default, Compose publishes the API on `127.0.0.1:8080`, so it is reachable from the same server but not directly from other machines. This keeps clone-and-run deployments useful for local dashboards, reverse proxies, notebooks, or backend services without accidentally exposing a public unauthenticated API.
 
 On hosts with legacy Compose, use `docker-compose build` and `docker-compose up -d`.
 
@@ -60,8 +62,11 @@ Docker Compose environment:
 | `TAO_CRAWL_RUN_ON_START` | `true` | Run immediately on container start |
 | `TAO_API_OUTPUT_DIR` | `/data/output` | Output directory served by the read-only API |
 | `TAO_API_HOST` | `0.0.0.0` | API bind host inside the container |
-| `TAO_API_PORT` | `8080` | API port inside the container and default host port mapping |
+| `TAO_API_BIND_HOST` | `127.0.0.1` | Host interface where Docker publishes the API |
+| `TAO_API_PORT` | `8080` | Host port for the API; container port stays `8080` |
 | `TAO_API_CORS_ORIGIN` | `*` | CORS origin for frontend requests |
+| `TAO_API_RATE_LIMIT_REQUESTS` | `1200` | Requests allowed per TCP peer in the API rate-limit window; set `0` to disable |
+| `TAO_API_RATE_LIMIT_WINDOW_SECONDS` | `60` | API rate-limit window in seconds; set `0` to disable |
 
 For local registry or config files, mount the file into the container and set `TAO_CRAWL_REGISTRY` or `TAO_CRAWL_CONFIG` to that container path, for example `/data/registry.json`.
 
@@ -78,6 +83,33 @@ The API service mounts the same `tao-data` volume read-only and exposes frontend
 - `GET /api/subnets/<netuid>/org-days?limit=100&offset=0`
 - `GET /api/subnets/<netuid>/file-changes?limit=100&offset=0`
 - `GET /api/crawl-report`
+
+### API Exposure
+
+The recommended default is same-server access:
+
+```bash
+curl http://127.0.0.1:8080/api/subnets
+```
+
+To serve a public read-only API, keep Docker bound to `127.0.0.1` and put a reverse proxy such as Caddy, nginx, Traefik, or Cloudflare Tunnel in front of it. The API includes a generous in-memory guardrail of `1200` requests per `60` seconds per TCP peer and returns `429` with `Retry-After` when exceeded. This is enough to stop accidental or blunt direct abuse, but the proxy should still handle TLS, compression, caching, stricter public request limits, and any authentication or allowlists you want. Because Docker sees a reverse proxy as one peer, high-traffic public deployments should enforce request limits at the proxy and raise or disable the backend limit if needed. For browser frontends on another origin, set `TAO_API_CORS_ORIGIN` to that website origin, or leave the default `*` only when you intentionally want an open public API.
+
+Example Caddy site:
+
+```caddyfile
+api.example.com {
+  encode zstd gzip
+  reverse_proxy 127.0.0.1:8080
+}
+```
+
+If you intentionally want Docker itself to listen on every host interface, opt in explicitly:
+
+```bash
+TAO_API_BIND_HOST=0.0.0.0 docker compose up -d api
+```
+
+The API is read-only and does not expose `GITHUB_TOKEN`, but it has no built-in authentication. Avoid direct public exposure unless the surrounding network or proxy is meant to absorb public traffic.
 
 Run one crawl manually through Compose:
 

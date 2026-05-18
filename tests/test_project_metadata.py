@@ -53,8 +53,11 @@ def test_docker_docs_and_compose_pass_documented_scheduler_environment():
         'TAO_CRAWL_CONFIG',
         'TAO_API_OUTPUT_DIR',
         'TAO_API_HOST',
+        'TAO_API_BIND_HOST',
         'TAO_API_PORT',
         'TAO_API_CORS_ORIGIN',
+        'TAO_API_RATE_LIMIT_REQUESTS',
+        'TAO_API_RATE_LIMIT_WINDOW_SECONDS',
     ]:
         assert name in readme
         assert name in compose
@@ -64,6 +67,9 @@ def test_docker_docs_and_compose_pass_documented_scheduler_environment():
     assert 'git-crawl.git@main' not in dockerfile
     assert 'git-crawl.git@main' not in compose
     assert 'raw.githubusercontent.com/alex-drocks/tao-git-crawl/main/registry.json' not in readme
+    assert '${TAO_API_BIND_HOST:-127.0.0.1}:${TAO_API_PORT:-8080}:8080' in compose
+    assert 'reverse_proxy 127.0.0.1:8080' in readme
+    assert '1200` requests per `60` seconds per TCP peer' in readme
 
 
 def test_docker_compose_uses_single_data_volume_for_persistent_paths():
@@ -78,3 +84,12 @@ def test_docker_compose_uses_single_data_volume_for_persistent_paths():
 
     assert 'Compose creates one named volume' in readme
     assert 'tao-git-crawl_tao-data' in readme
+
+
+def test_env_example_keeps_api_local_by_default():
+    example = Path('.env.example').read_text(encoding='utf-8')
+
+    assert 'TAO_API_BIND_HOST=127.0.0.1' in example
+    assert 'TAO_API_BIND_HOST=0.0.0.0' in example
+    assert 'TAO_API_RATE_LIMIT_REQUESTS=1200' in example
+    assert 'TAO_API_RATE_LIMIT_WINDOW_SECONDS=60' in example
