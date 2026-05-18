@@ -29,6 +29,7 @@ def test_readme_manual_override_and_per_subnet_examples_match_cli_behavior():
     assert '--netuid 64' in readme
     assert 'Do not pass --max-repos if you want full owner coverage.' in readme
     assert 'Add --include-forks or --include-archived if you also want those repos.' in readme
+    assert 'excluded repositories do not consume the limit.' in readme
     assert "SN64's `repository-manifest.json` is intentionally empty" in readme
     assert 'out/tao/subnets/99/repository-manifest.json' in readme
     assert 'https://github.com/RendixNetwork' in readme
@@ -50,6 +51,10 @@ def test_docker_docs_and_compose_pass_documented_scheduler_environment():
         'TAO_CRAWL_REGISTRY_URL',
         'TAO_CRAWL_REGISTRY',
         'TAO_CRAWL_CONFIG',
+        'TAO_API_OUTPUT_DIR',
+        'TAO_API_HOST',
+        'TAO_API_PORT',
+        'TAO_API_CORS_ORIGIN',
     ]:
         assert name in readme
         assert name in compose

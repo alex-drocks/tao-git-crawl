@@ -40,7 +40,7 @@ Compose creates one named volume, `tao-data`, mounted at `/data`:
 - `/data/state`: SQLite state.
 - `/data/logs`: per-run crawl logs.
 
-Scheduler environment:
+Docker Compose environment:
 
 | Variable | Default | Description |
 | -------- | ------- | ----------- |
@@ -58,7 +58,9 @@ Scheduler environment:
 | `TAO_CRAWL_CONFIG` | unset | Python config path in the container |
 | `TAO_CRAWL_LOG_DIR` | `/data/logs` | Per-run log directory |
 | `TAO_CRAWL_RUN_ON_START` | `true` | Run immediately on container start |
-| `TAO_API_PORT` | `8080` | Host port for the read-only output API |
+| `TAO_API_OUTPUT_DIR` | `/data/output` | Output directory served by the read-only API |
+| `TAO_API_HOST` | `0.0.0.0` | API bind host inside the container |
+| `TAO_API_PORT` | `8080` | API port inside the container and default host port mapping |
 | `TAO_API_CORS_ORIGIN` | `*` | CORS origin for frontend requests |
 
 For local registry or config files, mount the file into the container and set `TAO_CRAWL_REGISTRY` or `TAO_CRAWL_CONFIG` to that container path, for example `/data/registry.json`.
@@ -189,6 +191,8 @@ tao-git-crawl crawl \
 ```
 
 Do not pass --max-repos if you want full owner coverage. Add --include-forks or --include-archived if you also want those repos.
+
+When `--max-repos` is set, the cap applies to crawlable repositories after private, archived, fork, and `--active-since` exclusions. Discovery may inspect extra GitHub candidates so excluded repositories do not consume the limit.
 
 SN64's `repository-manifest.json` is intentionally empty because Chutes is represented as an owner target, not an exact repository target.
 
