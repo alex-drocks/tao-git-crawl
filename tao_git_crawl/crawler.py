@@ -22,6 +22,7 @@ from git_crawl.redaction import redact_text
 
 from .models import GitHubTarget
 from .resolver import ResolutionDocument
+from .scoring import write_score_outputs
 
 
 @dataclass(frozen=True)
@@ -210,6 +211,7 @@ def crawl_resolved_subnets(
     )
     report_path = output_path / "crawl-report.json"
     _write_report(report_path, report.to_dict())
+    write_score_outputs(document, output_path)
     return SubnetCrawlReport(
         succeeded=report.succeeded,
         failed=report.failed,

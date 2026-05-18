@@ -115,6 +115,8 @@ def test_crawl_resolved_subnets_discovers_owner_repos_and_labels_metrics_by_subn
     assert report.succeeded_netuids == [64]
     assert report.failed == []
     assert (tmp_path / "out" / "subnets" / "64" / "crawl" / "summary.json").exists()
+    assert (tmp_path / "out" / "subnet-scores.json").exists()
+    assert (tmp_path / "out" / "subnets" / "64" / "score.json").exists()
 
 
 def test_crawl_resolved_subnets_skips_inaccessible_github_404_targets(monkeypatch, tmp_path):

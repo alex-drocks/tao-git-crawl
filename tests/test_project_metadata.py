@@ -70,6 +70,10 @@ def test_docker_docs_and_compose_pass_documented_scheduler_environment():
     assert '${TAO_API_BIND_HOST:-127.0.0.1}:${TAO_API_PORT:-8080}:8080' in compose
     assert 'reverse_proxy 127.0.0.1:8080' in readme
     assert '1200` requests per `60` seconds per TCP peer' in readme
+    assert 'GET /api/subnets/<netuid>/score' in readme
+    assert 'GET /api/scores' in readme
+    assert 'Average credited commits per active day' in readme
+    assert 'Credited file changes' in readme
 
 
 def test_docker_compose_uses_single_data_volume_for_persistent_paths():

@@ -25,6 +25,7 @@ DEFAULT_RATE_LIMIT_WINDOW_SECONDS = 60
 
 JSON_DATASETS = {
     "summary": "summary.json",
+    "score": "score.json",
     "manifest": "output_manifest.json",
     "targets": "subnet-targets.json",
     "owner-targets": "owner-targets.json",
@@ -118,6 +119,8 @@ def handle_api_request(output_dir: str | Path, raw_target: str) -> ApiResponse:
             return ApiResponse(HTTPStatus.OK, _health_payload(output_path))
         if parts == ["api", "crawl-report"]:
             return ApiResponse(HTTPStatus.OK, _read_json_required(output_path / "crawl-report.json"))
+        if parts == ["api", "scores"]:
+            return ApiResponse(HTTPStatus.OK, _read_json_required(output_path / "subnet-scores.json"))
         if parts == ["api", "subnets"]:
             return ApiResponse(HTTPStatus.OK, {"data": list_subnets(output_path)})
         if len(parts) >= 3 and parts[:2] == ["api", "subnets"]:
@@ -163,6 +166,11 @@ def get_subnet_dataset(
     query_params = query or {}
 
     if dataset in JSON_DATASETS:
+        if dataset == "summary":
+            return _summary_with_score(
+                _read_json_required(crawl_dir / JSON_DATASETS[dataset]),
+                _read_json_optional(subnet_dir / "score.json"),
+            )
         path = (
             (crawl_dir / JSON_DATASETS[dataset])
             if dataset in {"summary", "manifest"}
@@ -332,6 +340,7 @@ def _routes_payload() -> dict[str, object]:
             "/api/subnets",
             "/api/subnets/{netuid}",
             "/api/subnets/{netuid}/summary",
+            "/api/subnets/{netuid}/score",
             "/api/subnets/{netuid}/repositories?limit=100&offset=0",
             "/api/subnets/{netuid}/commits?limit=100&offset=0",
             "/api/subnets/{netuid}/contributors?limit=100&offset=0",
@@ -339,6 +348,7 @@ def _routes_payload() -> dict[str, object]:
             "/api/subnets/{netuid}/org-days?limit=100&offset=0",
             "/api/subnets/{netuid}/file-changes?limit=100&offset=0",
             "/api/crawl-report",
+            "/api/scores",
         ],
     }
 
@@ -361,13 +371,15 @@ def _subnet_overview(subnet_dir: Path) -> dict[str, object]:
     ]
     owner_targets = [target for target in targets if isinstance(target, dict) and target.get("kind") == "owner"]
     summary = _read_json_optional(subnet_dir / "crawl" / "summary.json")
+    score = _read_json_optional(subnet_dir / "score.json")
 
     return {
         "netuid": netuid,
         "subnet_name": _subnet_name(targets, unresolved),
         "has_crawl": (subnet_dir / "crawl").exists(),
         "has_summary": summary is not None,
-        "summary": summary,
+        "summary": _summary_with_score(summary, score),
+        "score": score,
         "target_count": len(targets),
         "repository_target_count": len(repository_targets),
         "owner_target_count": len(owner_targets),
@@ -402,6 +414,7 @@ def _subnet_endpoints(netuid: int) -> dict[str, str]:
         "owner_targets": f"{base}/owner-targets",
         "repository_manifest": f"{base}/repository-manifest",
         "unresolved": f"{base}/unresolved",
+        "score": f"{base}/score",
     }
     endpoints.update({dataset.replace("-", "_"): f"{base}/{dataset}?limit=100&offset=0" for dataset in JSONL_DATASETS})
     return endpoints
@@ -428,6 +441,14 @@ def _read_json_optional(path: Path) -> object | None:
         return json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, f"invalid JSON in {path.name}: {exc}") from exc
+
+
+def _summary_with_score(summary: object, score: object | None) -> object:
+    if not isinstance(summary, dict):
+        return summary
+    enriched = dict(summary)
+    enriched["score"] = score
+    return enriched
 
 
 def _read_jsonl_page(path: Path, *, limit: int, offset: int) -> dict[str, object]:

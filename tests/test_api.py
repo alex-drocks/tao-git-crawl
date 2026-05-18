@@ -30,6 +30,7 @@ def test_list_subnets_includes_summary_and_target_counts(tmp_path):
     )
     (subnet_dir / "unresolved.json").write_text("[]\n", encoding="utf-8")
     (crawl_dir / "summary.json").write_text(json.dumps({"repositories": 3}), encoding="utf-8")
+    (subnet_dir / "score.json").write_text(json.dumps({"score": 88.5, "percentile": 95.0}), encoding="utf-8")
 
     assert list_subnets(tmp_path) == [
         {
@@ -37,7 +38,8 @@ def test_list_subnets_includes_summary_and_target_counts(tmp_path):
             "subnet_name": "Example subnet",
             "has_crawl": True,
             "has_summary": True,
-            "summary": {"repositories": 3},
+            "summary": {"repositories": 3, "score": {"score": 88.5, "percentile": 95.0}},
+            "score": {"score": 88.5, "percentile": 95.0},
             "target_count": 1,
             "repository_target_count": 0,
             "owner_target_count": 1,
@@ -56,6 +58,7 @@ def test_get_subnet_detail_lists_files_and_endpoints(tmp_path):
 
     assert detail["files"] == ["subnet-targets.json", "unresolved.json"]
     assert detail["endpoints"]["summary"] == "/api/subnets/94/summary"
+    assert detail["endpoints"]["score"] == "/api/subnets/94/score"
 
 
 def test_get_subnet_dataset_paginates_jsonl(tmp_path):
@@ -97,6 +100,26 @@ def test_handle_api_request_returns_json_errors(tmp_path):
 
     assert response.status == HTTPStatus.BAD_REQUEST
     assert response.payload == {"error": "netuid must be an integer"}
+
+
+def test_handle_api_request_returns_aggregate_scores(tmp_path):
+    (tmp_path / "subnet-scores.json").write_text(json.dumps({"scores": [{"netuid": 1}]}), encoding="utf-8")
+
+    response = handle_api_request(tmp_path, "/api/scores")
+
+    assert response.status == HTTPStatus.OK
+    assert response.payload == {"scores": [{"netuid": 1}]}
+
+
+def test_summary_endpoint_includes_score_when_available(tmp_path):
+    crawl_dir = tmp_path / "subnets" / "94" / "crawl"
+    crawl_dir.mkdir(parents=True)
+    (crawl_dir / "summary.json").write_text(json.dumps({"status": "success"}), encoding="utf-8")
+    (tmp_path / "subnets" / "94" / "score.json").write_text(json.dumps({"score": 42.0}), encoding="utf-8")
+
+    payload = get_subnet_dataset(tmp_path, 94, "summary")
+
+    assert payload == {"status": "success", "score": {"score": 42.0}}
 
 
 def test_sliding_window_rate_limiter_blocks_and_recovers():

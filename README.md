@@ -11,6 +11,7 @@ It is self-hosted. You provide the chain endpoint or JSON export, GitHub token, 
 - Treats `github_repo` as the highest-confidence field and scans `subnet_url`, `description`, `additional`, and `subnet_contact` as fallback fields.
 - Writes aggregate resolver outputs plus split outputs under `subnets/<netuid>/`.
 - Crawls each resolved subnet as its own `git-crawl` target.
+- Scores each subnet from credited git activity and writes score details into the API summaries.
 - Records missing or invalid GitHub metadata in `unresolved.json`.
 - Uses a built-in registry entry for subnet 64, Chutes AI, so SN64 resolves to the `https://github.com/chutesai` owner.
 
@@ -76,6 +77,7 @@ The API service mounts the same `tao-data` volume read-only and exposes frontend
 - `GET /api/subnets`
 - `GET /api/subnets/<netuid>`
 - `GET /api/subnets/<netuid>/summary`
+- `GET /api/subnets/<netuid>/score`
 - `GET /api/subnets/<netuid>/repositories?limit=100&offset=0`
 - `GET /api/subnets/<netuid>/commits?limit=100&offset=0`
 - `GET /api/subnets/<netuid>/contributors?limit=100&offset=0`
@@ -83,6 +85,28 @@ The API service mounts the same `tao-data` volume read-only and exposes frontend
 - `GET /api/subnets/<netuid>/org-days?limit=100&offset=0`
 - `GET /api/subnets/<netuid>/file-changes?limit=100&offset=0`
 - `GET /api/crawl-report`
+- `GET /api/scores`
+
+### Subnet Scores
+
+Each crawl writes `subnet-scores.json` plus `subnets/<netuid>/score.json`. The API also embeds the same score object in `/api/subnets`, `/api/subnets/<netuid>`, and `/api/subnets/<netuid>/summary`.
+
+Scores first use raw global-max normalization per metric across the full subnet population. The weighted metric composite is then rescaled so the top subnet score is `100.00`; the pre-rescale value is retained as `composite_score` for inspection. Unresolved GitHub metadata, missing crawl output, failed crawls, and subnets with no crawlable repositories score `0`.
+
+The weighted score is:
+
+| Metric | Weight |
+| ------ | ------ |
+| Average credited commits per active day | `25%` |
+| Credited file changes | `20%` |
+| Active days | `20%` |
+| Credited lines added | `15%` |
+| Repositories crawled | `10%` |
+| Distinct contributors | `10%` |
+
+Credited activity uses `git-crawl` path classification. When `file_changes.jsonl` is available, the scorer excludes rows marked binary, lockfile, generated, vendored, or spec/schema-like before counting file changes, lines, active days, contributors, and commits-per-active-day. If only `summary.json` is available, it falls back to the already-filtered aggregate totals. The default `source_like` crawl filter applies the same noise policy before outputs are written.
+
+Percentile rank is computed across every subnet after final scores are calculated.
 
 ### API Exposure
 
@@ -136,7 +160,7 @@ docker run -d \
 
 ## Local CLI
 
-Use the local Python CLI for development, fixture checks, and one-off runs.
+Use the local Python CLI for one-off runs outside Docker.
 
 Python 3.12+ is required.
 
