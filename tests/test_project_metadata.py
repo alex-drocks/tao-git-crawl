@@ -36,9 +36,12 @@ def test_changelog_is_ready_for_release_notes_and_packaged_in_sdist():
     metadata = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))
     changelog = Path('CHANGELOG.md').read_text(encoding='utf-8')
 
+    assert metadata['project']['version'] == '0.1.1'
     assert '## [Unreleased]' in changelog
+    assert '## [0.1.1] - 2026-05-22' in changelog
     assert '## [0.1.0] - 2026-05-22' in changelog
-    assert '[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.1.0...HEAD' in changelog
+    assert '[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.1.1...HEAD' in changelog
+    assert '[0.1.1]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.1.0...v0.1.1' in changelog
     assert '[0.1.0]: https://github.com/alex-drocks/tao-git-crawl/releases/tag/v0.1.0' in changelog
     assert '/CHANGELOG.md' in metadata['tool']['hatch']['build']['targets']['sdist']['include']
     assert metadata['project']['urls']['Changelog'].endswith('/CHANGELOG.md')

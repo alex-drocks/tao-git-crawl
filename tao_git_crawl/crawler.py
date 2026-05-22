@@ -130,6 +130,14 @@ def crawl_resolved_subnets(
     failed: list[SubnetCrawlFailure] = []
     skipped_inaccessible: list[SubnetCrawlSkip] = []
     unresolved_netuids = {item.netuid for item in document.unresolved}
+    _publish_progress_outputs(
+        document,
+        output_path,
+        succeeded=succeeded,
+        failed=failed,
+        skipped_unresolved_netuids=unresolved_netuids,
+        skipped_inaccessible=skipped_inaccessible,
+    )
 
     for netuid in document.netuids:
         subnet_document = document.for_netuid(netuid)
@@ -150,6 +158,14 @@ def crawl_resolved_subnets(
                 for reason in resolution.skipped_inaccessible
             )
             if not resolution.repositories and resolution.skipped_inaccessible:
+                _publish_progress_outputs(
+                    document,
+                    output_path,
+                    succeeded=succeeded,
+                    failed=failed,
+                    skipped_unresolved_netuids=unresolved_netuids,
+                    skipped_inaccessible=skipped_inaccessible,
+                )
                 continue
             result = crawl_repositories(
                 target_label,
@@ -188,6 +204,14 @@ def crawl_resolved_subnets(
             )
             if result.run.status == "success":
                 succeeded.append(success)
+                _publish_progress_outputs(
+                    document,
+                    output_path,
+                    succeeded=succeeded,
+                    failed=failed,
+                    skipped_unresolved_netuids=unresolved_netuids,
+                    skipped_inaccessible=skipped_inaccessible,
+                )
                 continue
             failed.append(
                 SubnetCrawlFailure(
@@ -196,29 +220,59 @@ def crawl_resolved_subnets(
                     reason=_crawl_status_failure_reason(result),
                 )
             )
+            _publish_progress_outputs(
+                document,
+                output_path,
+                succeeded=succeeded,
+                failed=failed,
+                skipped_unresolved_netuids=unresolved_netuids,
+                skipped_inaccessible=skipped_inaccessible,
+            )
             if fail_fast:
                 break
         except Exception as exc:  # noqa: BLE001 - per-subnet failures should not abort the whole dataset
             failed.append(SubnetCrawlFailure(netuid=netuid, target_label=target_label, reason=redact_text(exc)))
+            _publish_progress_outputs(
+                document,
+                output_path,
+                succeeded=succeeded,
+                failed=failed,
+                skipped_unresolved_netuids=unresolved_netuids,
+                skipped_inaccessible=skipped_inaccessible,
+            )
             if fail_fast:
                 break
 
-    report = SubnetCrawlReport(
+    return _publish_progress_outputs(
+        document,
+        output_path,
         succeeded=succeeded,
         failed=failed,
-        skipped_unresolved_netuids=sorted(unresolved_netuids),
+        skipped_unresolved_netuids=unresolved_netuids,
         skipped_inaccessible=skipped_inaccessible,
+    )
+
+
+def _publish_progress_outputs(
+    document: ResolutionDocument,
+    output_path: Path,
+    *,
+    succeeded: list[SubnetCrawlSuccess],
+    failed: list[SubnetCrawlFailure],
+    skipped_unresolved_netuids: set[int],
+    skipped_inaccessible: list[SubnetCrawlSkip],
+) -> SubnetCrawlReport:
+    report = SubnetCrawlReport(
+        succeeded=list(succeeded),
+        failed=list(failed),
+        skipped_unresolved_netuids=sorted(skipped_unresolved_netuids),
+        skipped_inaccessible=list(skipped_inaccessible),
+        report_path=output_path / "crawl-report.json",
     )
     report_path = output_path / "crawl-report.json"
     _write_report(report_path, report.to_dict())
     write_score_outputs(document, output_path)
-    return SubnetCrawlReport(
-        succeeded=report.succeeded,
-        failed=report.failed,
-        skipped_unresolved_netuids=report.skipped_unresolved_netuids,
-        skipped_inaccessible=report.skipped_inaccessible,
-        report_path=report_path,
-    )
+    return report
 
 
 def _resolve_repositories_for_subnet(
