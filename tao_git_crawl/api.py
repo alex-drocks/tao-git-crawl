@@ -402,7 +402,18 @@ def _subnet_name(targets: object, unresolved: object) -> str:
 def _subnet_files(subnet_dir: Path) -> list[str]:
     if not subnet_dir.exists():
         return []
-    return sorted(str(path.relative_to(subnet_dir)) for path in subnet_dir.rglob("*") if path.is_file())
+    files: list[str] = []
+    for path in subnet_dir.iterdir():
+        if path.is_file():
+            files.append(str(path.relative_to(subnet_dir)))
+        elif path.name == "crawl":
+            files.append("crawl/")
+            # Do not recurse into crawl/ to avoid listing large JSONL/CSV outputs.
+        else:
+            files.extend(
+                str(item.relative_to(subnet_dir)) for item in path.rglob("*") if item.is_file()
+            )
+    return sorted(files)
 
 
 def _subnet_endpoints(netuid: int) -> dict[str, str]:

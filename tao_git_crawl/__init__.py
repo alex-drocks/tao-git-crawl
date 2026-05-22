@@ -1,3 +1,5 @@
+from importlib.metadata import version as _version
+
 from .crawler import SubnetCrawlReport, crawl_resolved_subnets
 from .models import GitHubTarget, SubnetIdentityRecord, UnresolvedSubnetRecord
 from .overrides import ResolverConfig, SubnetOverride, TargetOverride, load_resolver_config
@@ -15,4 +17,7 @@ __all__ = [
     "crawl_resolved_subnets",
     "resolve_subnets",
 ]
-__version__ = "0.1.0"
+try:
+    __version__ = _version("tao-git-crawl")
+except Exception:  # pragma: no cover
+    __version__ = "0.0.0"
