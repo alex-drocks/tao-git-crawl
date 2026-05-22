@@ -11,6 +11,10 @@ from tao_git_crawl.api import (
 )
 
 
+def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
+    path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+
 def test_list_subnets_includes_summary_and_target_counts(tmp_path):
     subnet_dir = tmp_path / "subnets" / "94"
     crawl_dir = subnet_dir / "crawl"
@@ -68,6 +72,7 @@ def test_list_subnets_includes_summary_and_target_counts(tmp_path):
     assert subnet["owner_target_count"] == 1
     assert subnet["unresolved_count"] == 0
     assert subnet["activity"]["activity_scope"] == "code_changes"
+    assert subnet["activity"]["calculation_source"] == "summary"
     assert subnet["activity"]["totals"]["commits"] == 20
     assert subnet["activity"]["totals"]["file_changes"] == 40
     assert subnet["activity"]["averages"]["per_calendar_day"] == {
@@ -235,34 +240,95 @@ def test_activity_endpoint_returns_consistent_code_changes_activity_payload(tmp_
         ),
         encoding="utf-8",
     )
+    _write_jsonl(
+        crawl_dir / "file_changes.jsonl",
+        [
+            {
+                "repo": "owner/code",
+                "sha": "code-a",
+                "additions": 10,
+                "deletions": 1,
+                "path_class": "source",
+                "is_generated_like": False,
+            },
+            {
+                "repo": "owner/code",
+                "sha": "code-a",
+                "additions": 5,
+                "deletions": 2,
+                "path_class": "source",
+                "is_generated_like": False,
+            },
+            {
+                "repo": "owner/code",
+                "sha": "code-b",
+                "additions": 20,
+                "deletions": 3,
+                "path_class": "source",
+                "is_generated_like": False,
+            },
+            {
+                "repo": "owner/code",
+                "sha": "noise-c",
+                "additions": 1000,
+                "deletions": 500,
+                "path_class": "lockfile",
+                "is_generated_like": True,
+            },
+        ],
+    )
+    _write_jsonl(
+        crawl_dir / "commits.jsonl",
+        [
+            {
+                "repo": "owner/code",
+                "sha": "code-a",
+                "authored_at": "2025-01-01T10:00:00Z",
+                "author_login": "alice",
+            },
+            {
+                "repo": "owner/code",
+                "sha": "code-b",
+                "authored_at": "2025-01-02T10:00:00Z",
+                "author_email": "bob@example.com",
+            },
+            {
+                "repo": "owner/code",
+                "sha": "noise-c",
+                "authored_at": "2025-01-03T10:00:00Z",
+                "author_login": "build-bot",
+            },
+        ],
+    )
 
     payload = get_subnet_dataset(tmp_path, 64, "activity")
 
     assert payload["schema_version"] == "tao-git-crawl-activity-v1"
     assert payload["activity_scope"] == "code_changes"
+    assert payload["calculation_source"] == "jsonl"
     assert payload["history"]["since"] == "2025-01-01"
     assert payload["repositories"]["crawled"] == 1
     assert payload["totals"] == {
-        "commits": 10,
-        "file_changes": 20,
-        "lines_added": 200,
-        "lines_deleted": 50,
+        "commits": 2,
+        "file_changes": 3,
+        "lines_added": 35,
+        "lines_deleted": 6,
         "active_days": 2,
         "repo_days": 2,
-        "contributor_days": 3,
+        "contributor_days": 2,
         "distinct_contributors": 2,
     }
     assert payload["averages"]["per_active_day"] == {
-        "commits": 5.0,
-        "file_changes": 10.0,
-        "lines_added": 100.0,
-        "lines_deleted": 25.0,
+        "commits": 1.0,
+        "file_changes": 1.5,
+        "lines_added": 17.5,
+        "lines_deleted": 3.0,
     }
     assert payload["averages"]["per_calendar_day"] == {
-        "commits": 2.0,
-        "file_changes": 4.0,
-        "lines_added": 40.0,
-        "lines_deleted": 10.0,
+        "commits": 0.4,
+        "file_changes": 0.6,
+        "lines_added": 7.0,
+        "lines_deleted": 1.2,
     }
     assert payload["churn_filter"]["excluded_classes"] == [
         "binary",

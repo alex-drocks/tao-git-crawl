@@ -27,6 +27,7 @@ Move entries into a dated version section when cutting the next tag.
 
 - Make subnet detail and summary responses expose the same `activity` payload so consumers no longer need to infer
   filtered activity metrics from raw git-crawl summary fields.
+- Derive activity commit, active-day, repo-day, and contributor counts from filtered JSONL rows when they are available.
 
 ## [0.1.1] - 2026-05-22
 

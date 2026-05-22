@@ -90,14 +90,15 @@ The API service mounts the same `tao-data` volume read-only and exposes frontend
 
 ### Subnet Activity
 
-Use `/api/subnets/<netuid>/activity` for frontend display of source-like git activity. The same `activity` object is also embedded in `/api/subnets`, `/api/subnets/<netuid>`, and `/api/subnets/<netuid>/summary`.
+Use `/api/subnets/<netuid>/activity` for frontend display of code-change git activity. The same `activity` object is also embedded in `/api/subnets`, `/api/subnets/<netuid>`, and `/api/subnets/<netuid>/summary`.
 
 The activity payload exposes:
 
-- `totals`: commits, source-like file changes, lines added/deleted, active days, repo days, contributor days, and distinct contributors.
+- `totals`: commits, filtered file changes, lines added/deleted, active days, repo days, contributor days, and distinct contributors.
 - `averages.per_active_day`: commits, file changes, and line churn divided by active days.
 - `averages.per_calendar_day`, `per_calendar_week`, and `per_calendar_month`: the same metrics divided by the crawl calendar span.
 - `churn_filter`: the excluded path classes plus generated-like totals that are not included in activity totals or averages.
+- `calculation_source`: `jsonl` when detailed crawl rows were available, otherwise `summary`.
 
 `activity.activity_scope` is `code_changes`. Binary, lockfile, generated, vendored, and spec/schema-like changes are excluded when path classification is available. These are git churn metrics, not current source lines of code.
 
