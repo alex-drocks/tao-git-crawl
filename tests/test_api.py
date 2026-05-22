@@ -66,7 +66,10 @@ def test_get_subnet_detail_omits_crawl_directory_contents_for_performance(tmp_pa
     crawl_dir = subnet_dir / "crawl"
     crawl_dir.mkdir(parents=True)
     (crawl_dir / "summary.json").write_text("{}", encoding="utf-8")
-    (crawl_dir / "commits.jsonl").write_text("\n".join(json.dumps({"sha": i}) for i in range(500)) + "\n", encoding="utf-8")
+    (crawl_dir / "commits.jsonl").write_text(
+        "\n".join(json.dumps({"sha": i}) for i in range(500)) + "\n",
+        encoding="utf-8",
+    )
     (subnet_dir / "subnet-targets.json").write_text(json.dumps({"targets": []}), encoding="utf-8")
 
     detail = get_subnet_detail(tmp_path, 94)
