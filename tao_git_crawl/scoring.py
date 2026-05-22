@@ -56,7 +56,7 @@ def build_score_document(document: ResolutionDocument, output_dir: str | Path) -
     inputs = [_score_input_for_netuid(document, output_path, netuid) for netuid in document.netuids]
     metric_maxima = _metric_maxima(inputs)
     raw_scores = [_score_input(input_item, metric_maxima) for input_item in inputs]
-    scores = _with_final_scores_and_percentiles(raw_scores)
+    scores = _with_final_scores_ranks_and_percentiles(raw_scores)
     return {
         "schema_version": SCORE_SCHEMA_VERSION,
         "target": document.target_label,
@@ -67,6 +67,7 @@ def build_score_document(document: ResolutionDocument, output_dir: str | Path) -
         "normalization": {
             "metric_method": "global_max",
             "score_method": "max_weighted_composite_to_100",
+            "rank_method": "competition_score_desc",
             "metric_maxima": metric_maxima,
         },
         "weights": SCORE_WEIGHTS,
@@ -256,6 +257,8 @@ def _score_input(input_item: SubnetScoreInput, metric_maxima: dict[str, float]) 
         "status": input_item.status,
         "score": 0.0,
         "composite_score": round(composite_score, 2),
+        "rank": 0,
+        "rank_total": 0,
         "percentile": 0.0,
         "raw_metrics": _rounded_metrics(input_item.raw_metrics),
         "normalized_metrics": _rounded_metrics(normalized_metrics),
@@ -267,13 +270,14 @@ def _score_input(input_item: SubnetScoreInput, metric_maxima: dict[str, float]) 
     return payload
 
 
-def _with_final_scores_and_percentiles(scores: list[dict[str, object]]) -> list[dict[str, object]]:
+def _with_final_scores_ranks_and_percentiles(scores: list[dict[str, object]]) -> list[dict[str, object]]:
     max_composite = max((float(score["composite_score"]) for score in scores), default=0.0)
     for score in scores:
         composite_score = float(score["composite_score"])
         score["score"] = round((100 * composite_score) / max_composite, 2) if max_composite > 0 else 0.0
 
     total = len(scores)
+    _apply_ranks(scores)
     if total <= 1:
         for score in scores:
             score["percentile"] = 100.0 if float(score["score"]) > 0 else 0.0
@@ -285,6 +289,23 @@ def _with_final_scores_and_percentiles(scores: list[dict[str, object]]) -> list[
         lower_count = sum(1 for other in numeric_scores if other < value)
         score["percentile"] = round((100 * lower_count) / (total - 1), 2)
     return scores
+
+
+def _apply_ranks(scores: list[dict[str, object]]) -> None:
+    total = len(scores)
+    ranked_scores = sorted(
+        scores,
+        key=lambda score: (-float(score["score"]), int(score["netuid"])),
+    )
+    previous_score: float | None = None
+    current_rank = 0
+    for position, score in enumerate(ranked_scores, start=1):
+        score_value = float(score["score"])
+        if previous_score is None or score_value != previous_score:
+            current_rank = position
+            previous_score = score_value
+        score["rank"] = current_rank
+        score["rank_total"] = total
 
 
 def _metric_maxima(inputs: list[SubnetScoreInput]) -> dict[str, float]:

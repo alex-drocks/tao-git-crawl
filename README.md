@@ -91,7 +91,7 @@ The API service mounts the same `tao-data` volume read-only and exposes frontend
 
 Each crawl writes `subnet-scores.json` plus `subnets/<netuid>/score.json`. The API also embeds the same score object in `/api/subnets`, `/api/subnets/<netuid>`, and `/api/subnets/<netuid>/summary`.
 
-Scores first use raw global-max normalization per metric across the full subnet population. The weighted metric composite is then rescaled so the top subnet score is `100.00`; the pre-rescale value is retained as `composite_score` for inspection. Unresolved GitHub metadata, missing crawl output, failed crawls, and subnets with no crawlable repositories score `0`.
+Scores first use raw global-max normalization per metric across the full subnet population. The weighted metric composite is then rescaled so the top subnet score is `100.00`; the pre-rescale value is retained as `composite_score` for inspection. Each score also includes `rank` and `rank_total` fields for frontend display, where rank `1` is the top subnet and equal scores share the same rank. Unresolved GitHub metadata, missing crawl output, failed crawls, and subnets with no crawlable repositories score `0`.
 
 The weighted score is:
 
@@ -106,7 +106,7 @@ The weighted score is:
 
 Credited activity uses `git-crawl` path classification. When `file_changes.jsonl` is available, the scorer excludes rows marked binary, lockfile, generated, vendored, or spec/schema-like before counting file changes, lines, active days, contributors, and commits-per-active-day. If only `summary.json` is available, it falls back to the already-filtered aggregate totals. The default `source_like` crawl filter applies the same noise policy before outputs are written.
 
-Percentile rank is computed across every subnet after final scores are calculated.
+Percentile rank is still computed across every subnet after final scores are calculated for consumers that need it.
 
 ### API Exposure
 

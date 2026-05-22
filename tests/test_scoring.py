@@ -98,6 +98,7 @@ def test_build_score_document_uses_global_raw_max_and_full_population(tmp_path):
     scores = {item["netuid"]: item for item in score_document["scores"]}
     assert score_document["normalization"]["metric_method"] == "global_max"
     assert score_document["normalization"]["score_method"] == "max_weighted_composite_to_100"
+    assert score_document["normalization"]["rank_method"] == "competition_score_desc"
     assert score_document["normalization"]["metric_maxima"] == {
         "active_days": 2.0,
         "avg_credited_commits_per_active_day": 1.5,
@@ -108,15 +109,21 @@ def test_build_score_document_uses_global_raw_max_and_full_population(tmp_path):
     }
     assert scores[1]["score"] == 100.0
     assert scores[1]["composite_score"] == 100.0
+    assert scores[1]["rank"] == 1
+    assert scores[1]["rank_total"] == 3
     assert scores[1]["percentile"] == 100.0
     assert scores[1]["raw_metrics"]["avg_credited_commits_per_active_day"] == 1.5
     assert scores[1]["raw_metrics"]["active_days"] == 2.0
     assert scores[1]["raw_metrics"]["distinct_contributors"] == 2.0
     assert scores[2]["score"] == 54.17
     assert scores[2]["composite_score"] == 54.17
+    assert scores[2]["rank"] == 2
+    assert scores[2]["rank_total"] == 3
     assert scores[2]["percentile"] == 50.0
     assert scores[3]["score"] == 0.0
     assert scores[3]["composite_score"] == 0.0
+    assert scores[3]["rank"] == 3
+    assert scores[3]["rank_total"] == 3
     assert scores[3]["status"] == "unresolved"
     assert scores[3]["percentile"] == 0.0
 
@@ -160,8 +167,44 @@ def test_score_is_rescaled_so_top_composite_is_100(tmp_path):
 
     assert scores[2]["composite_score"] == 73.0
     assert scores[2]["score"] == 100.0
+    assert scores[2]["rank"] == 1
     assert scores[1]["composite_score"] == 65.5
     assert scores[1]["score"] == 89.73
+    assert scores[1]["rank"] == 2
+
+
+def test_equal_scores_share_the_same_rank(tmp_path):
+    document = resolve_subnets(
+        [
+            SubnetIdentityRecord(netuid=1, subnet_name="Alpha", github_repo="https://github.com/acme/alpha"),
+            SubnetIdentityRecord(netuid=2, subnet_name="Beta", github_repo="https://github.com/acme/beta"),
+            SubnetIdentityRecord(netuid=3, subnet_name="Missing"),
+        ],
+        target_label="bittensor-subnets",
+    )
+    alpha_crawl = _write_summary(tmp_path, 1, repos_crawled=1, file_changes=10, lines_added=100)
+    beta_crawl = _write_summary(tmp_path, 2, repos_crawled=1, file_changes=10, lines_added=100)
+    for crawl_dir, sha in [(alpha_crawl, "a"), (beta_crawl, "b")]:
+        _write_commits(
+            crawl_dir,
+            [
+                {
+                    "sha": sha,
+                    "authored_at": "2026-01-01T00:00:00+00:00",
+                    "author_login": "dev",
+                    "files_changed": 1,
+                }
+            ],
+        )
+
+    scores = {item["netuid"]: item for item in build_score_document(document, tmp_path)["scores"]}
+
+    assert scores[1]["score"] == 100.0
+    assert scores[2]["score"] == 100.0
+    assert scores[1]["rank"] == 1
+    assert scores[2]["rank"] == 1
+    assert scores[3]["rank"] == 3
+    assert scores[1]["rank_total"] == 3
 
 
 def test_write_score_outputs_writes_aggregate_and_per_subnet_files(tmp_path):
@@ -188,6 +231,8 @@ def test_write_score_outputs_writes_aggregate_and_per_subnet_files(tmp_path):
     assert tmp_path / "subnets" / "1" / "score.json" in written
     score = json.loads((tmp_path / "subnets" / "1" / "score.json").read_text(encoding="utf-8"))
     assert score["score"] == 100.0
+    assert score["rank"] == 1
+    assert score["rank_total"] == 1
 
 
 def test_score_prefers_git_crawl_path_classification_when_file_changes_are_available(tmp_path):

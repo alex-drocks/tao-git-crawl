@@ -18,6 +18,11 @@ Move entries into a dated version section when cutting the next tag.
 
 ## [0.1.1] - 2026-05-22
 
+### Added
+
+- Add `rank` and `rank_total` fields to subnet score payloads so frontend consumers can display a simple
+  top-to-bottom subnet rank alongside the numeric score.
+
 ### Fixed
 
 - Publish crawl reports and subnet score outputs incrementally during long scheduler runs so the API can serve
