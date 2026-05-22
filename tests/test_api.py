@@ -50,7 +50,16 @@ def test_list_subnets_includes_summary_and_target_counts(tmp_path):
                     "contributor_days": 7,
                     "distinct_contributor_keys": 2,
                 },
-                "source_like_totals": {"file_changes": 40, "lines_added": 400, "lines_deleted": 20},
+                "source_like_totals": {
+                    "commits": 20,
+                    "file_changes": 40,
+                    "lines_added": 400,
+                    "lines_deleted": 20,
+                    "active_days": 5,
+                    "repo_days": 6,
+                    "contributor_days": 7,
+                    "distinct_contributors": 2,
+                },
                 "generated_like_totals": {"file_changes": 9, "lines_added": 90, "lines_deleted": 8},
             }
         ),
@@ -196,7 +205,14 @@ def test_summary_endpoint_includes_score_when_available(tmp_path):
                     "active_days": 2,
                     "distinct_contributor_keys": 1,
                 },
-                "source_like_totals": {"file_changes": 8, "lines_added": 16, "lines_deleted": 2},
+                "source_like_totals": {
+                    "commits": 6,
+                    "file_changes": 8,
+                    "lines_added": 16,
+                    "lines_deleted": 2,
+                    "active_days": 2,
+                    "distinct_contributors": 1,
+                },
             }
         ),
         encoding="utf-8",
@@ -269,11 +285,29 @@ def test_activity_endpoint_returns_consistent_code_changes_activity_payload(tmp_
             },
             {
                 "repo": "owner/code",
+                "sha": "code-b",
+                "additions": 0,
+                "lines_added": 999,
+                "deletions": 0,
+                "lines_deleted": 999,
+                "path_class": "source",
+                "is_generated_like": False,
+            },
+            {
+                "repo": "owner/code",
                 "sha": "noise-c",
                 "additions": 1000,
                 "deletions": 500,
                 "path_class": "lockfile",
                 "is_generated_like": True,
+            },
+            {
+                "repo": "owner/code",
+                "sha": "schema-d",
+                "additions": 800,
+                "deletions": 400,
+                "path_class": "spec/schema-like",
+                "is_generated_like": False,
             },
         ],
     )
@@ -298,6 +332,12 @@ def test_activity_endpoint_returns_consistent_code_changes_activity_payload(tmp_
                 "authored_at": "2025-01-03T10:00:00Z",
                 "author_login": "build-bot",
             },
+            {
+                "repo": "owner/code",
+                "sha": "schema-d",
+                "authored_at": "2025-01-04T10:00:00Z",
+                "author_login": "schema-bot",
+            },
         ],
     )
 
@@ -310,7 +350,7 @@ def test_activity_endpoint_returns_consistent_code_changes_activity_payload(tmp_
     assert payload["repositories"]["crawled"] == 1
     assert payload["totals"] == {
         "commits": 2,
-        "file_changes": 3,
+        "file_changes": 4,
         "lines_added": 35,
         "lines_deleted": 6,
         "active_days": 2,
@@ -320,13 +360,13 @@ def test_activity_endpoint_returns_consistent_code_changes_activity_payload(tmp_
     }
     assert payload["averages"]["per_active_day"] == {
         "commits": 1.0,
-        "file_changes": 1.5,
+        "file_changes": 2.0,
         "lines_added": 17.5,
         "lines_deleted": 3.0,
     }
     assert payload["averages"]["per_calendar_day"] == {
         "commits": 0.4,
-        "file_changes": 0.6,
+        "file_changes": 0.8,
         "lines_added": 7.0,
         "lines_deleted": 1.2,
     }
@@ -338,6 +378,139 @@ def test_activity_endpoint_returns_consistent_code_changes_activity_payload(tmp_
         "spec/schema-like",
     ]
     assert payload["churn_filter"]["excluded_totals_are_included_in_activity"] is False
+
+
+def test_summary_activity_matches_activity_endpoint_when_jsonl_rows_exist(tmp_path):
+    crawl_dir = tmp_path / "subnets" / "94" / "crawl"
+    crawl_dir.mkdir(parents=True)
+    (crawl_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "status": "success",
+                "calendar_span": {"days": 1, "weeks": 1, "months": 1},
+                "repositories": {"crawled": 1},
+                "totals": {"commits": 99, "file_changes": 99, "lines_added": 99, "active_days": 99},
+                "source_like_totals": {"commits": 9, "file_changes": 9, "lines_added": 9, "active_days": 9},
+            }
+        ),
+        encoding="utf-8",
+    )
+    _write_jsonl(
+        crawl_dir / "file_changes.jsonl",
+        [
+            {
+                "repo": "owner/code",
+                "sha": "code-a",
+                "additions": 3,
+                "deletions": 1,
+                "path_class": "source",
+                "is_generated_like": False,
+            },
+            {
+                "repo": "owner/code",
+                "sha": "lock-b",
+                "additions": 300,
+                "deletions": 100,
+                "path_class": "lockfile",
+                "is_generated_like": True,
+            },
+        ],
+    )
+    _write_jsonl(
+        crawl_dir / "commits.jsonl",
+        [
+            {
+                "repo": "owner/code",
+                "sha": "code-a",
+                "authored_at": "2025-01-01T10:00:00Z",
+                "author_login": "dev",
+            },
+            {
+                "repo": "owner/code",
+                "sha": "lock-b",
+                "authored_at": "2025-01-02T10:00:00Z",
+                "author_login": "bot",
+            },
+        ],
+    )
+    (tmp_path / "subnets" / "94" / "score.json").write_text(json.dumps({"score": 42.0}), encoding="utf-8")
+
+    summary_payload = get_subnet_dataset(tmp_path, 94, "summary")
+    activity_payload = get_subnet_dataset(tmp_path, 94, "activity")
+
+    assert summary_payload["activity"] == activity_payload
+    assert activity_payload["calculation_source"] == "jsonl"
+    assert activity_payload["totals"]["commits"] == 1
+    assert activity_payload["totals"]["file_changes"] == 1
+
+
+def test_activity_does_not_fall_back_to_raw_churn_totals(tmp_path):
+    crawl_dir = tmp_path / "subnets" / "94" / "crawl"
+    crawl_dir.mkdir(parents=True)
+    (crawl_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "status": "success",
+                "calendar_span": {"days": 7, "weeks": 1, "months": 1},
+                "repositories": {"crawled": 1},
+                "totals": {
+                    "commits": 30,
+                    "file_changes": 500,
+                    "lines_added": 10000,
+                    "lines_deleted": 2000,
+                    "active_days": 7,
+                    "repo_days": 7,
+                    "contributor_days": 10,
+                    "distinct_contributor_keys": 4,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = get_subnet_dataset(tmp_path, 94, "activity")
+
+    assert payload["calculation_source"] == "unavailable"
+    assert payload["totals"] == {
+        "commits": 0,
+        "file_changes": 0,
+        "lines_added": 0,
+        "lines_deleted": 0,
+        "active_days": 0,
+        "repo_days": 0,
+        "contributor_days": 0,
+        "distinct_contributors": 0,
+    }
+
+
+def test_activity_marks_present_empty_source_like_totals_as_summary_source(tmp_path):
+    crawl_dir = tmp_path / "subnets" / "94" / "crawl"
+    crawl_dir.mkdir(parents=True)
+    (crawl_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "status": "success",
+                "repositories": {"crawled": 1},
+                "totals": {"commits": 3, "file_changes": 100, "lines_added": 500, "active_days": 2},
+                "source_like_totals": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = get_subnet_dataset(tmp_path, 94, "activity")
+
+    assert payload["calculation_source"] == "summary"
+    assert payload["totals"] == {
+        "commits": 0,
+        "file_changes": 0,
+        "lines_added": 0,
+        "lines_deleted": 0,
+        "active_days": 0,
+        "repo_days": 0,
+        "contributor_days": 0,
+        "distinct_contributors": 0,
+    }
 
 
 def test_sliding_window_rate_limiter_blocks_and_recovers():

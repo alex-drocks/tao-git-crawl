@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from .activity_filter import is_noise_change
 from .resolver import ResolutionDocument
 
 SCORE_SCHEMA_VERSION = "tao-git-crawl-score-v2"
@@ -126,18 +127,24 @@ def _credited_metrics_from_outputs(subnet_dir: Path, summary: dict[str, object])
         return jsonl_metrics
 
     repositories = _mapping(summary.get("repositories"))
-    totals = _mapping(summary.get("totals"))
-    fallback_credited_totals = _mapping(summary.get("source_like_totals")) or totals
-
-    commit_metrics = _credited_commit_metrics_from_jsonl(subnet_dir / "crawl" / "commits.jsonl")
-    if commit_metrics is None:
-        credited_commits = _number(totals.get("commits"))
-        active_days = _number(totals.get("active_days"))
-        distinct_contributors = _number(totals.get("distinct_contributor_keys"))
-    else:
-        credited_commits = commit_metrics["credited_commits"]
-        active_days = commit_metrics["active_days"]
-        distinct_contributors = commit_metrics["distinct_contributors"]
+    fallback_credited_totals = _mapping(summary.get("source_like_totals"))
+    credited_commits = _number(fallback_credited_totals.get("commits"))
+    active_days = _number(fallback_credited_totals.get("active_days"))
+    distinct_contributors = _number_from_keys(
+        fallback_credited_totals,
+        "distinct_contributors",
+        "distinct_contributor_keys",
+    )
+    has_credited_activity = any(
+        value > 0
+        for value in (
+            credited_commits,
+            _number(fallback_credited_totals.get("file_changes")),
+            _number(fallback_credited_totals.get("lines_added")),
+            active_days,
+            distinct_contributors,
+        )
+    )
 
     avg_commits_per_active_day = credited_commits / active_days if active_days > 0 else 0.0
     return {
@@ -145,7 +152,7 @@ def _credited_metrics_from_outputs(subnet_dir: Path, summary: dict[str, object])
         "credited_file_changes": _number(fallback_credited_totals.get("file_changes")),
         "active_days": active_days,
         "credited_lines_added": _number(fallback_credited_totals.get("lines_added")),
-        "repos_crawled": _number(repositories.get("crawled")),
+        "repos_crawled": _number(repositories.get("crawled")) if has_credited_activity else 0.0,
         "distinct_contributors": distinct_contributors,
     }
 
@@ -165,10 +172,10 @@ def _credited_metrics_from_jsonl(crawl_dir: Path, summary: dict[str, object]) ->
             if not line.strip():
                 continue
             row = json.loads(line)
-            if not isinstance(row, dict) or _is_noise_change(row):
+            if not isinstance(row, dict) or is_noise_change(row):
                 continue
             credited_file_changes += 1
-            credited_lines_added += _number(row.get("additions"))
+            credited_lines_added += _number_from_keys(row, "additions", "lines_added")
             repo = str(row.get("repo", ""))
             sha = str(row.get("sha", ""))
             if repo and sha:
@@ -195,51 +202,17 @@ def _credited_metrics_from_jsonl(crawl_dir: Path, summary: dict[str, object]) ->
             contributors.add(_contributor_key(row))
 
     active_day_count = float(len(active_days))
+    has_credited_activity = credited_file_changes > 0 or credited_commits > 0 or credited_lines_added > 0
     return {
         "avg_credited_commits_per_active_day": credited_commits / active_day_count if active_day_count > 0 else 0.0,
         "credited_file_changes": float(credited_file_changes),
         "active_days": active_day_count,
         "credited_lines_added": credited_lines_added,
-        "repos_crawled": _number(_mapping(summary.get("repositories")).get("crawled")),
+        "repos_crawled": (
+            _number(_mapping(summary.get("repositories")).get("crawled")) if has_credited_activity else 0.0
+        ),
         "distinct_contributors": float(len(contributors)),
     }
-
-
-def _credited_commit_metrics_from_jsonl(path: Path) -> dict[str, float] | None:
-    if not path.exists():
-        return None
-
-    credited_commits = 0
-    active_days: set[str] = set()
-    contributors: set[str] = set()
-
-    with path.open(encoding="utf-8") as handle:
-        for line in handle:
-            if not line.strip():
-                continue
-            row = json.loads(line)
-            if not isinstance(row, dict):
-                continue
-            if _number(row.get("files_changed")) <= 0:
-                continue
-            credited_commits += 1
-            authored_day = _authored_day(row.get("authored_at"))
-            if authored_day:
-                active_days.add(authored_day)
-            contributors.add(_contributor_key(row))
-
-    return {
-        "credited_commits": float(credited_commits),
-        "active_days": float(len(active_days)),
-        "distinct_contributors": float(len(contributors)),
-    }
-
-
-def _is_noise_change(row: dict[str, object]) -> bool:
-    if row.get("is_binary") is True or row.get("is_generated_like") is True:
-        return True
-    return str(row.get("path_class", "")).lower() in {"binary", "lockfile", "generated", "spec", "vendored"}
-
 
 def _score_input(input_item: SubnetScoreInput, metric_maxima: dict[str, float]) -> dict[str, object]:
     normalized_metrics = {
@@ -345,6 +318,13 @@ def _number(value: object) -> float:
         return 0.0
     if isinstance(value, int | float):
         return float(value)
+    return 0.0
+
+
+def _number_from_keys(values: dict[str, Any], *keys: str) -> float:
+    for key in keys:
+        if key in values:
+            return _number(values.get(key))
     return 0.0
 
 

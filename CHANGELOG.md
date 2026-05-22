@@ -28,6 +28,8 @@ Move entries into a dated version section when cutting the next tag.
 - Make subnet detail and summary responses expose the same `activity` payload so consumers no longer need to infer
   filtered activity metrics from raw git-crawl summary fields.
 - Derive activity commit, active-day, repo-day, and contributor counts from filtered JSONL rows when they are available.
+- Keep public activity and score metrics from falling back to raw churn totals when filtered source-like data is missing.
+- Only credit crawled repositories in scores when they have credited code activity in the scoring window.
 
 ## [0.1.1] - 2026-05-22
 
