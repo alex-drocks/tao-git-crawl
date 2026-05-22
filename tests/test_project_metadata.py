@@ -32,6 +32,18 @@ def test_local_runtime_state_paths_are_ignored():
     assert '.state/' in dockerignore
 
 
+def test_changelog_is_ready_for_release_notes_and_packaged_in_sdist():
+    metadata = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))
+    changelog = Path('CHANGELOG.md').read_text(encoding='utf-8')
+
+    assert '## [Unreleased]' in changelog
+    assert '## [0.1.0] - 2026-05-22' in changelog
+    assert '[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.1.0...HEAD' in changelog
+    assert '[0.1.0]: https://github.com/alex-drocks/tao-git-crawl/releases/tag/v0.1.0' in changelog
+    assert '/CHANGELOG.md' in metadata['tool']['hatch']['build']['targets']['sdist']['include']
+    assert metadata['project']['urls']['Changelog'].endswith('/CHANGELOG.md')
+
+
 def test_readme_manual_override_and_per_subnet_examples_match_cli_behavior():
     readme = Path('README.md').read_text(encoding='utf-8')
 

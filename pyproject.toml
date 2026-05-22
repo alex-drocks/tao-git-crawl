@@ -26,10 +26,12 @@ tao-git-crawl-api = "tao_git_crawl.api:main"
 [project.urls]
 Homepage = "https://github.com/alex-drocks/tao-git-crawl"
 Repository = "https://github.com/alex-drocks/tao-git-crawl"
+Changelog = "https://github.com/alex-drocks/tao-git-crawl/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.sdist]
 include = [
   "/.env.example",
+  "/CHANGELOG.md",
   "/README.md",
   "/LICENSE",
   "/docs",
