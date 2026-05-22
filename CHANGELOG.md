@@ -16,6 +16,18 @@ Move entries into a dated version section when cutting the next tag.
 
 ### Fixed
 
+## [0.2.0] - 2026-05-22
+
+### Added
+
+- Add a frontend-facing `activity` payload and `/api/subnets/<netuid>/activity` endpoint with source-like totals,
+  per-active-day averages, per-calendar day/week/month averages, repository counts, and explicit churn filter metadata.
+
+### Changed
+
+- Make subnet detail and summary responses expose the same `activity` payload so consumers no longer need to infer
+  filtered activity metrics from raw git-crawl summary fields.
+
 ## [0.1.1] - 2026-05-22
 
 ### Added
@@ -44,6 +56,7 @@ Move entries into a dated version section when cutting the next tag.
 
 - Keep local runtime state directories out of git and Docker build contexts.
 
-[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/alex-drocks/tao-git-crawl/releases/tag/v0.1.0

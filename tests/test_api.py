@@ -29,23 +29,67 @@ def test_list_subnets_includes_summary_and_target_counts(tmp_path):
         encoding="utf-8",
     )
     (subnet_dir / "unresolved.json").write_text("[]\n", encoding="utf-8")
-    (crawl_dir / "summary.json").write_text(json.dumps({"repositories": 3}), encoding="utf-8")
+    (crawl_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "status": "success",
+                "history_since": "2025-01-01",
+                "calendar_span": {"days": 10, "weeks": 2, "months": 1},
+                "repositories": {"discovered": 4, "selected": 3, "crawled": 3, "excluded": 1, "failed": 0},
+                "totals": {
+                    "commits": 20,
+                    "file_changes": 999,
+                    "lines_added": 9999,
+                    "lines_deleted": 888,
+                    "active_days": 5,
+                    "repo_days": 6,
+                    "contributor_days": 7,
+                    "distinct_contributor_keys": 2,
+                },
+                "source_like_totals": {"file_changes": 40, "lines_added": 400, "lines_deleted": 20},
+                "generated_like_totals": {"file_changes": 9, "lines_added": 90, "lines_deleted": 8},
+            }
+        ),
+        encoding="utf-8",
+    )
     (subnet_dir / "score.json").write_text(json.dumps({"score": 88.5, "percentile": 95.0}), encoding="utf-8")
 
-    assert list_subnets(tmp_path) == [
-        {
-            "netuid": 94,
-            "subnet_name": "Example subnet",
-            "has_crawl": True,
-            "has_summary": True,
-            "summary": {"repositories": 3, "score": {"score": 88.5, "percentile": 95.0}},
-            "score": {"score": 88.5, "percentile": 95.0},
-            "target_count": 1,
-            "repository_target_count": 0,
-            "owner_target_count": 1,
-            "unresolved_count": 0,
-        }
-    ]
+    payload = list_subnets(tmp_path)
+
+    assert len(payload) == 1
+    subnet = payload[0]
+    assert subnet["netuid"] == 94
+    assert subnet["subnet_name"] == "Example subnet"
+    assert subnet["has_crawl"] is True
+    assert subnet["has_summary"] is True
+    assert subnet["score"] == {"score": 88.5, "percentile": 95.0}
+    assert subnet["target_count"] == 1
+    assert subnet["repository_target_count"] == 0
+    assert subnet["owner_target_count"] == 1
+    assert subnet["unresolved_count"] == 0
+    assert subnet["activity"]["metric_scope"] == "source_like"
+    assert subnet["activity"]["totals"]["commits"] == 20
+    assert subnet["activity"]["totals"]["file_changes"] == 40
+    assert subnet["activity"]["averages"]["per_calendar_day"] == {
+        "commits": 2.0,
+        "file_changes": 4.0,
+        "lines_added": 40.0,
+        "lines_deleted": 2.0,
+    }
+    assert subnet["activity"]["averages"]["per_active_day"] == {
+        "commits": 4.0,
+        "file_changes": 8.0,
+        "lines_added": 80.0,
+        "lines_deleted": 4.0,
+    }
+    assert subnet["activity"]["churn_filter"]["excluded_generated_like_totals"] == {
+        "file_changes": 9,
+        "lines_added": 90,
+        "lines_deleted": 8,
+    }
+    assert subnet["activity"]["churn_filter"]["excluded_totals_are_included_in_activity"] is False
+    assert subnet["summary"]["activity"] == subnet["activity"]
+    assert subnet["summary"]["score"] == {"score": 88.5, "percentile": 95.0}
 
 
 def test_get_subnet_detail_lists_files_and_endpoints(tmp_path):
@@ -58,6 +102,7 @@ def test_get_subnet_detail_lists_files_and_endpoints(tmp_path):
 
     assert detail["files"] == ["subnet-targets.json", "unresolved.json"]
     assert detail["endpoints"]["summary"] == "/api/subnets/94/summary"
+    assert detail["endpoints"]["activity"] == "/api/subnets/94/activity"
     assert detail["endpoints"]["score"] == "/api/subnets/94/score"
 
 
@@ -132,12 +177,101 @@ def test_handle_api_request_returns_aggregate_scores(tmp_path):
 def test_summary_endpoint_includes_score_when_available(tmp_path):
     crawl_dir = tmp_path / "subnets" / "94" / "crawl"
     crawl_dir.mkdir(parents=True)
-    (crawl_dir / "summary.json").write_text(json.dumps({"status": "success"}), encoding="utf-8")
+    (crawl_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "status": "success",
+                "calendar_span": {"days": 2, "weeks": 1, "months": 1},
+                "repositories": {"crawled": 1},
+                "totals": {
+                    "commits": 6,
+                    "file_changes": 10,
+                    "lines_added": 20,
+                    "lines_deleted": 4,
+                    "active_days": 2,
+                    "distinct_contributor_keys": 1,
+                },
+                "source_like_totals": {"file_changes": 8, "lines_added": 16, "lines_deleted": 2},
+            }
+        ),
+        encoding="utf-8",
+    )
     (tmp_path / "subnets" / "94" / "score.json").write_text(json.dumps({"score": 42.0}), encoding="utf-8")
 
     payload = get_subnet_dataset(tmp_path, 94, "summary")
 
-    assert payload == {"status": "success", "score": {"score": 42.0}}
+    assert payload["status"] == "success"
+    assert payload["score"] == {"score": 42.0}
+    assert payload["activity"]["totals"]["file_changes"] == 8
+    assert payload["activity"]["averages"]["per_calendar_day"]["file_changes"] == 4.0
+    assert payload["activity"]["averages"]["per_active_day"]["commits"] == 3.0
+
+
+def test_activity_endpoint_returns_consistent_source_like_activity_payload(tmp_path):
+    crawl_dir = tmp_path / "subnets" / "64" / "crawl"
+    crawl_dir.mkdir(parents=True)
+    (crawl_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "status": "success",
+                "history_since": "2025-01-01",
+                "history_until": None,
+                "calendar_span": {"days": 5, "weeks": 1, "months": 1},
+                "repositories": {"discovered": 2, "selected": 1, "crawled": 1, "excluded": 1, "failed": 0},
+                "totals": {
+                    "commits": 10,
+                    "file_changes": 1000,
+                    "lines_added": 10000,
+                    "lines_deleted": 5000,
+                    "active_days": 2,
+                    "repo_days": 2,
+                    "contributor_days": 3,
+                    "distinct_contributor_keys": 2,
+                },
+                "source_like_totals": {"file_changes": 20, "lines_added": 200, "lines_deleted": 50},
+                "generated_like_totals": {"file_changes": 980, "lines_added": 9800, "lines_deleted": 4950},
+                "path_classes": {"source": {"files_changed": 20, "lines_added": 200, "lines_deleted": 50}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = get_subnet_dataset(tmp_path, 64, "activity")
+
+    assert payload["schema_version"] == "tao-git-crawl-activity-v1"
+    assert payload["metric_scope"] == "source_like"
+    assert payload["history"]["since"] == "2025-01-01"
+    assert payload["repositories"]["crawled"] == 1
+    assert payload["totals"] == {
+        "commits": 10,
+        "file_changes": 20,
+        "lines_added": 200,
+        "lines_deleted": 50,
+        "active_days": 2,
+        "repo_days": 2,
+        "contributor_days": 3,
+        "distinct_contributors": 2,
+    }
+    assert payload["averages"]["per_active_day"] == {
+        "commits": 5.0,
+        "file_changes": 10.0,
+        "lines_added": 100.0,
+        "lines_deleted": 25.0,
+    }
+    assert payload["averages"]["per_calendar_day"] == {
+        "commits": 2.0,
+        "file_changes": 4.0,
+        "lines_added": 40.0,
+        "lines_deleted": 10.0,
+    }
+    assert payload["churn_filter"]["excluded_classes"] == [
+        "binary",
+        "lockfile",
+        "generated",
+        "vendored",
+        "spec/schema-like",
+    ]
+    assert payload["churn_filter"]["excluded_totals_are_included_in_activity"] is False
 
 
 def test_sliding_window_rate_limiter_blocks_and_recovers():

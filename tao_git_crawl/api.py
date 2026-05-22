@@ -22,6 +22,8 @@ DEFAULT_LIMIT = 100
 MAX_LIMIT = 1000
 DEFAULT_RATE_LIMIT_REQUESTS = 1200
 DEFAULT_RATE_LIMIT_WINDOW_SECONDS = 60
+ACTIVITY_SCHEMA_VERSION = "tao-git-crawl-activity-v1"
+SOURCE_LIKE_EXCLUDED_CHURN_CLASSES = ("binary", "lockfile", "generated", "vendored", "spec/schema-like")
 
 JSON_DATASETS = {
     "summary": "summary.json",
@@ -127,6 +129,8 @@ def handle_api_request(output_dir: str | Path, raw_target: str) -> ApiResponse:
             netuid = _parse_netuid(parts[2])
             if len(parts) == 3:
                 return ApiResponse(HTTPStatus.OK, get_subnet_detail(output_path, netuid))
+            if len(parts) == 4 and parts[3] == "activity":
+                return ApiResponse(HTTPStatus.OK, get_subnet_activity(output_path, netuid))
             if len(parts) == 4:
                 return ApiResponse(HTTPStatus.OK, get_subnet_dataset(output_path, netuid, parts[3], query))
         raise ApiProblem(HTTPStatus.NOT_FOUND, "unknown endpoint")
@@ -155,6 +159,12 @@ def get_subnet_detail(output_dir: str | Path, netuid: int) -> dict[str, object]:
     return overview
 
 
+def get_subnet_activity(output_dir: str | Path, netuid: int) -> object:
+    subnet_dir = _subnet_dir(Path(output_dir), netuid)
+    summary = _read_json_required(subnet_dir / "crawl" / "summary.json")
+    return _activity_from_summary(summary)
+
+
 def get_subnet_dataset(
     output_dir: str | Path,
     netuid: int,
@@ -164,6 +174,9 @@ def get_subnet_dataset(
     subnet_dir = _subnet_dir(Path(output_dir), netuid)
     crawl_dir = subnet_dir / "crawl"
     query_params = query or {}
+
+    if dataset == "activity":
+        return _activity_from_summary(_read_json_required(crawl_dir / "summary.json"))
 
     if dataset in JSON_DATASETS:
         if dataset == "summary":
@@ -340,6 +353,7 @@ def _routes_payload() -> dict[str, object]:
             "/api/subnets",
             "/api/subnets/{netuid}",
             "/api/subnets/{netuid}/summary",
+            "/api/subnets/{netuid}/activity",
             "/api/subnets/{netuid}/score",
             "/api/subnets/{netuid}/repositories?limit=100&offset=0",
             "/api/subnets/{netuid}/commits?limit=100&offset=0",
@@ -378,6 +392,7 @@ def _subnet_overview(subnet_dir: Path) -> dict[str, object]:
         "subnet_name": _subnet_name(targets, unresolved),
         "has_crawl": (subnet_dir / "crawl").exists(),
         "has_summary": summary is not None,
+        "activity": _activity_from_summary(summary),
         "summary": _summary_with_score(summary, score),
         "score": score,
         "target_count": len(targets),
@@ -421,6 +436,7 @@ def _subnet_endpoints(netuid: int) -> dict[str, str]:
     endpoints = {
         "detail": base,
         "summary": f"{base}/summary",
+        "activity": f"{base}/activity",
         "targets": f"{base}/targets",
         "owner_targets": f"{base}/owner-targets",
         "repository_manifest": f"{base}/repository-manifest",
@@ -458,8 +474,88 @@ def _summary_with_score(summary: object, score: object | None) -> object:
     if not isinstance(summary, dict):
         return summary
     enriched = dict(summary)
+    enriched["activity"] = _activity_from_summary(summary)
     enriched["score"] = score
     return enriched
+
+
+def _activity_from_summary(summary: object) -> dict[str, object] | None:
+    if not isinstance(summary, dict):
+        return None
+
+    summary_totals = _mapping(summary.get("totals"))
+    source_like_totals = _mapping(summary.get("source_like_totals")) or summary_totals
+    calendar_span = _mapping(summary.get("calendar_span"))
+    active_days = _number(summary_totals.get("active_days"))
+    totals = {
+        "commits": _number(summary_totals.get("commits")),
+        "file_changes": _number(source_like_totals.get("file_changes")),
+        "lines_added": _number(source_like_totals.get("lines_added")),
+        "lines_deleted": _number(source_like_totals.get("lines_deleted")),
+        "active_days": active_days,
+        "repo_days": _number(summary_totals.get("repo_days")),
+        "contributor_days": _number(summary_totals.get("contributor_days")),
+        "distinct_contributors": _number(summary_totals.get("distinct_contributor_keys")),
+    }
+
+    return {
+        "schema_version": ACTIVITY_SCHEMA_VERSION,
+        "status": summary.get("status"),
+        "metric_scope": "source_like",
+        "metric_scope_description": (
+            "Totals and averages use source-like git churn. Binary, lockfile, generated, vendored, and "
+            "spec/schema-like file changes are excluded when path classification is available."
+        ),
+        "history": {
+            "since": summary.get("history_since"),
+            "until": summary.get("history_until"),
+            "calendar_span": dict(calendar_span),
+        },
+        "repositories": _repository_activity_payload(summary.get("repositories")),
+        "totals": totals,
+        "averages": {
+            "per_active_day": _activity_average(totals, active_days),
+            "per_calendar_day": _activity_average(totals, _number(calendar_span.get("days"))),
+            "per_calendar_week": _activity_average(totals, _number(calendar_span.get("weeks"))),
+            "per_calendar_month": _activity_average(totals, _number(calendar_span.get("months"))),
+        },
+        "path_classes": dict(_mapping(summary.get("path_classes"))),
+        "churn_filter": {
+            "excluded_classes": list(SOURCE_LIKE_EXCLUDED_CHURN_CLASSES),
+            "excluded_generated_like_totals": dict(_mapping(summary.get("generated_like_totals"))),
+            "excluded_totals_are_included_in_activity": False,
+        },
+        "caveats": [
+            "These are git churn metrics, not current source lines of code.",
+            "Averages are recomputed from the source-like totals in this activity block.",
+        ],
+    }
+
+
+def _repository_activity_payload(value: object) -> dict[str, int | float]:
+    repositories = _mapping(value)
+    return {
+        "discovered": _number(repositories.get("discovered")),
+        "selected": _number(repositories.get("selected")),
+        "crawled": _number(repositories.get("crawled")),
+        "excluded": _number(repositories.get("excluded")),
+        "failed": _number(repositories.get("failed")),
+    }
+
+
+def _activity_average(totals: dict[str, int | float], denominator: int | float) -> dict[str, float]:
+    return {
+        "commits": _round_average(totals["commits"], denominator),
+        "file_changes": _round_average(totals["file_changes"], denominator),
+        "lines_added": _round_average(totals["lines_added"], denominator),
+        "lines_deleted": _round_average(totals["lines_deleted"], denominator),
+    }
+
+
+def _round_average(value: int | float, denominator: int | float) -> float:
+    if denominator <= 0:
+        return 0.0
+    return round(value / denominator, 2)
 
 
 def _read_jsonl_page(path: Path, *, limit: int, offset: int) -> dict[str, object]:
@@ -517,6 +613,18 @@ def _parse_query_int(query: dict[str, list[str]], name: str, default: int) -> in
         return int(raw)
     except ValueError as exc:
         raise ApiProblem(HTTPStatus.BAD_REQUEST, f"{name} must be an integer") from exc
+
+
+def _mapping(value: object) -> dict[str, object]:
+    return value if isinstance(value, dict) else {}
+
+
+def _number(value: object) -> int | float:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int | float):
+        return value
+    return 0
 
 
 if __name__ == "__main__":
