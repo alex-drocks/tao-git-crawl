@@ -9,6 +9,7 @@ build/
 dist/
 out/
 .cache/
+.state/
 .coverage
 
 # Docker

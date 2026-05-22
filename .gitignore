@@ -8,4 +8,5 @@ build/
 dist/
 out/
 .cache/
+.state/
 .coverage
