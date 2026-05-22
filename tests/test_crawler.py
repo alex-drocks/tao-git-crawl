@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 from git_crawl.github import GitHubAPIError, partition_repositories
@@ -117,6 +118,69 @@ def test_crawl_resolved_subnets_discovers_owner_repos_and_labels_metrics_by_subn
     assert (tmp_path / "out" / "subnets" / "64" / "crawl" / "summary.json").exists()
     assert (tmp_path / "out" / "subnet-scores.json").exists()
     assert (tmp_path / "out" / "subnets" / "64" / "score.json").exists()
+
+
+def test_crawl_resolved_subnets_publishes_score_progress_before_full_run_finishes(monkeypatch, tmp_path):
+    document = resolve_subnets(
+        [
+            SubnetIdentityRecord(netuid=1, subnet_name="One", github_repo="https://github.com/alice/api"),
+            SubnetIdentityRecord(netuid=2, subnet_name="Two", github_repo="https://github.com/bob/app"),
+        ],
+        target_label="bittensor-subnets",
+    )
+    output_dir = tmp_path / "out"
+    crawl_calls = []
+
+    def fake_list_repositories_from_urls(urls, **kwargs):
+        url = next(iter(urls))
+        if "alice/api" in url:
+            return [_repo("alice/api")]
+        return [_repo("bob/app")]
+
+    def fake_crawl_repositories(target_label, repositories, **kwargs):
+        crawl_calls.append(target_label)
+        if target_label == "bittensor-subnet-2":
+            first_score = json.loads((output_dir / "subnets" / "1" / "score.json").read_text(encoding="utf-8"))
+            aggregate_scores = json.loads((output_dir / "subnet-scores.json").read_text(encoding="utf-8"))
+            assert first_score["status"] == "scored"
+            assert any(item["netuid"] == 1 and item["status"] == "scored" for item in aggregate_scores["scores"])
+        return SimpleNamespace(
+            run=SimpleNamespace(status="success", run_id=f"test-run-{len(crawl_calls)}"),
+            repositories=list(repositories),
+        )
+
+    def fake_write_crawl_outputs(result, output_dir, **kwargs):
+        output_dir.mkdir(parents=True, exist_ok=True)
+        path = output_dir / "summary.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "status": "success",
+                    "repositories": {"crawled": len(result.repositories)},
+                    "totals": {
+                        "commits": 3,
+                        "active_days": 2,
+                        "distinct_contributor_keys": 2,
+                    },
+                    "source_like_totals": {
+                        "file_changes": 7,
+                        "lines_added": 50,
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return [path]
+
+    monkeypatch.setattr("tao_git_crawl.crawler.list_repositories_from_urls", fake_list_repositories_from_urls)
+    monkeypatch.setattr("tao_git_crawl.crawler.crawl_repositories", fake_crawl_repositories)
+    monkeypatch.setattr("tao_git_crawl.crawler.write_crawl_outputs", fake_write_crawl_outputs)
+
+    report = crawl_resolved_subnets(document, output_dir=output_dir, cache_dir=tmp_path / "cache")
+
+    assert report.succeeded_netuids == [1, 2]
+    assert crawl_calls == ["bittensor-subnet-1", "bittensor-subnet-2"]
 
 
 def test_crawl_resolved_subnets_skips_inaccessible_github_404_targets(monkeypatch, tmp_path):
