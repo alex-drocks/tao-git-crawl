@@ -67,7 +67,7 @@ def test_list_subnets_includes_summary_and_target_counts(tmp_path):
     assert subnet["repository_target_count"] == 0
     assert subnet["owner_target_count"] == 1
     assert subnet["unresolved_count"] == 0
-    assert subnet["activity"]["metric_scope"] == "source_like"
+    assert subnet["activity"]["activity_scope"] == "code_changes"
     assert subnet["activity"]["totals"]["commits"] == 20
     assert subnet["activity"]["totals"]["file_changes"] == 40
     assert subnet["activity"]["averages"]["per_calendar_day"] == {
@@ -207,7 +207,7 @@ def test_summary_endpoint_includes_score_when_available(tmp_path):
     assert payload["activity"]["averages"]["per_active_day"]["commits"] == 3.0
 
 
-def test_activity_endpoint_returns_consistent_source_like_activity_payload(tmp_path):
+def test_activity_endpoint_returns_consistent_code_changes_activity_payload(tmp_path):
     crawl_dir = tmp_path / "subnets" / "64" / "crawl"
     crawl_dir.mkdir(parents=True)
     (crawl_dir / "summary.json").write_text(
@@ -239,7 +239,7 @@ def test_activity_endpoint_returns_consistent_source_like_activity_payload(tmp_p
     payload = get_subnet_dataset(tmp_path, 64, "activity")
 
     assert payload["schema_version"] == "tao-git-crawl-activity-v1"
-    assert payload["metric_scope"] == "source_like"
+    assert payload["activity_scope"] == "code_changes"
     assert payload["history"]["since"] == "2025-01-01"
     assert payload["repositories"]["crawled"] == 1
     assert payload["totals"] == {

@@ -20,7 +20,7 @@ Move entries into a dated version section when cutting the next tag.
 
 ### Added
 
-- Add a frontend-facing `activity` payload and `/api/subnets/<netuid>/activity` endpoint with source-like totals,
+- Add a frontend-facing `activity` payload and `/api/subnets/<netuid>/activity` endpoint with code-change totals,
   per-active-day averages, per-calendar day/week/month averages, repository counts, and explicit churn filter metadata.
 
 ### Changed

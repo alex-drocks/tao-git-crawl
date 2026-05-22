@@ -23,7 +23,7 @@ MAX_LIMIT = 1000
 DEFAULT_RATE_LIMIT_REQUESTS = 1200
 DEFAULT_RATE_LIMIT_WINDOW_SECONDS = 60
 ACTIVITY_SCHEMA_VERSION = "tao-git-crawl-activity-v1"
-SOURCE_LIKE_EXCLUDED_CHURN_CLASSES = ("binary", "lockfile", "generated", "vendored", "spec/schema-like")
+CODE_ACTIVITY_EXCLUDED_CHURN_CLASSES = ("binary", "lockfile", "generated", "vendored", "spec/schema-like")
 
 JSON_DATASETS = {
     "summary": "summary.json",
@@ -501,10 +501,10 @@ def _activity_from_summary(summary: object) -> dict[str, object] | None:
     return {
         "schema_version": ACTIVITY_SCHEMA_VERSION,
         "status": summary.get("status"),
-        "metric_scope": "source_like",
-        "metric_scope_description": (
-            "Totals and averages use source-like git churn. Binary, lockfile, generated, vendored, and "
-            "spec/schema-like file changes are excluded when path classification is available."
+        "activity_scope": "code_changes",
+        "activity_scope_description": (
+            "Totals and averages count code changes only. Lockfiles, generated files, vendored code, binaries, "
+            "and spec/schema-like churn are excluded when path classification is available."
         ),
         "history": {
             "since": summary.get("history_since"),
@@ -521,13 +521,13 @@ def _activity_from_summary(summary: object) -> dict[str, object] | None:
         },
         "path_classes": dict(_mapping(summary.get("path_classes"))),
         "churn_filter": {
-            "excluded_classes": list(SOURCE_LIKE_EXCLUDED_CHURN_CLASSES),
+            "excluded_classes": list(CODE_ACTIVITY_EXCLUDED_CHURN_CLASSES),
             "excluded_generated_like_totals": dict(_mapping(summary.get("generated_like_totals"))),
             "excluded_totals_are_included_in_activity": False,
         },
         "caveats": [
             "These are git churn metrics, not current source lines of code.",
-            "Averages are recomputed from the source-like totals in this activity block.",
+            "Averages are recomputed from the filtered code-change totals in this activity block.",
         ],
     }
 

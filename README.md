@@ -99,7 +99,7 @@ The activity payload exposes:
 - `averages.per_calendar_day`, `per_calendar_week`, and `per_calendar_month`: the same metrics divided by the crawl calendar span.
 - `churn_filter`: the excluded path classes plus generated-like totals that are not included in activity totals or averages.
 
-`activity.metric_scope` is `source_like`. Binary, lockfile, generated, vendored, and spec/schema-like changes are excluded when path classification is available. These are git churn metrics, not current source lines of code.
+`activity.activity_scope` is `code_changes`. Binary, lockfile, generated, vendored, and spec/schema-like changes are excluded when path classification is available. These are git churn metrics, not current source lines of code.
 
 ### Subnet Scores
 

@@ -98,7 +98,7 @@ def test_docker_docs_and_compose_pass_documented_scheduler_environment():
     assert 'reverse_proxy 127.0.0.1:8080' in readme
     assert '1200` requests per `60` seconds per TCP peer' in readme
     assert 'GET /api/subnets/<netuid>/activity' in readme
-    assert '`activity.metric_scope` is `source_like`' in readme
+    assert '`activity.activity_scope` is `code_changes`' in readme
     assert 'averages.per_active_day' in readme
     assert 'GET /api/subnets/<netuid>/score' in readme
     assert 'GET /api/scores' in readme
