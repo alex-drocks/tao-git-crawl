@@ -22,6 +22,16 @@ def test_local_dotenv_file_is_ignored_and_example_is_tracked():
     assert '/.env.example' in metadata['tool']['hatch']['build']['targets']['sdist']['include']
 
 
+def test_local_runtime_state_paths_are_ignored():
+    gitignore = Path('.gitignore').read_text(encoding='utf-8').splitlines()
+    dockerignore = Path('.dockerignore').read_text(encoding='utf-8').splitlines()
+
+    assert '.cache/' in gitignore
+    assert '.state/' in gitignore
+    assert '.cache/' in dockerignore
+    assert '.state/' in dockerignore
+
+
 def test_readme_manual_override_and_per_subnet_examples_match_cli_behavior():
     readme = Path('README.md').read_text(encoding='utf-8')
 

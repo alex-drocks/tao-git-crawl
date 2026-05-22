@@ -70,9 +70,6 @@ OWNER_URL_RE = re.compile(
     r"(?![A-Za-z0-9._/-])"
 )
 
-OWNER_ROOT_RE = re.compile(
-    rf"^(?:https?://)?(?:www\.)?github\.com/(?:orgs/)?(?P<owner>{GITHUB_OWNER_PATTERN})/?$"
-)
 BARE_OWNER_REPO_RE = re.compile(
     rf"^(?P<owner>{GITHUB_OWNER_PATTERN})/(?P<repo>[A-Za-z0-9._-]+)(?:\.git)?$"
 )
