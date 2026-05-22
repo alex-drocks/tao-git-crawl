@@ -16,6 +16,13 @@ Move entries into a dated version section when cutting the next tag.
 
 ### Fixed
 
+## [0.1.1] - 2026-05-22
+
+### Fixed
+
+- Publish crawl reports and subnet score outputs incrementally during long scheduler runs so the API can serve
+  `/api/crawl-report`, `/api/scores`, and per-subnet score files before the full crawl finishes.
+
 ## [0.1.0] - 2026-05-22
 
 ### Added
@@ -32,5 +39,6 @@ Move entries into a dated version section when cutting the next tag.
 
 - Keep local runtime state directories out of git and Docker build contexts.
 
-[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/alex-drocks/tao-git-crawl/releases/tag/v0.1.0
