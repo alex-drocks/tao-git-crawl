@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -13,15 +13,15 @@ SCORE_SCHEMA_VERSION = "tao-git-crawl-score-v2"
 GIT_CRAWL_ACTIVITY_SCHEMA_VERSION = "git-crawl-activity-v1"
 
 SCORE_WEIGHTS = {
-    "avg_credited_commits_per_active_day": 0.25,
+    "active_days": 0.40,
     "credited_file_changes": 0.20,
-    "active_days": 0.20,
-    "credited_lines_added": 0.15,
-    "repos_crawled": 0.10,
-    "distinct_contributors": 0.10,
+    "avg_credited_commits_per_active_day": 0.15,
+    "distinct_contributors": 0.15,
+    "credited_lines_added": 0.10,
 }
 
-ZERO_METRICS = {metric: 0.0 for metric in SCORE_WEIGHTS}
+RAW_METRICS = tuple(SCORE_WEIGHTS) + ("repos_crawled",)
+ZERO_METRICS = {metric: 0.0 for metric in RAW_METRICS}
 
 
 @dataclass(frozen=True)
@@ -30,6 +30,13 @@ class SubnetScoreInput:
     status: str
     raw_metrics: dict[str, float]
     reason: str | None = None
+
+
+@dataclass(frozen=True)
+class CrawlReportState:
+    succeeded: set[int]
+    failed_reasons: dict[int, str]
+    inaccessible_reasons: dict[int, list[str]]
 
 
 def write_score_outputs(document: ResolutionDocument, output_dir: str | Path) -> list[Path]:
@@ -55,16 +62,24 @@ def write_score_outputs(document: ResolutionDocument, output_dir: str | Path) ->
 
 def build_score_document(document: ResolutionDocument, output_dir: str | Path) -> dict[str, object]:
     output_path = Path(output_dir)
-    inputs = [_score_input_for_netuid(document, output_path, netuid) for netuid in document.netuids]
+    report_state = _crawl_report_state(output_path)
+    inputs = [
+        _score_input_for_netuid(document, output_path, netuid, report_state=report_state)
+        for netuid in document.netuids
+    ]
     metric_maxima = _metric_maxima(inputs)
     raw_scores = [_score_input(input_item, metric_maxima) for input_item in inputs]
     scores = _with_final_scores_ranks_and_percentiles(raw_scores)
+    scoring_window = _scoring_window_from_outputs(inputs, output_path)
+    for score in scores:
+        score["scoring_window"] = dict(scoring_window)
     return {
         "schema_version": SCORE_SCHEMA_VERSION,
         "target": document.target_label,
+        "scoring_window": scoring_window,
         "metric_source": (
             "git-crawl output files and path classification; file_changes.jsonl is preferred so binary, lockfile, "
-            "generated, vendored, and spec churn are excluded before scoring"
+            "generated, vendored, spec, and artifact/data churn are excluded before scoring"
         ),
         "normalization": {
             "metric_method": "global_max",
@@ -77,7 +92,61 @@ def build_score_document(document: ResolutionDocument, output_dir: str | Path) -
     }
 
 
-def _score_input_for_netuid(document: ResolutionDocument, output_dir: Path, netuid: int) -> SubnetScoreInput:
+def _scoring_window_from_outputs(inputs: list[SubnetScoreInput], output_dir: Path) -> dict[str, object]:
+    since_values: set[str] = set()
+    until_values: set[str] = set()
+    summary_count = 0
+    missing_since_count = 0
+    missing_until_count = 0
+    for input_item in inputs:
+        if input_item.status not in {"scored", "no_crawlable_repositories"}:
+            continue
+        crawl_dir = output_dir / "subnets" / str(input_item.netuid) / "crawl"
+        summary = _read_json_optional(crawl_dir / "summary.json")
+        if not isinstance(summary, dict):
+            continue
+        summary_count += 1
+        activity = _read_json_optional(crawl_dir / "activity.json")
+        activity_dict = activity if isinstance(activity, dict) else None
+        history_since = _date_string(_activity_metadata(summary, activity_dict, "history_since"))
+        history_until = _date_string(_activity_metadata(summary, activity_dict, "history_until"))
+        if history_since:
+            since_values.add(history_since)
+        else:
+            missing_since_count += 1
+        if history_until:
+            until_values.add(history_until)
+        else:
+            missing_until_count += 1
+
+    source = _scoring_window_source(
+        summary_count,
+        since_values,
+        until_values,
+        missing_since_count=missing_since_count,
+        missing_until_count=missing_until_count,
+    )
+    score_since = _single_value(since_values) if source == "crawl_history" else None
+    explicit_until = _single_value(until_values) if source == "crawl_history" else None
+    score_until = explicit_until if explicit_until is not None else None
+    if score_since is not None and score_until is None:
+        score_until = _today_utc().isoformat()
+
+    return {
+        "scoring_window_days": _days_between_dates(score_since, score_until),
+        "score_since": score_since,
+        "score_until": score_until,
+        "source": source,
+    }
+
+
+def _score_input_for_netuid(
+    document: ResolutionDocument,
+    output_dir: Path,
+    netuid: int,
+    *,
+    report_state: CrawlReportState | None,
+) -> SubnetScoreInput:
     subnet_document = document.for_netuid(netuid)
     if subnet_document.unresolved and not subnet_document.targets:
         unresolved = subnet_document.unresolved[0]
@@ -85,6 +154,30 @@ def _score_input_for_netuid(document: ResolutionDocument, output_dir: Path, netu
             netuid=netuid,
             status="unresolved",
             reason=unresolved.reason,
+            raw_metrics=dict(ZERO_METRICS),
+        )
+
+    if report_state is not None and netuid not in report_state.succeeded:
+        failed_reason = report_state.failed_reasons.get(netuid)
+        if failed_reason:
+            return SubnetScoreInput(
+                netuid=netuid,
+                status="crawl_failed",
+                reason=failed_reason,
+                raw_metrics=dict(ZERO_METRICS),
+            )
+        inaccessible_reasons = report_state.inaccessible_reasons.get(netuid)
+        if inaccessible_reasons:
+            return SubnetScoreInput(
+                netuid=netuid,
+                status="crawl_failed",
+                reason=f"GitHub target inaccessible: {'; '.join(inaccessible_reasons[:3])}",
+                raw_metrics=dict(ZERO_METRICS),
+            )
+        return SubnetScoreInput(
+            netuid=netuid,
+            status="no_crawl",
+            reason="not crawled in current report",
             raw_metrics=dict(ZERO_METRICS),
         )
 
@@ -123,15 +216,14 @@ def _score_input_for_netuid(document: ResolutionDocument, output_dir: Path, netu
 
 
 def _credited_metrics_from_outputs(subnet_dir: Path, summary: dict[str, object]) -> dict[str, float]:
-    activity_metrics = _credited_metrics_from_activity_json(subnet_dir / "crawl", summary)
-    if activity_metrics is not None:
-        return activity_metrics
-
     jsonl_metrics = _credited_metrics_from_jsonl(subnet_dir / "crawl", summary)
     if jsonl_metrics is not None:
         return jsonl_metrics
 
-    repositories = _mapping(summary.get("repositories"))
+    activity_metrics = _credited_metrics_from_activity_json(subnet_dir / "crawl", summary)
+    if activity_metrics is not None:
+        return activity_metrics
+
     fallback_credited_totals = _mapping(summary.get("source_like_totals"))
     credited_commits = _number(fallback_credited_totals.get("commits"))
     active_days = _number(fallback_credited_totals.get("active_days"))
@@ -157,7 +249,7 @@ def _credited_metrics_from_outputs(subnet_dir: Path, summary: dict[str, object])
         "credited_file_changes": _number(fallback_credited_totals.get("file_changes")),
         "active_days": active_days,
         "credited_lines_added": _number(fallback_credited_totals.get("lines_added")),
-        "repos_crawled": _number(repositories.get("crawled")) if has_credited_activity else 0.0,
+        "repos_crawled": _summary_repo_count_with_credited_activity(summary, has_credited_activity),
         "distinct_contributors": distinct_contributors,
     }
 
@@ -183,14 +275,15 @@ def _credited_metrics_from_activity_json(crawl_dir: Path, summary: dict[str, obj
             distinct_contributors,
         )
     )
+    credited_repo_count = _credited_repo_count_from_file_changes(crawl_dir)
+    if credited_repo_count is None:
+        credited_repo_count = _credited_repo_count_from_repo_days(crawl_dir)
     return {
         "avg_credited_commits_per_active_day": credited_commits / active_days if active_days > 0 else 0.0,
         "credited_file_changes": credited_file_changes,
         "active_days": active_days,
         "credited_lines_added": credited_lines_added,
-        "repos_crawled": (
-            _number(_mapping(summary.get("repositories")).get("crawled")) if has_credited_activity else 0.0
-        ),
+        "repos_crawled": _repo_count_with_credited_activity(summary, has_credited_activity, credited_repo_count),
         "distinct_contributors": distinct_contributors,
     }
 
@@ -202,6 +295,7 @@ def _credited_metrics_from_jsonl(crawl_dir: Path, summary: dict[str, object]) ->
         return None
 
     credited_commit_keys: set[tuple[str, str]] = set()
+    credited_repos: set[str] = set()
     credited_file_changes = 0
     credited_lines_added = 0.0
 
@@ -214,6 +308,9 @@ def _credited_metrics_from_jsonl(crawl_dir: Path, summary: dict[str, object]) ->
                 continue
             credited_file_changes += 1
             credited_lines_added += _number_from_keys(row, "additions", "lines_added")
+            repo = _text_key(row.get("repo")).lower()
+            if repo:
+                credited_repos.add(repo)
             commit_key = _commit_key(row)
             if commit_key is not None:
                 credited_commit_keys.add(commit_key)
@@ -246,8 +343,10 @@ def _credited_metrics_from_jsonl(crawl_dir: Path, summary: dict[str, object]) ->
         "credited_file_changes": float(credited_file_changes),
         "active_days": active_day_count,
         "credited_lines_added": credited_lines_added,
-        "repos_crawled": (
-            _number(_mapping(summary.get("repositories")).get("crawled")) if has_credited_activity else 0.0
+        "repos_crawled": _repo_count_with_credited_activity(
+            summary,
+            has_credited_activity,
+            float(len(credited_repos)) if credited_repos else None,
         ),
         "distinct_contributors": float(len(contributors)),
     }
@@ -303,6 +402,62 @@ def _with_final_scores_ranks_and_percentiles(scores: list[dict[str, object]]) ->
     return scores
 
 
+def _crawl_report_state(output_dir: Path) -> CrawlReportState | None:
+    report = _read_json_optional(output_dir / "crawl-report.json")
+    if not isinstance(report, dict):
+        return None
+
+    succeeded = _netuid_set(report.get("succeeded"))
+    failed_reasons = _netuid_reasons(report.get("failed"))
+    inaccessible_reasons: dict[int, list[str]] = {}
+    for item in _object_rows(report.get("skipped_inaccessible")):
+        netuid = _row_netuid(item)
+        if netuid is None:
+            continue
+        reason = item.get("reason")
+        inaccessible_reasons.setdefault(netuid, []).append(str(reason) if reason is not None else "inaccessible")
+
+    return CrawlReportState(
+        succeeded=succeeded,
+        failed_reasons=failed_reasons,
+        inaccessible_reasons=inaccessible_reasons,
+    )
+
+
+def _netuid_set(value: object) -> set[int]:
+    netuids: set[int] = set()
+    for item in _object_rows(value):
+        netuid = _row_netuid(item)
+        if netuid is not None:
+            netuids.add(netuid)
+    return netuids
+
+
+def _netuid_reasons(value: object) -> dict[int, str]:
+    reasons: dict[int, str] = {}
+    for item in _object_rows(value):
+        netuid = _row_netuid(item)
+        if netuid is None:
+            continue
+        reason = item.get("reason")
+        reasons[netuid] = str(reason) if reason is not None else "crawl failed"
+    return reasons
+
+
+def _object_rows(value: object) -> list[dict[str, object]]:
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+
+def _row_netuid(row: dict[str, object]) -> int | None:
+    value = row.get("netuid")
+    if isinstance(value, bool):
+        return None
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _apply_ranks(scores: list[dict[str, object]]) -> None:
     total = len(scores)
     ranked_scores = sorted(
@@ -335,6 +490,124 @@ def _normalize(value: float, maximum: float) -> float:
 
 def _rounded_metrics(metrics: dict[str, float]) -> dict[str, float]:
     return {metric: round(value, 4) for metric, value in metrics.items()}
+
+
+def _today_utc() -> date:
+    return datetime.now(UTC).date()
+
+
+def _activity_metadata(
+    summary: dict[str, object],
+    upstream_activity: dict[str, object] | None,
+    key: str,
+) -> object:
+    if upstream_activity is not None and upstream_activity.get(key) is not None:
+        return upstream_activity.get(key)
+    return summary.get(key)
+
+
+def _single_value(values: set[str]) -> str | None:
+    if len(values) != 1:
+        return None
+    return next(iter(values))
+
+
+def _scoring_window_source(
+    summary_count: int,
+    since_values: set[str],
+    until_values: set[str],
+    *,
+    missing_since_count: int,
+    missing_until_count: int,
+) -> str:
+    if summary_count <= 0:
+        return "no_crawl_summary"
+    has_mixed_until = len(until_values) > 1 or (bool(until_values) and missing_until_count > 0)
+    if missing_since_count > 0 or len(since_values) != 1 or has_mixed_until:
+        return "mixed_crawl_history"
+    return "crawl_history"
+
+
+def _date_string(value: object) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    try:
+        timestamp = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        try:
+            return date.fromisoformat(text[:10]).isoformat()
+        except ValueError:
+            return None
+    if timestamp.tzinfo is not None and timestamp.utcoffset() is not None:
+        timestamp = timestamp.astimezone(UTC)
+    return timestamp.date().isoformat()
+
+
+def _days_between_dates(since: str | None, until: str | None) -> int | None:
+    if since is None or until is None:
+        return None
+    try:
+        days = (date.fromisoformat(until) - date.fromisoformat(since)).days
+    except ValueError:
+        return None
+    return days if days >= 0 else None
+
+
+def _credited_repo_count_from_file_changes(crawl_dir: Path) -> float | None:
+    file_changes_path = crawl_dir / "file_changes.jsonl"
+    if not file_changes_path.exists():
+        return None
+
+    credited_repos: set[str] = set()
+    with file_changes_path.open(encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            if not isinstance(row, dict) or is_noise_change(row):
+                continue
+            repo = _text_key(row.get("repo")).lower()
+            if repo:
+                credited_repos.add(repo)
+    return float(len(credited_repos)) if credited_repos else None
+
+
+def _credited_repo_count_from_repo_days(crawl_dir: Path) -> float | None:
+    repo_days_path = crawl_dir / "repo_days.jsonl"
+    if not repo_days_path.exists():
+        return None
+
+    credited_repos: set[str] = set()
+    with repo_days_path.open(encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            if not isinstance(row, dict):
+                continue
+            repo = _text_key(row.get("repo")).lower()
+            if repo:
+                credited_repos.add(repo)
+    return float(len(credited_repos)) if credited_repos else None
+
+
+def _repo_count_with_credited_activity(
+    summary: dict[str, object],
+    has_credited_activity: bool,
+    credited_repo_count: float | None,
+) -> float:
+    if not has_credited_activity:
+        return 0.0
+    if credited_repo_count is not None:
+        return credited_repo_count
+    return _summary_repo_count_with_credited_activity(summary, has_credited_activity)
+
+
+def _summary_repo_count_with_credited_activity(summary: dict[str, object], has_credited_activity: bool) -> float:
+    if not has_credited_activity:
+        return 0.0
+    return _number(_mapping(summary.get("repositories")).get("crawled"))
 
 
 def _read_json_optional(path: Path) -> object | None:

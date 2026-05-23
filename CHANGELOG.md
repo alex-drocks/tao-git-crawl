@@ -16,6 +16,31 @@ Move entries into a dated version section when cutting the next tag.
 
 ### Fixed
 
+## [0.4.0] - 2026-05-23
+
+### Changed
+
+- Prepare package metadata for the v0.4.0 release.
+- Make Docker scheduler crawls use a trailing 365-day score/activity window by default, with `TAO_CRAWL_SINCE`
+  remaining as an advanced fixed-date override.
+- Add explicit `TAO_CRAWL_INCREMENTAL=true` opt-in for operators who want git-crawl state DB incremental outputs.
+- Expose score window metadata (`score_since`, `score_until`, and `scoring_window_days`) in score outputs.
+- Prefer detailed file-change rows over aggregate `activity.json` when computing public activity and scores, so local
+  artifact/data guardrails are applied consistently.
+- Remove repository count from weighted scoring and reallocate that weight toward sustained activity and contributor
+  signals.
+
+### Fixed
+
+- Keep investor-facing subnet rankings from being dominated by the most recent scheduled crawl day when a persistent
+  state DB is present.
+- Ignore stale per-subnet crawl summaries in scores and public API activity when the latest crawl report marks a subnet
+  unresolved, failed, inaccessible, or not yet crawled.
+- Count detailed score repository breadth from repositories with credited code changes, instead of all crawled
+  repositories.
+- Exclude obvious non-code artifacts and data files such as PDFs, 3D assets, coverage reports, datasets, and model/data
+  formats from credited activity metrics.
+
 ## [0.3.0] - 2026-05-23
 
 ### Changed
@@ -86,7 +111,8 @@ Move entries into a dated version section when cutting the next tag.
 
 - Keep local runtime state directories out of git and Docker build contexts.
 
-[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.1.0...v0.1.1
