@@ -38,7 +38,7 @@ def test_changelog_is_ready_for_release_notes_and_packaged_in_sdist():
 
     assert metadata['project']['version'] == '0.3.0'
     assert '## [Unreleased]' in changelog
-    assert '## [0.3.0] - 2026-05-22' in changelog
+    assert '## [0.3.0] - 2026-05-23' in changelog
     assert '## [0.2.0] - 2026-05-22' in changelog
     assert '## [0.1.1] - 2026-05-22' in changelog
     assert '## [0.1.0] - 2026-05-22' in changelog

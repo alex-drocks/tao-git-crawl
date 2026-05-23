@@ -214,14 +214,14 @@ def _credited_metrics_from_jsonl(crawl_dir: Path, summary: dict[str, object]) ->
                 continue
             credited_file_changes += 1
             credited_lines_added += _number_from_keys(row, "additions", "lines_added")
-            repo = str(row.get("repo", ""))
-            sha = str(row.get("sha", ""))
-            if repo and sha:
-                credited_commit_keys.add((repo, sha))
+            commit_key = _commit_key(row)
+            if commit_key is not None:
+                credited_commit_keys.add(commit_key)
 
     credited_commits = 0
     active_days: set[str] = set()
     contributors: set[str] = set()
+    seen_commits: set[tuple[str, str]] = set()
     with commits_path.open(encoding="utf-8") as handle:
         for line in handle:
             if not line.strip():
@@ -229,10 +229,10 @@ def _credited_metrics_from_jsonl(crawl_dir: Path, summary: dict[str, object]) ->
             row = json.loads(line)
             if not isinstance(row, dict):
                 continue
-            repo = str(row.get("repo", ""))
-            sha = str(row.get("sha", ""))
-            if (repo, sha) not in credited_commit_keys:
+            commit_key = _commit_key(row)
+            if commit_key is None or commit_key not in credited_commit_keys or commit_key in seen_commits:
                 continue
+            seen_commits.add(commit_key)
             credited_commits += 1
             authored_day = _authored_day(row.get("authored_at"))
             if authored_day:
@@ -251,6 +251,7 @@ def _credited_metrics_from_jsonl(crawl_dir: Path, summary: dict[str, object]) ->
         ),
         "distinct_contributors": float(len(contributors)),
     }
+
 
 def _score_input(input_item: SubnetScoreInput, metric_maxima: dict[str, float]) -> dict[str, object]:
     normalized_metrics = {
@@ -364,6 +365,20 @@ def _number_from_keys(values: dict[str, Any], *keys: str) -> float:
         if key in values:
             return _number(values.get(key))
     return 0.0
+
+
+def _commit_key(row: dict[str, object]) -> tuple[str, str] | None:
+    repo = _text_key(row.get("repo"))
+    sha = _text_key(row.get("sha"))
+    if not sha:
+        sha = _text_key(row.get("commit_sha"))
+    if not repo or not sha:
+        return None
+    return repo, sha
+
+
+def _text_key(value: object) -> str:
+    return value.strip() if isinstance(value, str) else ""
 
 
 def _authored_day(value: object) -> str | None:

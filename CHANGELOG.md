@@ -16,7 +16,7 @@ Move entries into a dated version section when cutting the next tag.
 
 ### Fixed
 
-## [0.3.0] - 2026-05-22
+## [0.3.0] - 2026-05-23
 
 ### Changed
 
@@ -40,6 +40,8 @@ Move entries into a dated version section when cutting the next tag.
 - Avoid importing crawler-only `git-crawl` dependencies when loading API-only modules.
 - Keep `/health` from parsing subnet crawl payloads so malformed output cannot break service health checks.
 - Avoid falling back to raw summary top-repository/top-path rankings when credited file-change rows are unavailable.
+- Count detailed scoring rows consistently when commit hashes are exposed as `commit_sha`, and avoid inflating commit
+  counts from duplicate detailed commit rows.
 
 ## [0.2.0] - 2026-05-22
 

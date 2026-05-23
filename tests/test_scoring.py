@@ -375,6 +375,64 @@ def test_score_prefers_git_crawl_path_classification_when_file_changes_are_avail
     assert score["raw_metrics"]["distinct_contributors"] == 1.0
 
 
+def test_score_matches_commit_sha_rows_and_deduplicates_commits(tmp_path):
+    document = resolve_subnets(
+        [SubnetIdentityRecord(netuid=1, subnet_name="Example", github_repo="https://github.com/acme/api")],
+        target_label="bittensor-subnets",
+    )
+    crawl_dir = _write_summary(tmp_path, 1, repos_crawled=1, file_changes=2, lines_added=30)
+    _write_commits(
+        crawl_dir,
+        [
+            {
+                "repo": "acme/api",
+                "commit_sha": "a",
+                "authored_at": "2026-01-01T00:00:00+00:00",
+                "author_login": "dev",
+                "files_changed": 1,
+            },
+            {
+                "repo": "acme/api",
+                "commit_sha": "a",
+                "authored_at": "2026-01-01T01:00:00+00:00",
+                "author_login": "dev",
+                "files_changed": 1,
+            },
+        ],
+    )
+    _write_file_changes(
+        crawl_dir,
+        [
+            {
+                "repo": "acme/api",
+                "commit_sha": "a",
+                "path": "src/app.py",
+                "additions": 10,
+                "is_binary": False,
+                "path_class": "source",
+                "is_generated_like": False,
+            },
+            {
+                "repo": "acme/api",
+                "commit_sha": "a",
+                "path": "src/lib.py",
+                "additions": 20,
+                "is_binary": False,
+                "path_class": "source",
+                "is_generated_like": False,
+            },
+        ],
+    )
+
+    score = build_score_document(document, tmp_path)["scores"][0]
+
+    assert score["raw_metrics"]["credited_file_changes"] == 2.0
+    assert score["raw_metrics"]["credited_lines_added"] == 30.0
+    assert score["raw_metrics"]["active_days"] == 1.0
+    assert score["raw_metrics"]["avg_credited_commits_per_active_day"] == 1.0
+    assert score["raw_metrics"]["distinct_contributors"] == 1.0
+
+
 def test_score_prefers_git_crawl_activity_json_when_available(tmp_path):
     document = resolve_subnets(
         [SubnetIdentityRecord(netuid=1, subnet_name="Example", github_repo="https://github.com/acme/api")],
