@@ -61,6 +61,7 @@ def test_list_subnets_includes_summary_and_target_counts(tmp_path):
                     "distinct_contributors": 2,
                 },
                 "generated_like_totals": {"file_changes": 9, "lines_added": 90, "lines_deleted": 8},
+                "caveats": ["raw crawler caveat"],
             }
         ),
         encoding="utf-8",
@@ -110,6 +111,7 @@ def test_list_subnets_includes_summary_and_target_counts(tmp_path):
     assert subnet["summary"]["skipped"] == subnet["activity"]["skipped"]
     assert "source_like_totals" not in subnet["summary"]
     assert "generated_like_totals" not in subnet["summary"]
+    assert "caveats" not in subnet["summary"]
     assert subnet["summary"]["score"] == {"score": 88.5, "percentile": 95.0}
 
 
@@ -261,6 +263,7 @@ def test_summary_endpoint_includes_score_when_available(tmp_path):
                     "active_days": 2,
                     "distinct_contributors": 1,
                 },
+                "caveats": ["raw crawler caveat"],
             }
         ),
         encoding="utf-8",
@@ -273,6 +276,7 @@ def test_summary_endpoint_includes_score_when_available(tmp_path):
     assert payload["score"] == {"score": 42.0}
     assert payload["totals"]["file_changes"] == 8
     assert "source_like_totals" not in payload
+    assert "caveats" not in payload
     assert payload["activity"]["totals"]["file_changes"] == 8
     assert payload["activity"]["averages"]["per_calendar_day"]["file_changes"] == 4.0
     assert payload["activity"]["averages"]["per_active_day"]["commits"] == 3.0

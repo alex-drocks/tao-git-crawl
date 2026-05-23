@@ -507,7 +507,7 @@ def _summary_with_score(
         enriched["totals"] = dict(_mapping(enriched["activity"].get("totals")))
         enriched["averages"] = dict(_mapping(enriched["activity"].get("averages")))
         enriched["skipped"] = dict(_mapping(enriched["activity"].get("skipped")))
-    for internal_key in ("source_like_totals", "generated_like_totals", "path_classes"):
+    for internal_key in ("source_like_totals", "generated_like_totals", "path_classes", "caveats"):
         enriched.pop(internal_key, None)
     enriched["score"] = score
     return enriched
