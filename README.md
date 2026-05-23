@@ -81,12 +81,14 @@ The API service mounts the same `tao-data` volume read-only and exposes frontend
 - `GET /api/subnets/<netuid>/score`
 - `GET /api/subnets/<netuid>/repositories?limit=100&offset=0`
 - `GET /api/subnets/<netuid>/commits?limit=100&offset=0`
-- `GET /api/subnets/<netuid>/contributors?limit=100&offset=0`
+- `GET /api/subnets/<netuid>/contributor-days?limit=100&offset=0`
 - `GET /api/subnets/<netuid>/repo-days?limit=100&offset=0`
 - `GET /api/subnets/<netuid>/org-days?limit=100&offset=0`
 - `GET /api/subnets/<netuid>/file-changes?limit=100&offset=0`
 - `GET /api/crawl-report`
 - `GET /api/scores`
+
+Diagnostic crawl-file endpoints such as `/failures`, `/excluded`, and `/crawl-runs` remain available per subnet, but they are not part of the normal frontend activity contract.
 
 ### Subnet Activity
 
@@ -101,7 +103,7 @@ The activity payload exposes:
 
 The normal API presents one canonical activity model: totals and averages are real code changes only. `/api/subnets/<netuid>/summary` uses those same totals and exposes skipped noisy changes under `skipped`; raw crawl summary fields such as unfiltered churn totals remain implementation artifacts on disk. These are git change metrics, not current source lines of code.
 
-When detailed rows are available, `/api/subnets/<netuid>/file-changes` returns code-change rows only and `/api/subnets/<netuid>/commits` returns only commits with credited code changes.
+When detailed rows are available, `/api/subnets/<netuid>/file-changes` returns code-change rows only and `/api/subnets/<netuid>/commits` returns only commits with credited code changes. Commit, file-change, repo-day, contributor-day, and org-day row payloads use the same public names as aggregate totals: `file_changes`, `lines_added`, and `lines_deleted`.
 
 ### Subnet Scores
 

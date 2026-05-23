@@ -26,6 +26,10 @@ Move entries into a dated version section when cutting the next tag.
   `source_like_totals`, `generated_like_totals`, and `path_classes` from normal public API summary/activity payloads.
 - Filter `/api/subnets/<netuid>/file-changes` to code-change rows and `/api/subnets/<netuid>/commits` to commits
   with credited code changes when detailed file-change rows are available.
+- Standardize public row payload naming on `file_changes`, `lines_added`, and `lines_deleted`, and document
+  `/contributor-days` as the canonical contributor-day endpoint.
+- Recompute repo-day, contributor-day, org-day, top-repository, and top-path API payloads from credited code-change
+  rows when detailed rows are available.
 
 ### Fixed
 
