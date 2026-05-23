@@ -6,14 +6,17 @@ import os
 import sys
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from math import ceil
 from pathlib import Path
 from threading import Lock
 from urllib.parse import parse_qs, unquote, urlparse
+
+from .activity_filter import CODE_ACTIVITY_EXCLUDED_CHURN_CLASSES, is_noise_change
 
 DEFAULT_OUTPUT_DIR = Path("/data/output")
 DEFAULT_HOST = "0.0.0.0"
@@ -22,6 +25,7 @@ DEFAULT_LIMIT = 100
 MAX_LIMIT = 1000
 DEFAULT_RATE_LIMIT_REQUESTS = 1200
 DEFAULT_RATE_LIMIT_WINDOW_SECONDS = 60
+ACTIVITY_SCHEMA_VERSION = "tao-git-crawl-activity-v1"
 
 JSON_DATASETS = {
     "summary": "summary.json",
@@ -127,6 +131,8 @@ def handle_api_request(output_dir: str | Path, raw_target: str) -> ApiResponse:
             netuid = _parse_netuid(parts[2])
             if len(parts) == 3:
                 return ApiResponse(HTTPStatus.OK, get_subnet_detail(output_path, netuid))
+            if len(parts) == 4 and parts[3] == "activity":
+                return ApiResponse(HTTPStatus.OK, get_subnet_activity(output_path, netuid))
             if len(parts) == 4:
                 return ApiResponse(HTTPStatus.OK, get_subnet_dataset(output_path, netuid, parts[3], query))
         raise ApiProblem(HTTPStatus.NOT_FOUND, "unknown endpoint")
@@ -155,6 +161,13 @@ def get_subnet_detail(output_dir: str | Path, netuid: int) -> dict[str, object]:
     return overview
 
 
+def get_subnet_activity(output_dir: str | Path, netuid: int) -> object:
+    subnet_dir = _subnet_dir(Path(output_dir), netuid)
+    crawl_dir = subnet_dir / "crawl"
+    summary = _read_json_required(crawl_dir / "summary.json")
+    return _activity_from_summary(summary, crawl_dir)
+
+
 def get_subnet_dataset(
     output_dir: str | Path,
     netuid: int,
@@ -165,11 +178,15 @@ def get_subnet_dataset(
     crawl_dir = subnet_dir / "crawl"
     query_params = query or {}
 
+    if dataset == "activity":
+        return _activity_from_summary(_read_json_required(crawl_dir / "summary.json"), crawl_dir)
+
     if dataset in JSON_DATASETS:
         if dataset == "summary":
             return _summary_with_score(
                 _read_json_required(crawl_dir / JSON_DATASETS[dataset]),
                 _read_json_optional(subnet_dir / "score.json"),
+                crawl_dir,
             )
         path = (
             (crawl_dir / JSON_DATASETS[dataset])
@@ -340,6 +357,7 @@ def _routes_payload() -> dict[str, object]:
             "/api/subnets",
             "/api/subnets/{netuid}",
             "/api/subnets/{netuid}/summary",
+            "/api/subnets/{netuid}/activity",
             "/api/subnets/{netuid}/score",
             "/api/subnets/{netuid}/repositories?limit=100&offset=0",
             "/api/subnets/{netuid}/commits?limit=100&offset=0",
@@ -370,15 +388,18 @@ def _subnet_overview(subnet_dir: Path) -> dict[str, object]:
         target for target in targets if isinstance(target, dict) and target.get("kind") == "repository"
     ]
     owner_targets = [target for target in targets if isinstance(target, dict) and target.get("kind") == "owner"]
-    summary = _read_json_optional(subnet_dir / "crawl" / "summary.json")
+    crawl_dir = subnet_dir / "crawl"
+    summary = _read_json_optional(crawl_dir / "summary.json")
     score = _read_json_optional(subnet_dir / "score.json")
+    activity = _activity_from_summary(summary, crawl_dir)
 
     return {
         "netuid": netuid,
         "subnet_name": _subnet_name(targets, unresolved),
-        "has_crawl": (subnet_dir / "crawl").exists(),
+        "has_crawl": crawl_dir.exists(),
         "has_summary": summary is not None,
-        "summary": _summary_with_score(summary, score),
+        "activity": activity,
+        "summary": _summary_with_score(summary, score, activity=activity),
         "score": score,
         "target_count": len(targets),
         "repository_target_count": len(repository_targets),
@@ -421,6 +442,7 @@ def _subnet_endpoints(netuid: int) -> dict[str, str]:
     endpoints = {
         "detail": base,
         "summary": f"{base}/summary",
+        "activity": f"{base}/activity",
         "targets": f"{base}/targets",
         "owner_targets": f"{base}/owner-targets",
         "repository_manifest": f"{base}/repository-manifest",
@@ -454,12 +476,230 @@ def _read_json_optional(path: Path) -> object | None:
         raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, f"invalid JSON in {path.name}: {exc}") from exc
 
 
-def _summary_with_score(summary: object, score: object | None) -> object:
+def _summary_with_score(
+    summary: object,
+    score: object | None,
+    crawl_dir: Path | None = None,
+    *,
+    activity: dict[str, object] | None = None,
+) -> object:
     if not isinstance(summary, dict):
         return summary
     enriched = dict(summary)
+    enriched["activity"] = activity if activity is not None else _activity_from_summary(summary, crawl_dir)
     enriched["score"] = score
     return enriched
+
+
+def _activity_from_summary(summary: object, crawl_dir: Path | None = None) -> dict[str, object] | None:
+    if not isinstance(summary, dict):
+        return None
+
+    source_like_totals_value = summary.get("source_like_totals")
+    has_source_like_totals = isinstance(source_like_totals_value, dict)
+    source_like_totals = _mapping(source_like_totals_value)
+    calendar_span = _mapping(summary.get("calendar_span"))
+    jsonl_totals = _code_activity_totals_from_jsonl(crawl_dir)
+    if jsonl_totals is not None:
+        totals = jsonl_totals
+        calculation_source = "jsonl"
+    elif has_source_like_totals:
+        totals = _activity_totals_from_summary(source_like_totals)
+        calculation_source = "summary"
+    else:
+        totals = _empty_activity_totals()
+        calculation_source = "unavailable"
+    active_days = totals["active_days"]
+
+    return {
+        "schema_version": ACTIVITY_SCHEMA_VERSION,
+        "status": summary.get("status"),
+        "activity_scope": "code_changes",
+        "activity_scope_description": (
+            "Totals and averages count code changes only. Lockfiles, generated files, vendored code, binaries, "
+            "and spec/schema-like churn are excluded when path classification is available."
+        ),
+        "history": {
+            "since": summary.get("history_since"),
+            "until": summary.get("history_until"),
+            "calendar_span": dict(calendar_span),
+        },
+        "calculation_source": calculation_source,
+        "repositories": _repository_activity_payload(summary.get("repositories")),
+        "totals": totals,
+        "averages": {
+            "per_active_day": _activity_average(totals, active_days),
+            "per_calendar_day": _activity_average(totals, _number(calendar_span.get("days"))),
+            "per_calendar_week": _activity_average(totals, _number(calendar_span.get("weeks"))),
+            "per_calendar_month": _activity_average(totals, _number(calendar_span.get("months"))),
+        },
+        "path_classes": dict(_mapping(summary.get("path_classes"))),
+        "churn_filter": {
+            "excluded_classes": list(CODE_ACTIVITY_EXCLUDED_CHURN_CLASSES),
+            "excluded_generated_like_totals": dict(_mapping(summary.get("generated_like_totals"))),
+            "excluded_totals_are_included_in_activity": False,
+        },
+        "caveats": [
+            "These are git churn metrics, not current source lines of code.",
+            "Averages are recomputed from the filtered code-change totals in this activity block.",
+        ],
+    }
+
+
+def _activity_totals_from_summary(source_like_totals: dict[str, object]) -> dict[str, int | float]:
+    return {
+        "commits": _number(source_like_totals.get("commits")),
+        "file_changes": _number(source_like_totals.get("file_changes")),
+        "lines_added": _number(source_like_totals.get("lines_added")),
+        "lines_deleted": _number(source_like_totals.get("lines_deleted")),
+        "active_days": _number(source_like_totals.get("active_days")),
+        "repo_days": _number(source_like_totals.get("repo_days")),
+        "contributor_days": _number(source_like_totals.get("contributor_days")),
+        "distinct_contributors": _number_from_keys(
+            source_like_totals,
+            "distinct_contributors",
+            "distinct_contributor_keys",
+        ),
+    }
+
+
+def _empty_activity_totals() -> dict[str, int | float]:
+    return {
+        "commits": 0,
+        "file_changes": 0,
+        "lines_added": 0,
+        "lines_deleted": 0,
+        "active_days": 0,
+        "repo_days": 0,
+        "contributor_days": 0,
+        "distinct_contributors": 0,
+    }
+
+
+def _code_activity_totals_from_jsonl(crawl_dir: Path | None) -> dict[str, int | float] | None:
+    if crawl_dir is None:
+        return None
+    file_changes_path = crawl_dir / "file_changes.jsonl"
+    commits_path = crawl_dir / "commits.jsonl"
+    if not file_changes_path.exists() or not commits_path.exists():
+        return None
+
+    credited_commit_keys: set[tuple[str, str]] = set()
+    file_changes = 0
+    lines_added: int | float = 0
+    lines_deleted: int | float = 0
+    for row in _iter_jsonl_objects(file_changes_path):
+        if not isinstance(row, dict) or is_noise_change(row):
+            continue
+        file_changes += 1
+        lines_added += _number_from_keys(row, "additions", "lines_added")
+        lines_deleted += _number_from_keys(row, "deletions", "lines_deleted")
+        repo = str(row.get("repo", ""))
+        sha = str(row.get("sha", ""))
+        if repo and sha:
+            credited_commit_keys.add((repo, sha))
+
+    commits = 0
+    active_days: set[str] = set()
+    repo_days: set[tuple[str, str]] = set()
+    contributor_days: set[tuple[str, str]] = set()
+    contributors: set[str] = set()
+    seen_commits: set[tuple[str, str]] = set()
+    for row in _iter_jsonl_objects(commits_path):
+        if not isinstance(row, dict):
+            continue
+        repo = str(row.get("repo", ""))
+        sha = str(row.get("sha", ""))
+        commit_key = (repo, sha)
+        if commit_key not in credited_commit_keys or commit_key in seen_commits:
+            continue
+        seen_commits.add(commit_key)
+        commits += 1
+        contributor = _contributor_key(row)
+        contributors.add(contributor)
+        authored_day = _authored_day(row.get("authored_at"))
+        if not authored_day:
+            continue
+        active_days.add(authored_day)
+        repo_days.add((repo, authored_day))
+        contributor_days.add((contributor, authored_day))
+
+    return {
+        "commits": commits,
+        "file_changes": file_changes,
+        "lines_added": lines_added,
+        "lines_deleted": lines_deleted,
+        "active_days": len(active_days),
+        "repo_days": len(repo_days),
+        "contributor_days": len(contributor_days),
+        "distinct_contributors": len(contributors),
+    }
+
+
+def _repository_activity_payload(value: object) -> dict[str, int | float]:
+    repositories = _mapping(value)
+    return {
+        "discovered": _number(repositories.get("discovered")),
+        "selected": _number(repositories.get("selected")),
+        "crawled": _number(repositories.get("crawled")),
+        "excluded": _number(repositories.get("excluded")),
+        "failed": _number(repositories.get("failed")),
+    }
+
+
+def _activity_average(totals: dict[str, int | float], denominator: int | float) -> dict[str, float]:
+    return {
+        "commits": _round_average(totals["commits"], denominator),
+        "file_changes": _round_average(totals["file_changes"], denominator),
+        "lines_added": _round_average(totals["lines_added"], denominator),
+        "lines_deleted": _round_average(totals["lines_deleted"], denominator),
+    }
+
+
+def _round_average(value: int | float, denominator: int | float) -> float:
+    if denominator <= 0:
+        return 0.0
+    return round(value / denominator, 2)
+
+
+def _iter_jsonl_objects(path: Path) -> Iterator[object]:
+    try:
+        with path.open(encoding="utf-8") as handle:
+            for line_number, line in enumerate(handle):
+                if not line.strip():
+                    continue
+                try:
+                    yield json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise ApiProblem(
+                        HTTPStatus.INTERNAL_SERVER_ERROR,
+                        f"invalid JSONL in {path.name} at line {line_number + 1}: {exc}",
+                    ) from exc
+    except OSError as exc:
+        raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, f"could not read {path.name}: {exc}") from exc
+
+
+def _authored_day(value: object) -> str | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        authored_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return authored_at.astimezone(UTC).date().isoformat()
+    except ValueError:
+        return value[:10] if len(value) >= 10 else None
+
+
+def _contributor_key(row: dict[str, object]) -> str:
+    login = row.get("author_login")
+    if isinstance(login, str) and login.strip():
+        return f"login:{login.strip().lower()}"
+    email = row.get("author_email")
+    if isinstance(email, str) and email.strip():
+        return f"email:{email.strip().lower()}"
+    name = row.get("author_name")
+    if isinstance(name, str) and name.strip():
+        return f"name:{name.strip()}"
+    return "unknown"
 
 
 def _read_jsonl_page(path: Path, *, limit: int, offset: int) -> dict[str, object]:
@@ -517,6 +757,25 @@ def _parse_query_int(query: dict[str, list[str]], name: str, default: int) -> in
         return int(raw)
     except ValueError as exc:
         raise ApiProblem(HTTPStatus.BAD_REQUEST, f"{name} must be an integer") from exc
+
+
+def _mapping(value: object) -> dict[str, object]:
+    return value if isinstance(value, dict) else {}
+
+
+def _number(value: object) -> int | float:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int | float):
+        return value
+    return 0
+
+
+def _number_from_keys(values: dict[str, object], *keys: str) -> int | float:
+    for key in keys:
+        if key in values:
+            return _number(values.get(key))
+    return 0
 
 
 if __name__ == "__main__":

@@ -77,6 +77,7 @@ The API service mounts the same `tao-data` volume read-only and exposes frontend
 - `GET /api/subnets`
 - `GET /api/subnets/<netuid>`
 - `GET /api/subnets/<netuid>/summary`
+- `GET /api/subnets/<netuid>/activity`
 - `GET /api/subnets/<netuid>/score`
 - `GET /api/subnets/<netuid>/repositories?limit=100&offset=0`
 - `GET /api/subnets/<netuid>/commits?limit=100&offset=0`
@@ -86,6 +87,20 @@ The API service mounts the same `tao-data` volume read-only and exposes frontend
 - `GET /api/subnets/<netuid>/file-changes?limit=100&offset=0`
 - `GET /api/crawl-report`
 - `GET /api/scores`
+
+### Subnet Activity
+
+Use `/api/subnets/<netuid>/activity` for frontend display of code-change git activity. The same `activity` object is also embedded in `/api/subnets`, `/api/subnets/<netuid>`, and `/api/subnets/<netuid>/summary`.
+
+The activity payload exposes:
+
+- `totals`: commits, filtered file changes, lines added/deleted, active days, repo days, contributor days, and distinct contributors.
+- `averages.per_active_day`: commits, file changes, and line churn divided by active days.
+- `averages.per_calendar_day`, `per_calendar_week`, and `per_calendar_month`: the same metrics divided by the crawl calendar span.
+- `churn_filter`: the excluded path classes plus generated-like totals that are not included in activity totals or averages.
+- `calculation_source`: `jsonl` when detailed crawl rows were available, `summary` when filtered source-like aggregates were used, or `unavailable` when only raw churn totals exist.
+
+`activity.activity_scope` is `code_changes`. Binary, lockfile, generated, vendored, and spec/schema-like changes are excluded when path classification is available. These are git churn metrics, not current source lines of code. Public activity totals do not fall back to raw churn totals when filtered rows or source-like aggregates are unavailable.
 
 ### Subnet Scores
 
@@ -101,10 +116,10 @@ The weighted score is:
 | Credited file changes | `20%` |
 | Active days | `20%` |
 | Credited lines added | `15%` |
-| Repositories crawled | `10%` |
+| Repositories crawled with credited activity | `10%` |
 | Distinct contributors | `10%` |
 
-Credited activity uses `git-crawl` path classification. When `file_changes.jsonl` is available, the scorer excludes rows marked binary, lockfile, generated, vendored, or spec/schema-like before counting file changes, lines, active days, contributors, and commits-per-active-day. If only `summary.json` is available, it falls back to the already-filtered aggregate totals. The default `source_like` crawl filter applies the same noise policy before outputs are written.
+Credited activity uses `git-crawl` path classification. When `file_changes.jsonl` is available, the scorer excludes rows marked binary, lockfile, generated, vendored, or spec/schema-like before counting file changes, lines, active days, contributors, and commits-per-active-day. If only `summary.json` is available, it uses already-filtered source-like aggregate totals and does not fall back to raw churn totals. Repositories only receive score credit when they have credited activity in the scoring window. The default `source_like` crawl filter applies the same noise policy before outputs are written.
 
 Percentile rank is still computed across every subnet after final scores are calculated for consumers that need it.
 

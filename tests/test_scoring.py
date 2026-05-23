@@ -27,9 +27,14 @@ def _write_summary(output_dir, netuid, *, repos_crawled, file_changes, lines_add
     return crawl_dir
 
 
-def _write_commits(crawl_dir, rows):
+def _write_commits(crawl_dir, rows, *, repo="acme/repo"):
+    normalized_rows = []
+    for row in rows:
+        normalized = dict(row)
+        normalized.setdefault("repo", repo)
+        normalized_rows.append(normalized)
     (crawl_dir / "commits.jsonl").write_text(
-        "\n".join(json.dumps(row) for row in rows) + "\n",
+        "\n".join(json.dumps(row) for row in normalized_rows) + "\n",
         encoding="utf-8",
     )
 
@@ -39,6 +44,25 @@ def _write_file_changes(crawl_dir, rows):
         "\n".join(json.dumps(row) for row in rows) + "\n",
         encoding="utf-8",
     )
+
+
+def _write_source_file_changes(crawl_dir, changes, *, repo="acme/repo"):
+    rows = []
+    for sha, file_changes, lines_added in changes:
+        additions = lines_added // file_changes if file_changes else 0
+        rows.extend(
+            {
+                "repo": repo,
+                "sha": sha,
+                "path": f"src/{sha}-{index}.py",
+                "additions": additions,
+                "is_binary": False,
+                "path_class": "source",
+                "is_generated_like": False,
+            }
+            for index in range(file_changes)
+        )
+    _write_file_changes(crawl_dir, rows)
 
 
 def test_build_score_document_uses_global_raw_max_and_full_population(tmp_path):
@@ -80,6 +104,7 @@ def test_build_score_document_uses_global_raw_max_and_full_population(tmp_path):
             },
         ],
     )
+    _write_source_file_changes(strong_crawl, [("a", 4, 40), ("b", 3, 30), ("c", 3, 30)])
     small_crawl = _write_summary(tmp_path, 2, repos_crawled=1, file_changes=5, lines_added=50)
     _write_commits(
         small_crawl,
@@ -92,6 +117,7 @@ def test_build_score_document_uses_global_raw_max_and_full_population(tmp_path):
             }
         ],
     )
+    _write_source_file_changes(small_crawl, [("d", 5, 50)])
 
     score_document = build_score_document(document, tmp_path)
 
@@ -149,6 +175,10 @@ def test_score_is_rescaled_so_top_composite_is_100(tmp_path):
             for index in range(10)
         ],
     )
+    _write_source_file_changes(
+        broad_crawl,
+        [(f"broad-{index}", 8, 8) for index in range(10)],
+    )
     bursty_crawl = _write_summary(tmp_path, 2, repos_crawled=1, file_changes=100, lines_added=100)
     _write_commits(
         bursty_crawl,
@@ -161,6 +191,10 @@ def test_score_is_rescaled_so_top_composite_is_100(tmp_path):
             }
             for index in range(10)
         ],
+    )
+    _write_source_file_changes(
+        bursty_crawl,
+        [(f"bursty-{index}", 10, 10) for index in range(10)],
     )
 
     scores = {item["netuid"]: item for item in build_score_document(document, tmp_path)["scores"]}
@@ -196,6 +230,7 @@ def test_equal_scores_share_the_same_rank(tmp_path):
                 }
             ],
         )
+        _write_source_file_changes(crawl_dir, [(sha, 10, 100)])
 
     scores = {item["netuid"]: item for item in build_score_document(document, tmp_path)["scores"]}
 
@@ -224,6 +259,7 @@ def test_write_score_outputs_writes_aggregate_and_per_subnet_files(tmp_path):
             }
         ],
     )
+    _write_source_file_changes(crawl_dir, [("a", 1, 10)])
 
     written = write_score_outputs(document, tmp_path)
 
@@ -258,6 +294,13 @@ def test_score_prefers_git_crawl_path_classification_when_file_changes_are_avail
                 "author_login": "bot",
                 "files_changed": 1,
             },
+            {
+                "repo": "acme/api",
+                "sha": "schema",
+                "authored_at": "2026-01-03T00:00:00+00:00",
+                "author_login": "schema-bot",
+                "files_changed": 1,
+            },
         ],
     )
     _write_file_changes(
@@ -290,12 +333,79 @@ def test_score_prefers_git_crawl_path_classification_when_file_changes_are_avail
                 "path_class": "lockfile",
                 "is_generated_like": True,
             },
+            {
+                "repo": "acme/api",
+                "sha": "schema",
+                "path": "schema/openapi.json",
+                "additions": 5000,
+                "is_binary": False,
+                "path_class": "spec/schema-like",
+                "is_generated_like": False,
+            },
         ],
     )
 
     score = build_score_document(document, tmp_path)["scores"][0]
 
     assert score["raw_metrics"]["credited_file_changes"] == 2.0
+    assert score["raw_metrics"]["credited_lines_added"] == 30.0
+    assert score["raw_metrics"]["active_days"] == 1.0
+    assert score["raw_metrics"]["distinct_contributors"] == 1.0
+
+
+def test_score_does_not_fall_back_to_raw_churn_totals(tmp_path):
+    document = resolve_subnets(
+        [SubnetIdentityRecord(netuid=1, subnet_name="Example", github_repo="https://github.com/acme/api")],
+        target_label="bittensor-subnets",
+    )
+    _write_summary(tmp_path, 1, repos_crawled=1, file_changes=999, lines_added=9999)
+
+    score = build_score_document(document, tmp_path)["scores"][0]
+
+    assert score["raw_metrics"]["credited_file_changes"] == 0.0
+    assert score["raw_metrics"]["credited_lines_added"] == 0.0
+    assert score["raw_metrics"]["active_days"] == 0.0
+    assert score["raw_metrics"]["avg_credited_commits_per_active_day"] == 0.0
+    assert score["raw_metrics"]["distinct_contributors"] == 0.0
+    assert score["raw_metrics"]["repos_crawled"] == 0.0
+    assert score["score"] == 0.0
+
+
+def test_score_uses_filtered_summary_totals_when_detailed_rows_are_unavailable(tmp_path):
+    document = resolve_subnets(
+        [SubnetIdentityRecord(netuid=1, subnet_name="Example", github_repo="https://github.com/acme/api")],
+        target_label="bittensor-subnets",
+    )
+    crawl_dir = tmp_path / "subnets" / "1" / "crawl"
+    crawl_dir.mkdir(parents=True)
+    (crawl_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "status": "success",
+                "repositories": {"crawled": 1},
+                "totals": {
+                    "commits": 50,
+                    "file_changes": 999,
+                    "lines_added": 9999,
+                    "active_days": 20,
+                    "distinct_contributor_keys": 10,
+                },
+                "source_like_totals": {
+                    "commits": 2,
+                    "file_changes": 3,
+                    "lines_added": 30,
+                    "active_days": 1,
+                    "distinct_contributors": 1,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    score = build_score_document(document, tmp_path)["scores"][0]
+
+    assert score["raw_metrics"]["avg_credited_commits_per_active_day"] == 2.0
+    assert score["raw_metrics"]["credited_file_changes"] == 3.0
     assert score["raw_metrics"]["credited_lines_added"] == 30.0
     assert score["raw_metrics"]["active_days"] == 1.0
     assert score["raw_metrics"]["distinct_contributors"] == 1.0
