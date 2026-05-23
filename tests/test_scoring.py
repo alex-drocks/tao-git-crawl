@@ -477,7 +477,7 @@ def test_score_active_days_match_git_crawl_utc_day_convention(tmp_path):
             {
                 "repo": "acme/api",
                 "sha": "b",
-                "authored_at": "2026-01-02T00:30:00+00:00",
+                "authored_at": "2026-01-02T23:30:00",
                 "author_login": "dev",
                 "files_changed": 1,
             },

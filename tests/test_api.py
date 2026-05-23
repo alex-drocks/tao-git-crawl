@@ -633,6 +633,61 @@ def test_activity_endpoint_returns_consistent_code_changes_activity_payload(tmp_
     assert "caveats" not in payload
 
 
+def test_activity_counts_contributor_days_per_repo_day_when_recomputed_from_jsonl(tmp_path):
+    crawl_dir = tmp_path / "subnets" / "94" / "crawl"
+    crawl_dir.mkdir(parents=True)
+    (crawl_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "status": "success",
+                "calendar_span": {"days": 1, "weeks": 1, "months": 1},
+                "repositories": {"crawled": 2},
+                "source_like_totals": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    _write_jsonl(
+        crawl_dir / "file_changes.jsonl",
+        [
+            {"repo": "owner/a", "sha": "sha-a", "path_class": "source", "additions": 1, "deletions": 0},
+            {"repo": "owner/b", "sha": "sha-b", "path_class": "source", "additions": 2, "deletions": 0},
+        ],
+    )
+    _write_jsonl(
+        crawl_dir / "commits.jsonl",
+        [
+            {
+                "repo": "owner/a",
+                "sha": "sha-a",
+                "authored_at": "2025-01-01T10:00:00Z",
+                "author_login": "dev",
+            },
+            {
+                "repo": "owner/b",
+                "sha": "sha-b",
+                "authored_at": "2025-01-01T23:30:00",
+                "author_login": "dev",
+            },
+        ],
+    )
+
+    activity = get_subnet_dataset(tmp_path, 94, "activity")
+    contributor_days = get_subnet_dataset(tmp_path, 94, "contributor-days")
+
+    assert activity["totals"] == {
+        "commits": 2,
+        "file_changes": 2,
+        "lines_added": 3,
+        "lines_deleted": 0,
+        "active_days": 1,
+        "repo_days": 2,
+        "contributor_days": 2,
+        "distinct_contributors": 1,
+    }
+    assert {row["repo"] for row in contributor_days["data"]} == {"owner/a", "owner/b"}
+
+
 def test_activity_endpoint_prefers_git_crawl_activity_json_when_available(tmp_path):
     crawl_dir = tmp_path / "subnets" / "94" / "crawl"
     crawl_dir.mkdir(parents=True)
@@ -694,6 +749,17 @@ def test_activity_endpoint_prefers_git_crawl_activity_json_when_available(tmp_pa
         "lines_deleted": 2.5,
     }
     assert payload["skipped"] == {"file_changes": 0, "lines_added": 0, "lines_deleted": 0}
+
+
+def test_activity_endpoint_rejects_non_object_summary_json(tmp_path):
+    crawl_dir = tmp_path / "subnets" / "94" / "crawl"
+    crawl_dir.mkdir(parents=True)
+    (crawl_dir / "summary.json").write_text("[]", encoding="utf-8")
+
+    response = handle_api_request(tmp_path, "/api/subnets/94/activity")
+
+    assert response.status == HTTPStatus.INTERNAL_SERVER_ERROR
+    assert response.payload == {"error": "invalid crawl summary: expected JSON object"}
 
 
 def test_summary_activity_matches_activity_endpoint_when_jsonl_rows_exist(tmp_path):

@@ -547,6 +547,8 @@ def _read_json_optional(path: Path) -> object | None:
         return None
     try:
         return json.loads(path.read_text(encoding="utf-8"))
+    except UnicodeDecodeError as exc:
+        raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, f"invalid UTF-8 in {path.name}: {exc}") from exc
     except json.JSONDecodeError as exc:
         raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, f"invalid JSON in {path.name}: {exc}") from exc
     except OSError as exc:
@@ -560,8 +562,10 @@ def _summary_with_score(
     *,
     activity: dict[str, object] | None = None,
 ) -> object:
-    if not isinstance(summary, dict):
+    if summary is None:
         return summary
+    if not isinstance(summary, dict):
+        raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, "invalid crawl summary: expected JSON object")
     canonical_activity = activity if activity is not None else _activity_from_summary(summary, crawl_dir)
     top_activity = _top_activity_payload(crawl_dir)
     return {
@@ -600,8 +604,10 @@ def _top_activity_payload(crawl_dir: Path | None) -> dict[str, list[dict[str, ob
 
 
 def _activity_from_summary(summary: object, crawl_dir: Path | None = None) -> dict[str, object] | None:
-    if not isinstance(summary, dict):
+    if summary is None:
         return None
+    if not isinstance(summary, dict):
+        raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, "invalid crawl summary: expected JSON object")
 
     source_like_totals_value = summary.get("source_like_totals")
     has_source_like_totals = isinstance(source_like_totals_value, dict)
@@ -622,13 +628,16 @@ def _activity_from_summary(summary: object, crawl_dir: Path | None = None) -> di
         totals = _empty_activity_totals()
         skipped = _skipped_activity_from_summary(summary, totals)
     active_days = totals["active_days"]
+    status = _activity_metadata(summary, upstream_activity, "status")
+    history_since = _activity_metadata(summary, upstream_activity, "history_since")
+    history_until = _activity_metadata(summary, upstream_activity, "history_until")
 
     return {
         "schema_version": ACTIVITY_SCHEMA_VERSION,
-        "status": summary.get("status"),
+        "status": status,
         "history": {
-            "since": summary.get("history_since"),
-            "until": summary.get("history_until"),
+            "since": history_since,
+            "until": history_until,
             "calendar_span": dict(calendar_span),
         },
         "repositories": _repository_activity_payload(summary.get("repositories")),
@@ -641,6 +650,16 @@ def _activity_from_summary(summary: object, crawl_dir: Path | None = None) -> di
         },
         "skipped": skipped,
     }
+
+
+def _activity_metadata(
+    summary: dict[str, object],
+    upstream_activity: dict[str, object] | None,
+    key: str,
+) -> object:
+    if upstream_activity is not None and upstream_activity.get(key) is not None:
+        return upstream_activity.get(key)
+    return summary.get(key)
 
 
 def _read_git_crawl_activity(crawl_dir: Path | None) -> dict[str, object] | None:
@@ -744,7 +763,7 @@ def _code_activity_from_jsonl(crawl_dir: Path | None) -> dict[str, object] | Non
     commits = 0
     active_days: set[str] = set()
     repo_days: set[tuple[str, str]] = set()
-    contributor_days: set[tuple[str, str]] = set()
+    contributor_days: set[tuple[str, str, str]] = set()
     contributors: set[str] = set()
     seen_commits: set[tuple[str, str]] = set()
     for row in _iter_jsonl_objects(commits_path):
@@ -763,7 +782,7 @@ def _code_activity_from_jsonl(crawl_dir: Path | None) -> dict[str, object] | Non
             continue
         active_days.add(authored_day)
         repo_days.add((repo, authored_day))
-        contributor_days.add((contributor, authored_day))
+        contributor_days.add((repo, authored_day, contributor))
 
     return {
         "totals": {
@@ -889,8 +908,10 @@ def _credited_commit_stats_from_file_changes(crawl_dir: Path) -> dict[tuple[str,
 
 
 def _commit_key(row: dict[str, object]) -> tuple[str, str] | None:
-    repo = str(row.get("repo", ""))
-    sha = str(row.get("sha") or row.get("commit_sha") or "")
+    repo = _text_key(row.get("repo"))
+    sha = _text_key(row.get("sha"))
+    if not sha:
+        sha = _text_key(row.get("commit_sha"))
     if not repo or not sha:
         return None
     return repo, sha
@@ -1170,6 +1191,8 @@ def _iter_jsonl_objects(path: Path) -> Iterator[object]:
                         HTTPStatus.INTERNAL_SERVER_ERROR,
                         f"invalid JSONL in {path.name} at line {line_number + 1}: {exc}",
                     ) from exc
+    except UnicodeDecodeError as exc:
+        raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, f"invalid UTF-8 in {path.name}: {exc}") from exc
     except OSError as exc:
         raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, f"could not read {path.name}: {exc}") from exc
 
@@ -1179,6 +1202,8 @@ def _authored_day(value: object) -> str | None:
         return None
     try:
         authored_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if authored_at.tzinfo is None or authored_at.utcoffset() is None:
+            authored_at = authored_at.replace(tzinfo=UTC)
         return authored_at.astimezone(UTC).date().isoformat()
     except ValueError:
         return value[:10] if len(value) >= 10 else None
@@ -1235,6 +1260,8 @@ def _read_jsonl_page(
                     break
                 rows.append(row_transform(row) if row_transform is not None else row)
                 row_index += 1
+    except UnicodeDecodeError as exc:
+        raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, f"invalid UTF-8 in {path.name}: {exc}") from exc
     except OSError as exc:
         raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, f"could not read {path.name}: {exc}") from exc
 
@@ -1293,6 +1320,10 @@ def _number_from_keys(values: dict[str, object], *keys: str) -> int | float:
         if key in values:
             return _number(values.get(key))
     return 0
+
+
+def _text_key(value: object) -> str:
+    return value.strip() if isinstance(value, str) else ""
 
 
 if __name__ == "__main__":

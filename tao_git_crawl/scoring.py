@@ -371,6 +371,8 @@ def _authored_day(value: object) -> str | None:
         return None
     try:
         authored_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if authored_at.tzinfo is None or authored_at.utcoffset() is None:
+            authored_at = authored_at.replace(tzinfo=UTC)
         return authored_at.astimezone(UTC).date().isoformat()
     except ValueError:
         return value[:10] if len(value) >= 10 else None
