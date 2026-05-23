@@ -7,7 +7,7 @@ def test_runtime_dependencies_are_package_index_compatible_and_reference_git_cra
 
     dependencies = metadata['project']['dependencies']
 
-    assert 'git-crawl>=0.2.0' in dependencies
+    assert 'git-crawl>=0.3.0' in dependencies
     assert 'python-dotenv>=1.0,<2' in dependencies
     assert not any('git+' in dependency or ' @ http' in dependency for dependency in dependencies)
 
@@ -36,12 +36,14 @@ def test_changelog_is_ready_for_release_notes_and_packaged_in_sdist():
     metadata = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))
     changelog = Path('CHANGELOG.md').read_text(encoding='utf-8')
 
-    assert metadata['project']['version'] == '0.2.0'
+    assert metadata['project']['version'] == '0.3.0'
     assert '## [Unreleased]' in changelog
+    assert '## [0.3.0] - 2026-05-23' in changelog
     assert '## [0.2.0] - 2026-05-22' in changelog
     assert '## [0.1.1] - 2026-05-22' in changelog
     assert '## [0.1.0] - 2026-05-22' in changelog
-    assert '[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.2.0...HEAD' in changelog
+    assert '[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.3.0...HEAD' in changelog
+    assert '[0.3.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.2.0...v0.3.0' in changelog
     assert '[0.2.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.1.1...v0.2.0' in changelog
     assert '[0.1.1]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.1.0...v0.1.1' in changelog
     assert '[0.1.0]: https://github.com/alex-drocks/tao-git-crawl/releases/tag/v0.1.0' in changelog
@@ -89,8 +91,8 @@ def test_docker_docs_and_compose_pass_documented_scheduler_environment():
         assert name in readme
         assert name in compose
 
-    assert 'git-crawl.git@v0.2.0' in dockerfile
-    assert 'git-crawl.git@v0.2.0' in compose
+    assert 'git-crawl.git@v0.3.0' in dockerfile
+    assert 'git-crawl.git@v0.3.0' in compose
     assert 'git-crawl.git@main' not in dockerfile
     assert 'git-crawl.git@main' not in compose
     assert 'raw.githubusercontent.com/alex-drocks/tao-git-crawl/main/registry.json' not in readme
@@ -98,7 +100,9 @@ def test_docker_docs_and_compose_pass_documented_scheduler_environment():
     assert 'reverse_proxy 127.0.0.1:8080' in readme
     assert '1200` requests per `60` seconds per TCP peer' in readme
     assert 'GET /api/subnets/<netuid>/activity' in readme
-    assert '`activity.activity_scope` is `code_changes`' in readme
+    assert 'one canonical activity model' in readme
+    assert '`git-crawl` v0.3.0 `activity.json` is present' in readme
+    assert '`skipped`' in readme
     assert 'averages.per_active_day' in readme
     assert 'GET /api/subnets/<netuid>/score' in readme
     assert 'GET /api/scores' in readme

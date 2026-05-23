@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Build arguments let operators pin the git-crawl source without editing files.
-ARG GIT_CRAWL_URL="git+https://github.com/alex-drocks/git-crawl.git@v0.2.0"
+ARG GIT_CRAWL_URL="git+https://github.com/alex-drocks/git-crawl.git@v0.3.0"
 ARG INSTALL_EXTRAS="[chain]"
 
 # Install git-crawl first (from GitHub) so tao-git-crawl's dependency is met.

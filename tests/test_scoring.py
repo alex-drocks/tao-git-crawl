@@ -46,6 +46,28 @@ def _write_file_changes(crawl_dir, rows):
     )
 
 
+def _write_activity(crawl_dir, *, commits, file_changes, lines_added, active_days, distinct_contributors):
+    (crawl_dir / "activity.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "git-crawl-activity-v1",
+                "totals": {
+                    "commits": commits,
+                    "file_changes": file_changes,
+                    "lines_added": lines_added,
+                    "lines_deleted": 0,
+                    "active_days": active_days,
+                    "repo_days": active_days,
+                    "contributor_days": active_days,
+                    "distinct_contributors": distinct_contributors,
+                },
+                "skipped": {"file_changes": 0, "lines_added": 0, "lines_deleted": 0, "by_reason": {}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def _write_source_file_changes(crawl_dir, changes, *, repo="acme/repo"):
     rows = []
     for sha, file_changes, lines_added in changes:
@@ -353,6 +375,89 @@ def test_score_prefers_git_crawl_path_classification_when_file_changes_are_avail
     assert score["raw_metrics"]["distinct_contributors"] == 1.0
 
 
+def test_score_matches_commit_sha_rows_and_deduplicates_commits(tmp_path):
+    document = resolve_subnets(
+        [SubnetIdentityRecord(netuid=1, subnet_name="Example", github_repo="https://github.com/acme/api")],
+        target_label="bittensor-subnets",
+    )
+    crawl_dir = _write_summary(tmp_path, 1, repos_crawled=1, file_changes=2, lines_added=30)
+    _write_commits(
+        crawl_dir,
+        [
+            {
+                "repo": "acme/api",
+                "commit_sha": "a",
+                "authored_at": "2026-01-01T00:00:00+00:00",
+                "author_login": "dev",
+                "files_changed": 1,
+            },
+            {
+                "repo": "acme/api",
+                "commit_sha": "a",
+                "authored_at": "2026-01-01T01:00:00+00:00",
+                "author_login": "dev",
+                "files_changed": 1,
+            },
+        ],
+    )
+    _write_file_changes(
+        crawl_dir,
+        [
+            {
+                "repo": "acme/api",
+                "commit_sha": "a",
+                "path": "src/app.py",
+                "additions": 10,
+                "is_binary": False,
+                "path_class": "source",
+                "is_generated_like": False,
+            },
+            {
+                "repo": "acme/api",
+                "commit_sha": "a",
+                "path": "src/lib.py",
+                "additions": 20,
+                "is_binary": False,
+                "path_class": "source",
+                "is_generated_like": False,
+            },
+        ],
+    )
+
+    score = build_score_document(document, tmp_path)["scores"][0]
+
+    assert score["raw_metrics"]["credited_file_changes"] == 2.0
+    assert score["raw_metrics"]["credited_lines_added"] == 30.0
+    assert score["raw_metrics"]["active_days"] == 1.0
+    assert score["raw_metrics"]["avg_credited_commits_per_active_day"] == 1.0
+    assert score["raw_metrics"]["distinct_contributors"] == 1.0
+
+
+def test_score_prefers_git_crawl_activity_json_when_available(tmp_path):
+    document = resolve_subnets(
+        [SubnetIdentityRecord(netuid=1, subnet_name="Example", github_repo="https://github.com/acme/api")],
+        target_label="bittensor-subnets",
+    )
+    crawl_dir = _write_summary(tmp_path, 1, repos_crawled=2, file_changes=999, lines_added=9999)
+    _write_activity(
+        crawl_dir,
+        commits=6,
+        file_changes=12,
+        lines_added=120,
+        active_days=3,
+        distinct_contributors=4,
+    )
+
+    score = build_score_document(document, tmp_path)["scores"][0]
+
+    assert score["raw_metrics"]["avg_credited_commits_per_active_day"] == 2.0
+    assert score["raw_metrics"]["credited_file_changes"] == 12.0
+    assert score["raw_metrics"]["credited_lines_added"] == 120.0
+    assert score["raw_metrics"]["active_days"] == 3.0
+    assert score["raw_metrics"]["distinct_contributors"] == 4.0
+    assert score["raw_metrics"]["repos_crawled"] == 2.0
+
+
 def test_score_does_not_fall_back_to_raw_churn_totals(tmp_path):
     document = resolve_subnets(
         [SubnetIdentityRecord(netuid=1, subnet_name="Example", github_repo="https://github.com/acme/api")],
@@ -430,7 +535,7 @@ def test_score_active_days_match_git_crawl_utc_day_convention(tmp_path):
             {
                 "repo": "acme/api",
                 "sha": "b",
-                "authored_at": "2026-01-02T00:30:00+00:00",
+                "authored_at": "2026-01-02T23:30:00",
                 "author_login": "dev",
                 "files_changed": 1,
             },

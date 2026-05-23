@@ -16,7 +16,7 @@ from pathlib import Path
 from threading import Lock
 from urllib.parse import parse_qs, unquote, urlparse
 
-from .activity_filter import CODE_ACTIVITY_EXCLUDED_CHURN_CLASSES, is_noise_change
+from .activity_filter import CODE_ACTIVITY_EXCLUDED_CHURN_CLASSES, is_noise_change, noise_change_class
 
 DEFAULT_OUTPUT_DIR = Path("/data/output")
 DEFAULT_HOST = "0.0.0.0"
@@ -25,7 +25,9 @@ DEFAULT_LIMIT = 100
 MAX_LIMIT = 1000
 DEFAULT_RATE_LIMIT_REQUESTS = 1200
 DEFAULT_RATE_LIMIT_WINDOW_SECONDS = 60
-ACTIVITY_SCHEMA_VERSION = "tao-git-crawl-activity-v1"
+ACTIVITY_SCHEMA_VERSION = "tao-git-crawl-activity-v2"
+SUBNET_SUMMARY_SCHEMA_VERSION = "tao-git-crawl-subnet-summary-v2"
+GIT_CRAWL_ACTIVITY_SCHEMA_VERSION = "git-crawl-activity-v1"
 
 JSON_DATASETS = {
     "summary": "summary.json",
@@ -37,18 +39,24 @@ JSON_DATASETS = {
     "unresolved": "unresolved.json",
 }
 
-JSONL_DATASETS = {
+PUBLIC_JSONL_DATASETS = {
     "repositories": "repositories.jsonl",
     "commits": "commits.jsonl",
-    "contributors": "contributor_days.jsonl",
     "contributor-days": "contributor_days.jsonl",
     "repo-days": "repo_days.jsonl",
     "org-days": "org_days.jsonl",
     "file-changes": "file_changes.jsonl",
+}
+
+DIAGNOSTIC_JSONL_DATASETS = {
     "failures": "repo_failures.jsonl",
     "excluded": "excluded_repositories.jsonl",
     "crawl-runs": "crawl_runs.jsonl",
 }
+
+JSONL_DATASETS = PUBLIC_JSONL_DATASETS | DIAGNOSTIC_JSONL_DATASETS
+JSONL_DATASET_ALIASES = {"contributors": "contributor-days"}
+DAY_DATASETS = {"contributor-days", "repo-days", "org-days"}
 
 
 @dataclass(frozen=True)
@@ -158,6 +166,7 @@ def get_subnet_detail(output_dir: str | Path, netuid: int) -> dict[str, object]:
     overview = _subnet_overview(subnet_dir)
     overview["files"] = _subnet_files(subnet_dir)
     overview["endpoints"] = _subnet_endpoints(netuid)
+    overview["diagnostic_endpoints"] = _subnet_diagnostic_endpoints(netuid)
     return overview
 
 
@@ -174,6 +183,7 @@ def get_subnet_dataset(
     dataset: str,
     query: dict[str, list[str]] | None = None,
 ) -> dict[str, object] | list[object] | object:
+    dataset = JSONL_DATASET_ALIASES.get(dataset, dataset)
     subnet_dir = _subnet_dir(Path(output_dir), netuid)
     crawl_dir = subnet_dir / "crawl"
     query_params = query or {}
@@ -198,7 +208,48 @@ def get_subnet_dataset(
     if dataset in JSONL_DATASETS:
         limit = _parse_query_int(query_params, "limit", DEFAULT_LIMIT)
         offset = _parse_query_int(query_params, "offset", 0)
-        return _read_jsonl_page(crawl_dir / JSONL_DATASETS[dataset], limit=limit, offset=offset)
+        if dataset == "file-changes":
+            return _read_jsonl_page(
+                crawl_dir / JSONL_DATASETS[dataset],
+                limit=limit,
+                offset=offset,
+                row_filter=_is_code_change_row,
+                row_transform=_file_change_row_payload,
+            )
+        if dataset == "commits":
+            credited_commit_stats = _credited_commit_stats_from_file_changes(crawl_dir)
+            if credited_commit_stats is not None:
+                return _read_jsonl_page(
+                    crawl_dir / JSONL_DATASETS[dataset],
+                    limit=limit,
+                    offset=offset,
+                    row_filter=lambda row: (
+                        _commit_key(row) in credited_commit_stats if isinstance(row, dict) else False
+                    ),
+                    row_transform=lambda row: _commit_row_payload(row, credited_commit_stats),
+                )
+            return _read_jsonl_page(
+                crawl_dir / JSONL_DATASETS[dataset],
+                limit=limit,
+                offset=offset,
+                row_transform=_files_changed_row_payload,
+            )
+        if dataset in DAY_DATASETS:
+            day_rows = _day_rows_from_code_activity(crawl_dir, dataset)
+            if day_rows is not None:
+                return _paginate_rows(day_rows, limit=limit, offset=offset)
+            return _read_jsonl_page(
+                crawl_dir / JSONL_DATASETS[dataset],
+                limit=limit,
+                offset=offset,
+                row_transform=_files_changed_row_payload,
+            )
+        return _read_jsonl_page(
+            crawl_dir / JSONL_DATASETS[dataset],
+            limit=limit,
+            offset=offset,
+            row_transform=_files_changed_row_payload,
+        )
 
     raise ApiProblem(HTTPStatus.NOT_FOUND, f"unknown subnet dataset: {dataset}")
 
@@ -352,6 +403,8 @@ def _rate_limit_headers(
 def _routes_payload() -> dict[str, object]:
     return {
         "name": "tao-git-crawl API",
+        "summary_schema_version": SUBNET_SUMMARY_SCHEMA_VERSION,
+        "activity_schema_version": ACTIVITY_SCHEMA_VERSION,
         "routes": [
             "/health",
             "/api/subnets",
@@ -361,12 +414,17 @@ def _routes_payload() -> dict[str, object]:
             "/api/subnets/{netuid}/score",
             "/api/subnets/{netuid}/repositories?limit=100&offset=0",
             "/api/subnets/{netuid}/commits?limit=100&offset=0",
-            "/api/subnets/{netuid}/contributors?limit=100&offset=0",
+            "/api/subnets/{netuid}/contributor-days?limit=100&offset=0",
             "/api/subnets/{netuid}/repo-days?limit=100&offset=0",
             "/api/subnets/{netuid}/org-days?limit=100&offset=0",
             "/api/subnets/{netuid}/file-changes?limit=100&offset=0",
             "/api/crawl-report",
             "/api/scores",
+        ],
+        "diagnostic_routes": [
+            "/api/subnets/{netuid}/failures?limit=100&offset=0",
+            "/api/subnets/{netuid}/excluded?limit=100&offset=0",
+            "/api/subnets/{netuid}/crawl-runs?limit=100&offset=0",
         ],
     }
 
@@ -375,8 +433,18 @@ def _health_payload(output_dir: Path) -> dict[str, object]:
     return {
         "ok": output_dir.exists(),
         "output_dir": str(output_dir),
-        "subnets": len(list_subnets(output_dir)),
+        "subnets": _count_subnet_dirs(output_dir),
     }
+
+
+def _count_subnet_dirs(output_dir: Path) -> int:
+    subnets_dir = output_dir / "subnets"
+    if not subnets_dir.exists():
+        return 0
+    try:
+        return sum(1 for path in subnets_dir.iterdir() if path.is_dir() and path.name.isdigit())
+    except OSError:
+        return 0
 
 
 def _subnet_overview(subnet_dir: Path) -> dict[str, object]:
@@ -449,8 +517,15 @@ def _subnet_endpoints(netuid: int) -> dict[str, str]:
         "unresolved": f"{base}/unresolved",
         "score": f"{base}/score",
     }
-    endpoints.update({dataset.replace("-", "_"): f"{base}/{dataset}?limit=100&offset=0" for dataset in JSONL_DATASETS})
+    endpoints.update(
+        {dataset.replace("-", "_"): f"{base}/{dataset}?limit=100&offset=0" for dataset in PUBLIC_JSONL_DATASETS}
+    )
     return endpoints
+
+
+def _subnet_diagnostic_endpoints(netuid: int) -> dict[str, str]:
+    base = f"/api/subnets/{netuid}"
+    return {dataset.replace("-", "_"): f"{base}/{dataset}?limit=100&offset=0" for dataset in DIAGNOSTIC_JSONL_DATASETS}
 
 
 def _subnet_dir(output_dir: Path, netuid: int) -> Path:
@@ -472,8 +547,12 @@ def _read_json_optional(path: Path) -> object | None:
         return None
     try:
         return json.loads(path.read_text(encoding="utf-8"))
+    except UnicodeDecodeError as exc:
+        raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, f"invalid UTF-8 in {path.name}: {exc}") from exc
     except json.JSONDecodeError as exc:
         raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, f"invalid JSON in {path.name}: {exc}") from exc
+    except OSError as exc:
+        raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, f"could not read {path.name}: {exc}") from exc
 
 
 def _summary_with_score(
@@ -483,48 +562,84 @@ def _summary_with_score(
     *,
     activity: dict[str, object] | None = None,
 ) -> object:
-    if not isinstance(summary, dict):
+    if summary is None:
         return summary
-    enriched = dict(summary)
-    enriched["activity"] = activity if activity is not None else _activity_from_summary(summary, crawl_dir)
-    enriched["score"] = score
-    return enriched
+    if not isinstance(summary, dict):
+        raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, "invalid crawl summary: expected JSON object")
+    canonical_activity = activity if activity is not None else _activity_from_summary(summary, crawl_dir)
+    top_activity = _top_activity_payload(crawl_dir)
+    return {
+        "schema_version": SUBNET_SUMMARY_SCHEMA_VERSION,
+        "status": summary.get("status"),
+        "crawl": _crawl_metadata_payload(summary),
+        "history": dict(_mapping(canonical_activity.get("history"))) if isinstance(canonical_activity, dict) else {},
+        "repositories": (
+            dict(_mapping(canonical_activity.get("repositories"))) if isinstance(canonical_activity, dict) else {}
+        ),
+        "activity": canonical_activity,
+        "totals": dict(_mapping(canonical_activity.get("totals"))) if isinstance(canonical_activity, dict) else {},
+        "averages": dict(_mapping(canonical_activity.get("averages"))) if isinstance(canonical_activity, dict) else {},
+        "skipped": dict(_mapping(canonical_activity.get("skipped"))) if isinstance(canonical_activity, dict) else {},
+        "top_repositories": top_activity["top_repositories"],
+        "top_paths": top_activity["top_paths"],
+        "score": score,
+    }
+
+
+def _crawl_metadata_payload(summary: dict[str, object]) -> dict[str, object]:
+    metadata = {
+        "target": summary.get("org"),
+        "run_id": summary.get("run_id"),
+        "ref_scope": summary.get("ref_scope"),
+        "active_since": summary.get("active_since"),
+    }
+    return {key: value for key, value in metadata.items() if value is not None}
+
+
+def _top_activity_payload(crawl_dir: Path | None) -> dict[str, list[dict[str, object]]]:
+    top_from_rows = _top_activity_from_jsonl(crawl_dir)
+    if top_from_rows is not None:
+        return top_from_rows
+    return {"top_repositories": [], "top_paths": []}
 
 
 def _activity_from_summary(summary: object, crawl_dir: Path | None = None) -> dict[str, object] | None:
-    if not isinstance(summary, dict):
+    if summary is None:
         return None
+    if not isinstance(summary, dict):
+        raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, "invalid crawl summary: expected JSON object")
 
     source_like_totals_value = summary.get("source_like_totals")
     has_source_like_totals = isinstance(source_like_totals_value, dict)
     source_like_totals = _mapping(source_like_totals_value)
     calendar_span = _mapping(summary.get("calendar_span"))
-    jsonl_totals = _code_activity_totals_from_jsonl(crawl_dir)
-    if jsonl_totals is not None:
-        totals = jsonl_totals
-        calculation_source = "jsonl"
+    upstream_activity = _read_git_crawl_activity(crawl_dir)
+    jsonl_activity = None if upstream_activity is not None else _code_activity_from_jsonl(crawl_dir)
+    if upstream_activity is not None:
+        totals = _activity_totals_from_summary(_mapping(upstream_activity.get("totals")))
+        skipped = _public_skipped_activity(_mapping(upstream_activity.get("skipped")))
+    elif jsonl_activity is not None:
+        totals = _mapping(jsonl_activity.get("totals"))
+        skipped = _mapping(jsonl_activity.get("skipped"))
     elif has_source_like_totals:
         totals = _activity_totals_from_summary(source_like_totals)
-        calculation_source = "summary"
+        skipped = _skipped_activity_from_summary(summary, totals)
     else:
         totals = _empty_activity_totals()
-        calculation_source = "unavailable"
+        skipped = _skipped_activity_from_summary(summary, totals)
     active_days = totals["active_days"]
+    status = _activity_metadata(summary, upstream_activity, "status")
+    history_since = _activity_metadata(summary, upstream_activity, "history_since")
+    history_until = _activity_metadata(summary, upstream_activity, "history_until")
 
     return {
         "schema_version": ACTIVITY_SCHEMA_VERSION,
-        "status": summary.get("status"),
-        "activity_scope": "code_changes",
-        "activity_scope_description": (
-            "Totals and averages count code changes only. Lockfiles, generated files, vendored code, binaries, "
-            "and spec/schema-like churn are excluded when path classification is available."
-        ),
+        "status": status,
         "history": {
-            "since": summary.get("history_since"),
-            "until": summary.get("history_until"),
+            "since": history_since,
+            "until": history_until,
             "calendar_span": dict(calendar_span),
         },
-        "calculation_source": calculation_source,
         "repositories": _repository_activity_payload(summary.get("repositories")),
         "totals": totals,
         "averages": {
@@ -533,17 +648,38 @@ def _activity_from_summary(summary: object, crawl_dir: Path | None = None) -> di
             "per_calendar_week": _activity_average(totals, _number(calendar_span.get("weeks"))),
             "per_calendar_month": _activity_average(totals, _number(calendar_span.get("months"))),
         },
-        "path_classes": dict(_mapping(summary.get("path_classes"))),
-        "churn_filter": {
-            "excluded_classes": list(CODE_ACTIVITY_EXCLUDED_CHURN_CLASSES),
-            "excluded_generated_like_totals": dict(_mapping(summary.get("generated_like_totals"))),
-            "excluded_totals_are_included_in_activity": False,
-        },
-        "caveats": [
-            "These are git churn metrics, not current source lines of code.",
-            "Averages are recomputed from the filtered code-change totals in this activity block.",
-        ],
+        "skipped": skipped,
     }
+
+
+def _activity_metadata(
+    summary: dict[str, object],
+    upstream_activity: dict[str, object] | None,
+    key: str,
+) -> object:
+    if upstream_activity is not None and upstream_activity.get(key) is not None:
+        return upstream_activity.get(key)
+    return summary.get(key)
+
+
+def _read_git_crawl_activity(crawl_dir: Path | None) -> dict[str, object] | None:
+    if crawl_dir is None:
+        return None
+    payload = _read_json_optional(crawl_dir / "activity.json")
+    if payload is None:
+        return None
+    if not isinstance(payload, dict):
+        raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, "invalid activity.json: expected JSON object")
+    schema_version = payload.get("schema_version")
+    if schema_version != GIT_CRAWL_ACTIVITY_SCHEMA_VERSION:
+        raise ApiProblem(
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            (
+                f"unsupported activity schema version {schema_version!r}; "
+                f"expected {GIT_CRAWL_ACTIVITY_SCHEMA_VERSION!r}"
+            ),
+        )
+    return payload
 
 
 def _activity_totals_from_summary(source_like_totals: dict[str, object]) -> dict[str, int | float]:
@@ -563,6 +699,27 @@ def _activity_totals_from_summary(source_like_totals: dict[str, object]) -> dict
     }
 
 
+def _public_skipped_activity(value: dict[str, object]) -> dict[str, object]:
+    skipped = {
+        "file_changes": _number(value.get("file_changes")),
+        "lines_added": _number(value.get("lines_added")),
+        "lines_deleted": _number(value.get("lines_deleted")),
+    }
+    by_reason: dict[str, dict[str, int | float]] = {}
+    for reason, totals_value in _mapping(value.get("by_reason")).items():
+        totals = _mapping(totals_value)
+        reason_totals = {
+            "file_changes": _number(totals.get("file_changes")),
+            "lines_added": _number(totals.get("lines_added")),
+            "lines_deleted": _number(totals.get("lines_deleted")),
+        }
+        if any(_number(metric_value) > 0 for metric_value in reason_totals.values()):
+            by_reason[str(reason)] = reason_totals
+    if by_reason:
+        skipped["by_reason"] = by_reason
+    return skipped
+
+
 def _empty_activity_totals() -> dict[str, int | float]:
     return {
         "commits": 0,
@@ -576,7 +733,7 @@ def _empty_activity_totals() -> dict[str, int | float]:
     }
 
 
-def _code_activity_totals_from_jsonl(crawl_dir: Path | None) -> dict[str, int | float] | None:
+def _code_activity_from_jsonl(crawl_dir: Path | None) -> dict[str, object] | None:
     if crawl_dir is None:
         return None
     file_changes_path = crawl_dir / "file_changes.jsonl"
@@ -588,33 +745,36 @@ def _code_activity_totals_from_jsonl(crawl_dir: Path | None) -> dict[str, int | 
     file_changes = 0
     lines_added: int | float = 0
     lines_deleted: int | float = 0
+    skipped = _empty_skipped_activity()
     for row in _iter_jsonl_objects(file_changes_path):
-        if not isinstance(row, dict) or is_noise_change(row):
+        if not isinstance(row, dict):
+            continue
+        skipped_class = noise_change_class(row)
+        if skipped_class is not None:
+            _add_skipped_change(skipped, row, skipped_class)
             continue
         file_changes += 1
         lines_added += _number_from_keys(row, "additions", "lines_added")
         lines_deleted += _number_from_keys(row, "deletions", "lines_deleted")
-        repo = str(row.get("repo", ""))
-        sha = str(row.get("sha", ""))
-        if repo and sha:
-            credited_commit_keys.add((repo, sha))
+        commit_key = _commit_key(row)
+        if commit_key is not None:
+            credited_commit_keys.add(commit_key)
 
     commits = 0
     active_days: set[str] = set()
     repo_days: set[tuple[str, str]] = set()
-    contributor_days: set[tuple[str, str]] = set()
+    contributor_days: set[tuple[str, str, str]] = set()
     contributors: set[str] = set()
     seen_commits: set[tuple[str, str]] = set()
     for row in _iter_jsonl_objects(commits_path):
         if not isinstance(row, dict):
             continue
-        repo = str(row.get("repo", ""))
-        sha = str(row.get("sha", ""))
-        commit_key = (repo, sha)
-        if commit_key not in credited_commit_keys or commit_key in seen_commits:
+        commit_key = _commit_key(row)
+        if commit_key is None or commit_key not in credited_commit_keys or commit_key in seen_commits:
             continue
         seen_commits.add(commit_key)
         commits += 1
+        repo = commit_key[0]
         contributor = _contributor_key(row)
         contributors.add(contributor)
         authored_day = _authored_day(row.get("authored_at"))
@@ -622,17 +782,373 @@ def _code_activity_totals_from_jsonl(crawl_dir: Path | None) -> dict[str, int | 
             continue
         active_days.add(authored_day)
         repo_days.add((repo, authored_day))
-        contributor_days.add((contributor, authored_day))
+        contributor_days.add((repo, authored_day, contributor))
 
     return {
-        "commits": commits,
-        "file_changes": file_changes,
-        "lines_added": lines_added,
-        "lines_deleted": lines_deleted,
-        "active_days": len(active_days),
-        "repo_days": len(repo_days),
-        "contributor_days": len(contributor_days),
-        "distinct_contributors": len(contributors),
+        "totals": {
+            "commits": commits,
+            "file_changes": file_changes,
+            "lines_added": lines_added,
+            "lines_deleted": lines_deleted,
+            "active_days": len(active_days),
+            "repo_days": len(repo_days),
+            "contributor_days": len(contributor_days),
+            "distinct_contributors": len(contributors),
+        },
+        "skipped": skipped,
+    }
+
+
+def _skipped_activity_from_summary(
+    summary: dict[str, object],
+    included_totals: dict[str, int | float],
+) -> dict[str, object]:
+    skipped = _empty_skipped_activity()
+    generated_like_totals = _mapping(summary.get("generated_like_totals"))
+    raw_totals = _mapping(summary.get("totals"))
+    skipped["file_changes"] = _skipped_total(generated_like_totals, raw_totals, included_totals, "file_changes")
+    skipped["lines_added"] = _skipped_total(generated_like_totals, raw_totals, included_totals, "lines_added")
+    skipped["lines_deleted"] = _skipped_total(generated_like_totals, raw_totals, included_totals, "lines_deleted")
+    skipped_reasons = _skipped_reasons_from_summary(summary)
+    if skipped_reasons:
+        skipped["by_reason"] = skipped_reasons
+    return skipped
+
+
+def _skipped_total(
+    explicit_skipped: dict[str, object],
+    raw_totals: dict[str, object],
+    included_totals: dict[str, int | float],
+    key: str,
+) -> int | float:
+    if explicit_skipped:
+        return _number(explicit_skipped.get(key))
+    return max(_number(raw_totals.get(key)) - _number(included_totals.get(key)), 0)
+
+
+def _skipped_reasons_from_summary(summary: dict[str, object]) -> dict[str, dict[str, int | float]]:
+    skipped_by_reason: dict[str, dict[str, int | float]] = {}
+    for path_class, totals_value in _mapping(summary.get("path_classes")).items():
+        skipped_reason = _noise_class_from_path_class(str(path_class))
+        if skipped_reason is None:
+            continue
+        totals = _mapping(totals_value)
+        reason_totals = {
+            "file_changes": _number_from_keys(totals, "file_changes", "files_changed"),
+            "lines_added": _number(totals.get("lines_added")),
+            "lines_deleted": _number(totals.get("lines_deleted")),
+        }
+        if any(_number(value) > 0 for value in reason_totals.values()):
+            skipped_by_reason[skipped_reason] = reason_totals
+    return skipped_by_reason
+
+
+def _noise_class_from_path_class(path_class: str) -> str | None:
+    normalized = path_class.strip().lower()
+    if normalized == "spec":
+        return "spec/schema-like"
+    if normalized in CODE_ACTIVITY_EXCLUDED_CHURN_CLASSES:
+        return normalized
+    return None
+
+
+def _empty_skipped_activity() -> dict[str, object]:
+    return {
+        "file_changes": 0,
+        "lines_added": 0,
+        "lines_deleted": 0,
+    }
+
+
+def _add_skipped_change(skipped: dict[str, object], row: dict[str, object], skipped_class: str) -> None:
+    lines_added = _number_from_keys(row, "additions", "lines_added")
+    lines_deleted = _number_from_keys(row, "deletions", "lines_deleted")
+    skipped["file_changes"] = _number(skipped.get("file_changes")) + 1
+    skipped["lines_added"] = _number(skipped.get("lines_added")) + lines_added
+    skipped["lines_deleted"] = _number(skipped.get("lines_deleted")) + lines_deleted
+    by_reason = _mapping(skipped.get("by_reason"))
+    reason_totals = dict(_mapping(by_reason.get(skipped_class)))
+    reason_totals["file_changes"] = _number(reason_totals.get("file_changes")) + 1
+    reason_totals["lines_added"] = _number(reason_totals.get("lines_added")) + lines_added
+    reason_totals["lines_deleted"] = _number(reason_totals.get("lines_deleted")) + lines_deleted
+    by_reason[skipped_class] = reason_totals
+    skipped["by_reason"] = by_reason
+
+
+def _is_code_change_row(row: object) -> bool:
+    return isinstance(row, dict) and not is_noise_change(row)
+
+
+def _credited_commit_stats_from_file_changes(crawl_dir: Path) -> dict[tuple[str, str], dict[str, int | float]] | None:
+    file_changes_path = crawl_dir / "file_changes.jsonl"
+    if not file_changes_path.exists():
+        return None
+    credited_commit_stats: dict[tuple[str, str], dict[str, int | float]] = {}
+    for row in _iter_jsonl_objects(file_changes_path):
+        if not _is_code_change_row(row):
+            continue
+        commit_key = _commit_key(row)
+        if commit_key is not None:
+            stats = credited_commit_stats.setdefault(
+                commit_key,
+                {"file_changes": 0, "lines_added": 0, "lines_deleted": 0},
+            )
+            stats["file_changes"] = _number(stats.get("file_changes")) + 1
+            stats["lines_added"] = _number(stats.get("lines_added")) + _number_from_keys(
+                row,
+                "lines_added",
+                "additions",
+            )
+            stats["lines_deleted"] = _number(stats.get("lines_deleted")) + _number_from_keys(
+                row,
+                "lines_deleted",
+                "deletions",
+            )
+    return credited_commit_stats
+
+
+def _commit_key(row: dict[str, object]) -> tuple[str, str] | None:
+    repo = _text_key(row.get("repo"))
+    sha = _text_key(row.get("sha"))
+    if not sha:
+        sha = _text_key(row.get("commit_sha"))
+    if not repo or not sha:
+        return None
+    return repo, sha
+
+
+def _commit_row_payload(
+    row: object,
+    credited_commit_stats: dict[tuple[str, str], dict[str, int | float]],
+) -> object:
+    if not isinstance(row, dict):
+        return row
+    payload = _files_changed_row_payload(row)
+    commit_key = _commit_key(row)
+    stats = credited_commit_stats.get(commit_key) if commit_key is not None else None
+    if stats is not None:
+        payload["file_changes"] = _number(stats.get("file_changes"))
+        payload["lines_added"] = _number(stats.get("lines_added"))
+        payload["lines_deleted"] = _number(stats.get("lines_deleted"))
+    return payload
+
+
+def _file_change_row_payload(row: object) -> object:
+    if not isinstance(row, dict):
+        return row
+    payload = dict(row)
+    payload["file_changes"] = 1
+    payload["lines_added"] = _number_from_keys(row, "lines_added", "additions")
+    payload["lines_deleted"] = _number_from_keys(row, "lines_deleted", "deletions")
+    for internal_key in ("additions", "deletions", "is_binary", "is_generated_like", "is_lockfile"):
+        payload.pop(internal_key, None)
+    return payload
+
+
+def _files_changed_row_payload(row: object) -> object:
+    if not isinstance(row, dict):
+        return row
+    payload = dict(row)
+    if "files_changed" in payload:
+        payload["file_changes"] = _number(payload.pop("files_changed"))
+    return payload
+
+
+def _day_rows_from_code_activity(crawl_dir: Path, dataset: str) -> list[dict[str, object]] | None:
+    commits_path = crawl_dir / "commits.jsonl"
+    credited_commit_stats = _credited_commit_stats_from_file_changes(crawl_dir)
+    if credited_commit_stats is None or not commits_path.exists():
+        return None
+
+    org_days: dict[str, dict[str, object]] = {}
+    repo_days: dict[tuple[str, str], dict[str, object]] = {}
+    contributor_days: dict[tuple[str, str, str], dict[str, object]] = {}
+    seen_commits: set[tuple[str, str]] = set()
+
+    for row in _iter_jsonl_objects(commits_path):
+        if not isinstance(row, dict):
+            continue
+        commit_key = _commit_key(row)
+        if commit_key is None or commit_key in seen_commits:
+            continue
+        stats = credited_commit_stats.get(commit_key)
+        if stats is None:
+            continue
+        seen_commits.add(commit_key)
+        authored_day = _authored_day(row.get("authored_at"))
+        if not authored_day:
+            continue
+        repo = commit_key[0]
+        contributor = _contributor_key(row)
+        _add_day_metrics(
+            org_days.setdefault(authored_day, _org_day_row(row, authored_day)),
+            stats,
+            contributor,
+        )
+        _add_day_metrics(
+            repo_days.setdefault((repo, authored_day), _repo_day_row(row, repo, authored_day)),
+            stats,
+            contributor,
+        )
+        _add_day_metrics(
+            contributor_days.setdefault(
+                (repo, authored_day, contributor),
+                _contributor_day_row(row, repo, authored_day),
+            ),
+            stats,
+            contributor,
+            track_unique_contributors=False,
+        )
+
+    if dataset == "org-days":
+        rows = [_finalize_day_row(row) for row in org_days.values()]
+        return sorted(rows, key=lambda row: str(row.get("date", "")), reverse=True)
+    if dataset == "repo-days":
+        rows = [_finalize_day_row(row) for row in repo_days.values()]
+        return sorted(rows, key=lambda row: (str(row.get("date", "")), str(row.get("repo", ""))), reverse=True)
+    if dataset == "contributor-days":
+        rows = [_finalize_day_row(row) for row in contributor_days.values()]
+        return sorted(
+            rows,
+            key=lambda row: (
+                str(row.get("date", "")),
+                str(row.get("repo", "")),
+                str(row.get("author_login") or row.get("author_email") or row.get("author_name") or ""),
+            ),
+            reverse=True,
+        )
+    return None
+
+
+def _org_day_row(commit_row: dict[str, object], authored_day: str) -> dict[str, object]:
+    return {
+        "run_id": commit_row.get("run_id"),
+        "org": commit_row.get("org"),
+        "date": authored_day,
+        "commits": 0,
+        "unique_contributors": set(),
+        "lines_added": 0,
+        "lines_deleted": 0,
+        "file_changes": 0,
+    }
+
+
+def _repo_day_row(commit_row: dict[str, object], repo: str, authored_day: str) -> dict[str, object]:
+    row = _org_day_row(commit_row, authored_day)
+    row["repo"] = repo
+    return row
+
+
+def _contributor_day_row(commit_row: dict[str, object], repo: str, authored_day: str) -> dict[str, object]:
+    row = _repo_day_row(commit_row, repo, authored_day)
+    row["author_name"] = commit_row.get("author_name")
+    row["author_email"] = commit_row.get("author_email")
+    row["author_login"] = commit_row.get("author_login")
+    row.pop("unique_contributors", None)
+    return row
+
+
+def _add_day_metrics(
+    row: dict[str, object],
+    stats: dict[str, int | float],
+    contributor: str,
+    *,
+    track_unique_contributors: bool = True,
+) -> None:
+    row["commits"] = _number(row.get("commits")) + 1
+    row["file_changes"] = _number(row.get("file_changes")) + _number(stats.get("file_changes"))
+    row["lines_added"] = _number(row.get("lines_added")) + _number(stats.get("lines_added"))
+    row["lines_deleted"] = _number(row.get("lines_deleted")) + _number(stats.get("lines_deleted"))
+    if track_unique_contributors:
+        contributors = row.setdefault("unique_contributors", set())
+        if isinstance(contributors, set):
+            contributors.add(contributor)
+
+
+def _finalize_day_row(row: dict[str, object]) -> dict[str, object]:
+    payload = {key: value for key, value in row.items() if value is not None}
+    contributors = payload.get("unique_contributors")
+    if isinstance(contributors, set):
+        payload["unique_contributors"] = len(contributors)
+    return payload
+
+
+def _top_activity_from_jsonl(crawl_dir: Path | None) -> dict[str, list[dict[str, object]]] | None:
+    if crawl_dir is None:
+        return None
+    commits_path = crawl_dir / "commits.jsonl"
+    file_changes_path = crawl_dir / "file_changes.jsonl"
+    if not commits_path.exists() or not file_changes_path.exists():
+        return None
+
+    commit_stats = _credited_commit_stats_from_file_changes(crawl_dir)
+    if commit_stats is None:
+        return None
+
+    path_stats: dict[tuple[str, str, str], dict[str, object]] = {}
+    for row in _iter_jsonl_objects(file_changes_path):
+        if not _is_code_change_row(row) or not isinstance(row, dict):
+            continue
+        repo = str(row.get("repo", ""))
+        path = str(row.get("path", ""))
+        path_class = str(row.get("path_class", ""))
+        key = (repo, path, path_class)
+        payload = path_stats.setdefault(
+            key,
+            {
+                "repo": repo,
+                "path": path,
+                "path_class": path_class,
+                "file_changes": 0,
+                "lines_added": 0,
+                "lines_deleted": 0,
+            },
+        )
+        payload["file_changes"] = _number(payload.get("file_changes")) + 1
+        payload["lines_added"] = _number(payload.get("lines_added")) + _number_from_keys(
+            row,
+            "lines_added",
+            "additions",
+        )
+        payload["lines_deleted"] = _number(payload.get("lines_deleted")) + _number_from_keys(
+            row,
+            "lines_deleted",
+            "deletions",
+        )
+
+    repo_stats: dict[str, dict[str, object]] = {}
+    seen_commits: set[tuple[str, str]] = set()
+    for row in _iter_jsonl_objects(commits_path):
+        if not isinstance(row, dict):
+            continue
+        commit_key = _commit_key(row)
+        if commit_key is None or commit_key in seen_commits:
+            continue
+        stats = commit_stats.get(commit_key)
+        if stats is None:
+            continue
+        seen_commits.add(commit_key)
+        repo = commit_key[0]
+        payload = repo_stats.setdefault(
+            repo,
+            {"repo": repo, "commits": 0, "file_changes": 0, "lines_added": 0, "lines_deleted": 0},
+        )
+        payload["commits"] = _number(payload.get("commits")) + 1
+        payload["file_changes"] = _number(payload.get("file_changes")) + _number(stats.get("file_changes"))
+        payload["lines_added"] = _number(payload.get("lines_added")) + _number(stats.get("lines_added"))
+        payload["lines_deleted"] = _number(payload.get("lines_deleted")) + _number(stats.get("lines_deleted"))
+
+    return {
+        "top_repositories": sorted(
+            repo_stats.values(),
+            key=lambda row: (_number(row.get("commits")), _number(row.get("lines_added"))),
+            reverse=True,
+        )[:10],
+        "top_paths": sorted(
+            path_stats.values(),
+            key=lambda row: (_number(row.get("lines_added")), _number(row.get("file_changes"))),
+            reverse=True,
+        )[:10],
     }
 
 
@@ -675,6 +1191,8 @@ def _iter_jsonl_objects(path: Path) -> Iterator[object]:
                         HTTPStatus.INTERNAL_SERVER_ERROR,
                         f"invalid JSONL in {path.name} at line {line_number + 1}: {exc}",
                     ) from exc
+    except UnicodeDecodeError as exc:
+        raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, f"invalid UTF-8 in {path.name}: {exc}") from exc
     except OSError as exc:
         raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, f"could not read {path.name}: {exc}") from exc
 
@@ -684,6 +1202,8 @@ def _authored_day(value: object) -> str | None:
         return None
     try:
         authored_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if authored_at.tzinfo is None or authored_at.utcoffset() is None:
+            authored_at = authored_at.replace(tzinfo=UTC)
         return authored_at.astimezone(UTC).date().isoformat()
     except ValueError:
         return value[:10] if len(value) >= 10 else None
@@ -702,7 +1222,14 @@ def _contributor_key(row: dict[str, object]) -> str:
     return "unknown"
 
 
-def _read_jsonl_page(path: Path, *, limit: int, offset: int) -> dict[str, object]:
+def _read_jsonl_page(
+    path: Path,
+    *,
+    limit: int,
+    offset: int,
+    row_filter: Callable[[object], bool] | None = None,
+    row_transform: Callable[[object], object] | None = None,
+) -> dict[str, object]:
     if not path.exists():
         raise ApiProblem(HTTPStatus.NOT_FOUND, f"file not found: {path.name}")
     limit = min(max(limit, 1), MAX_LIMIT)
@@ -716,23 +1243,40 @@ def _read_jsonl_page(path: Path, *, limit: int, offset: int) -> dict[str, object
             for line_number, line in enumerate(handle):
                 if not line.strip():
                     continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise ApiProblem(
+                        HTTPStatus.INTERNAL_SERVER_ERROR,
+                        f"invalid JSONL in {path.name} at line {line_number + 1}: {exc}",
+                    ) from exc
+                if row_filter is not None and not row_filter(row):
+                    continue
                 if row_index < offset:
                     row_index += 1
                     continue
                 if len(rows) >= limit:
                     has_more = True
                     break
-                try:
-                    rows.append(json.loads(line))
-                except json.JSONDecodeError as exc:
-                    raise ApiProblem(
-                        HTTPStatus.INTERNAL_SERVER_ERROR,
-                        f"invalid JSONL in {path.name} at line {line_number + 1}: {exc}",
-                    ) from exc
+                rows.append(row_transform(row) if row_transform is not None else row)
                 row_index += 1
+    except UnicodeDecodeError as exc:
+        raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, f"invalid UTF-8 in {path.name}: {exc}") from exc
     except OSError as exc:
         raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, f"could not read {path.name}: {exc}") from exc
 
+    return _pagination_payload(rows, offset=offset, limit=limit, has_more=has_more)
+
+
+def _paginate_rows(rows: list[object], *, limit: int, offset: int) -> dict[str, object]:
+    limit = min(max(limit, 1), MAX_LIMIT)
+    offset = max(offset, 0)
+    page = rows[offset : offset + limit]
+    has_more = offset + len(page) < len(rows)
+    return _pagination_payload(page, offset=offset, limit=limit, has_more=has_more)
+
+
+def _pagination_payload(rows: list[object], *, offset: int, limit: int, has_more: bool) -> dict[str, object]:
     next_offset = offset + len(rows) if has_more else None
     return {
         "data": rows,
@@ -776,6 +1320,10 @@ def _number_from_keys(values: dict[str, object], *keys: str) -> int | float:
         if key in values:
             return _number(values.get(key))
     return 0
+
+
+def _text_key(value: object) -> str:
+    return value.strip() if isinstance(value, str) else ""
 
 
 if __name__ == "__main__":
