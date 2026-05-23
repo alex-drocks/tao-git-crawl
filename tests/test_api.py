@@ -100,8 +100,6 @@ def test_list_subnets_includes_summary_and_target_counts(tmp_path):
         "file_changes": 9,
         "lines_added": 90,
         "lines_deleted": 8,
-        "classes": ["binary", "lockfile", "generated", "vendored", "spec/schema-like"],
-        "by_class": {},
     }
     assert "activity_scope" not in subnet["activity"]
     assert "calculation_source" not in subnet["activity"]
@@ -611,8 +609,7 @@ def test_activity_endpoint_returns_consistent_code_changes_activity_payload(tmp_
         "file_changes": 2,
         "lines_added": 1800,
         "lines_deleted": 900,
-        "classes": ["binary", "lockfile", "generated", "vendored", "spec/schema-like"],
-        "by_class": {
+        "by_reason": {
             "lockfile": {"file_changes": 1, "lines_added": 1000, "lines_deleted": 500},
             "spec/schema-like": {"file_changes": 1, "lines_added": 800, "lines_deleted": 400},
         },

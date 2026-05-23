@@ -30,6 +30,8 @@ Move entries into a dated version section when cutting the next tag.
   `/contributor-days` as the canonical contributor-day endpoint.
 - Recompute repo-day, contributor-day, org-day, top-repository, and top-path API payloads from credited code-change
   rows when detailed rows are available.
+- Remove static skipped-class policy metadata from activity payloads; skipped breakdowns now appear only as observed
+  `by_reason` data.
 
 ### Fixed
 

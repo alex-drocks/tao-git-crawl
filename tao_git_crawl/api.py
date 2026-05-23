@@ -735,7 +735,9 @@ def _skipped_activity_from_summary(
     skipped["file_changes"] = _skipped_total(generated_like_totals, raw_totals, included_totals, "file_changes")
     skipped["lines_added"] = _skipped_total(generated_like_totals, raw_totals, included_totals, "lines_added")
     skipped["lines_deleted"] = _skipped_total(generated_like_totals, raw_totals, included_totals, "lines_deleted")
-    skipped["by_class"] = _skipped_classes_from_summary(summary)
+    skipped_reasons = _skipped_reasons_from_summary(summary)
+    if skipped_reasons:
+        skipped["by_reason"] = skipped_reasons
     return skipped
 
 
@@ -750,19 +752,19 @@ def _skipped_total(
     return max(_number(raw_totals.get(key)) - _number(included_totals.get(key)), 0)
 
 
-def _skipped_classes_from_summary(summary: dict[str, object]) -> dict[str, dict[str, int | float]]:
-    skipped_by_class: dict[str, dict[str, int | float]] = {}
+def _skipped_reasons_from_summary(summary: dict[str, object]) -> dict[str, dict[str, int | float]]:
+    skipped_by_reason: dict[str, dict[str, int | float]] = {}
     for path_class, totals_value in _mapping(summary.get("path_classes")).items():
-        skipped_class = _noise_class_from_path_class(str(path_class))
-        if skipped_class is None:
+        skipped_reason = _noise_class_from_path_class(str(path_class))
+        if skipped_reason is None:
             continue
         totals = _mapping(totals_value)
-        skipped_by_class[skipped_class] = {
+        skipped_by_reason[skipped_reason] = {
             "file_changes": _number_from_keys(totals, "file_changes", "files_changed"),
             "lines_added": _number(totals.get("lines_added")),
             "lines_deleted": _number(totals.get("lines_deleted")),
         }
-    return skipped_by_class
+    return skipped_by_reason
 
 
 def _noise_class_from_path_class(path_class: str) -> str | None:
@@ -779,8 +781,6 @@ def _empty_skipped_activity() -> dict[str, object]:
         "file_changes": 0,
         "lines_added": 0,
         "lines_deleted": 0,
-        "classes": list(CODE_ACTIVITY_EXCLUDED_CHURN_CLASSES),
-        "by_class": {},
     }
 
 
@@ -790,13 +790,13 @@ def _add_skipped_change(skipped: dict[str, object], row: dict[str, object], skip
     skipped["file_changes"] = _number(skipped.get("file_changes")) + 1
     skipped["lines_added"] = _number(skipped.get("lines_added")) + lines_added
     skipped["lines_deleted"] = _number(skipped.get("lines_deleted")) + lines_deleted
-    by_class = _mapping(skipped.get("by_class"))
-    class_totals = dict(_mapping(by_class.get(skipped_class)))
-    class_totals["file_changes"] = _number(class_totals.get("file_changes")) + 1
-    class_totals["lines_added"] = _number(class_totals.get("lines_added")) + lines_added
-    class_totals["lines_deleted"] = _number(class_totals.get("lines_deleted")) + lines_deleted
-    by_class[skipped_class] = class_totals
-    skipped["by_class"] = by_class
+    by_reason = _mapping(skipped.get("by_reason"))
+    reason_totals = dict(_mapping(by_reason.get(skipped_class)))
+    reason_totals["file_changes"] = _number(reason_totals.get("file_changes")) + 1
+    reason_totals["lines_added"] = _number(reason_totals.get("lines_added")) + lines_added
+    reason_totals["lines_deleted"] = _number(reason_totals.get("lines_deleted")) + lines_deleted
+    by_reason[skipped_class] = reason_totals
+    skipped["by_reason"] = by_reason
 
 
 def _is_code_change_row(row: object) -> bool:

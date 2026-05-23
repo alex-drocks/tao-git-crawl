@@ -99,7 +99,7 @@ The activity payload exposes:
 - `totals`: commits, file changes, lines added/deleted, active days, repo days, contributor days, and distinct contributors for real code changes only.
 - `averages.per_active_day`: commits, file changes, and line churn divided by active days.
 - `averages.per_calendar_day`, `per_calendar_week`, and `per_calendar_month`: the same metrics divided by the crawl calendar span.
-- `skipped`: file-change and line totals skipped because they were binary, lockfile, generated, vendored, or spec/schema-like changes.
+- `skipped`: file-change and line totals skipped because they were binary, lockfile, generated, vendored, or spec/schema-like changes. When reason details are available, `by_reason` breaks those totals down.
 
 The normal API presents one canonical activity model: totals and averages are real code changes only. `/api/subnets/<netuid>/summary` uses those same totals and exposes skipped noisy changes under `skipped`; raw crawl summary fields such as unfiltered churn totals remain implementation artifacts on disk. These are git change metrics, not current source lines of code.
 
