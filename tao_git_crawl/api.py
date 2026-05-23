@@ -27,6 +27,7 @@ DEFAULT_RATE_LIMIT_REQUESTS = 1200
 DEFAULT_RATE_LIMIT_WINDOW_SECONDS = 60
 ACTIVITY_SCHEMA_VERSION = "tao-git-crawl-activity-v2"
 SUBNET_SUMMARY_SCHEMA_VERSION = "tao-git-crawl-subnet-summary-v2"
+GIT_CRAWL_ACTIVITY_SCHEMA_VERSION = "git-crawl-activity-v1"
 
 JSON_DATASETS = {
     "summary": "summary.json",
@@ -597,8 +598,12 @@ def _activity_from_summary(summary: object, crawl_dir: Path | None = None) -> di
     has_source_like_totals = isinstance(source_like_totals_value, dict)
     source_like_totals = _mapping(source_like_totals_value)
     calendar_span = _mapping(summary.get("calendar_span"))
-    jsonl_activity = _code_activity_from_jsonl(crawl_dir)
-    if jsonl_activity is not None:
+    upstream_activity = _read_git_crawl_activity(crawl_dir)
+    jsonl_activity = None if upstream_activity is not None else _code_activity_from_jsonl(crawl_dir)
+    if upstream_activity is not None:
+        totals = _activity_totals_from_summary(_mapping(upstream_activity.get("totals")))
+        skipped = _public_skipped_activity(_mapping(upstream_activity.get("skipped")))
+    elif jsonl_activity is not None:
         totals = _mapping(jsonl_activity.get("totals"))
         skipped = _mapping(jsonl_activity.get("skipped"))
     elif has_source_like_totals:
@@ -629,6 +634,26 @@ def _activity_from_summary(summary: object, crawl_dir: Path | None = None) -> di
     }
 
 
+def _read_git_crawl_activity(crawl_dir: Path | None) -> dict[str, object] | None:
+    if crawl_dir is None:
+        return None
+    payload = _read_json_optional(crawl_dir / "activity.json")
+    if payload is None:
+        return None
+    if not isinstance(payload, dict):
+        raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, "invalid activity.json: expected JSON object")
+    schema_version = payload.get("schema_version")
+    if schema_version != GIT_CRAWL_ACTIVITY_SCHEMA_VERSION:
+        raise ApiProblem(
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            (
+                f"unsupported activity schema version {schema_version!r}; "
+                f"expected {GIT_CRAWL_ACTIVITY_SCHEMA_VERSION!r}"
+            ),
+        )
+    return payload
+
+
 def _activity_totals_from_summary(source_like_totals: dict[str, object]) -> dict[str, int | float]:
     return {
         "commits": _number(source_like_totals.get("commits")),
@@ -644,6 +669,27 @@ def _activity_totals_from_summary(source_like_totals: dict[str, object]) -> dict
             "distinct_contributor_keys",
         ),
     }
+
+
+def _public_skipped_activity(value: dict[str, object]) -> dict[str, object]:
+    skipped = {
+        "file_changes": _number(value.get("file_changes")),
+        "lines_added": _number(value.get("lines_added")),
+        "lines_deleted": _number(value.get("lines_deleted")),
+    }
+    by_reason: dict[str, dict[str, int | float]] = {}
+    for reason, totals_value in _mapping(value.get("by_reason")).items():
+        totals = _mapping(totals_value)
+        reason_totals = {
+            "file_changes": _number(totals.get("file_changes")),
+            "lines_added": _number(totals.get("lines_added")),
+            "lines_deleted": _number(totals.get("lines_deleted")),
+        }
+        if any(_number(metric_value) > 0 for metric_value in reason_totals.values()):
+            by_reason[str(reason)] = reason_totals
+    if by_reason:
+        skipped["by_reason"] = by_reason
+    return skipped
 
 
 def _empty_activity_totals() -> dict[str, int | float]:

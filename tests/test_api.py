@@ -620,6 +620,69 @@ def test_activity_endpoint_returns_consistent_code_changes_activity_payload(tmp_
     assert "caveats" not in payload
 
 
+def test_activity_endpoint_prefers_git_crawl_activity_json_when_available(tmp_path):
+    crawl_dir = tmp_path / "subnets" / "94" / "crawl"
+    crawl_dir.mkdir(parents=True)
+    (crawl_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "status": "success",
+                "history_since": "2025-01-01",
+                "calendar_span": {"days": 10, "weeks": 2, "months": 1},
+                "repositories": {"crawled": 1},
+                "totals": {"commits": 99, "file_changes": 99, "lines_added": 99, "active_days": 99},
+                "source_like_totals": {"commits": 9, "file_changes": 9, "lines_added": 9, "active_days": 9},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (crawl_dir / "activity.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "git-crawl-activity-v1",
+                "totals": {
+                    "commits": 7,
+                    "file_changes": 8,
+                    "lines_added": 90,
+                    "lines_deleted": 10,
+                    "active_days": 4,
+                    "repo_days": 5,
+                    "contributor_days": 6,
+                    "distinct_contributors": 3,
+                },
+                "skipped": {
+                    "file_changes": 0,
+                    "lines_added": 0,
+                    "lines_deleted": 0,
+                    "by_reason": {},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = get_subnet_dataset(tmp_path, 94, "activity")
+
+    assert payload["schema_version"] == "tao-git-crawl-activity-v2"
+    assert payload["totals"] == {
+        "commits": 7,
+        "file_changes": 8,
+        "lines_added": 90,
+        "lines_deleted": 10,
+        "active_days": 4,
+        "repo_days": 5,
+        "contributor_days": 6,
+        "distinct_contributors": 3,
+    }
+    assert payload["averages"]["per_active_day"] == {
+        "commits": 1.75,
+        "file_changes": 2.0,
+        "lines_added": 22.5,
+        "lines_deleted": 2.5,
+    }
+    assert payload["skipped"] == {"file_changes": 0, "lines_added": 0, "lines_deleted": 0}
+
+
 def test_summary_activity_matches_activity_endpoint_when_jsonl_rows_exist(tmp_path):
     crawl_dir = tmp_path / "subnets" / "94" / "crawl"
     crawl_dir.mkdir(parents=True)

@@ -32,6 +32,8 @@ Move entries into a dated version section when cutting the next tag.
   rows when detailed rows are available.
 - Remove static skipped-class policy metadata from activity payloads; skipped breakdowns now appear only as observed
   `by_reason` data.
+- Require `git-crawl` 0.3.0 and use its canonical `activity.json` output as the aggregate source of truth when
+  available.
 
 ### Fixed
 

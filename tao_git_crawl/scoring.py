@@ -10,6 +10,7 @@ from .activity_filter import is_noise_change
 from .resolver import ResolutionDocument
 
 SCORE_SCHEMA_VERSION = "tao-git-crawl-score-v2"
+GIT_CRAWL_ACTIVITY_SCHEMA_VERSION = "git-crawl-activity-v1"
 
 SCORE_WEIGHTS = {
     "avg_credited_commits_per_active_day": 0.25,
@@ -122,6 +123,10 @@ def _score_input_for_netuid(document: ResolutionDocument, output_dir: Path, netu
 
 
 def _credited_metrics_from_outputs(subnet_dir: Path, summary: dict[str, object]) -> dict[str, float]:
+    activity_metrics = _credited_metrics_from_activity_json(subnet_dir / "crawl", summary)
+    if activity_metrics is not None:
+        return activity_metrics
+
     jsonl_metrics = _credited_metrics_from_jsonl(subnet_dir / "crawl", summary)
     if jsonl_metrics is not None:
         return jsonl_metrics
@@ -153,6 +158,39 @@ def _credited_metrics_from_outputs(subnet_dir: Path, summary: dict[str, object])
         "active_days": active_days,
         "credited_lines_added": _number(fallback_credited_totals.get("lines_added")),
         "repos_crawled": _number(repositories.get("crawled")) if has_credited_activity else 0.0,
+        "distinct_contributors": distinct_contributors,
+    }
+
+
+def _credited_metrics_from_activity_json(crawl_dir: Path, summary: dict[str, object]) -> dict[str, float] | None:
+    activity = _read_json_optional(crawl_dir / "activity.json")
+    if not isinstance(activity, dict) or activity.get("schema_version") != GIT_CRAWL_ACTIVITY_SCHEMA_VERSION:
+        return None
+
+    totals = _mapping(activity.get("totals"))
+    credited_commits = _number(totals.get("commits"))
+    active_days = _number(totals.get("active_days"))
+    credited_file_changes = _number(totals.get("file_changes"))
+    credited_lines_added = _number(totals.get("lines_added"))
+    distinct_contributors = _number(totals.get("distinct_contributors"))
+    has_credited_activity = any(
+        value > 0
+        for value in (
+            credited_commits,
+            credited_file_changes,
+            credited_lines_added,
+            active_days,
+            distinct_contributors,
+        )
+    )
+    return {
+        "avg_credited_commits_per_active_day": credited_commits / active_days if active_days > 0 else 0.0,
+        "credited_file_changes": credited_file_changes,
+        "active_days": active_days,
+        "credited_lines_added": credited_lines_added,
+        "repos_crawled": (
+            _number(_mapping(summary.get("repositories")).get("crawled")) if has_credited_activity else 0.0
+        ),
         "distinct_contributors": distinct_contributors,
     }
 

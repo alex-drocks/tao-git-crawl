@@ -19,7 +19,7 @@ It is self-hosted. You provide the chain endpoint or JSON export, GitHub token, 
 
 Docker Compose is the main way to run `tao-git-crawl` as a scheduled crawler. The scheduler runs once on start, then repeats every 24 hours by default.
 
-Docker builds install `git-crawl` from `git+https://github.com/alex-drocks/git-crawl.git@v0.2.0` by default.
+Docker builds install `git-crawl` from `git+https://github.com/alex-drocks/git-crawl.git@v0.3.0` by default.
 
 ```bash
 cp .env.example .env
@@ -101,7 +101,7 @@ The activity payload exposes:
 - `averages.per_calendar_day`, `per_calendar_week`, and `per_calendar_month`: the same metrics divided by the crawl calendar span.
 - `skipped`: file-change and line totals skipped because they were binary, lockfile, generated, vendored, or spec/schema-like changes. When reason details are available, `by_reason` breaks those totals down.
 
-The normal API presents one canonical activity model: totals and averages are real code changes only. `/api/subnets/<netuid>/summary` uses those same totals and exposes skipped noisy changes under `skipped`; raw crawl summary fields such as unfiltered churn totals remain implementation artifacts on disk. These are git change metrics, not current source lines of code.
+The normal API presents one canonical activity model: totals and averages are real code changes only. `/api/subnets/<netuid>/summary` uses those same totals and exposes skipped noisy changes under `skipped`; raw crawl summary fields such as unfiltered churn totals remain implementation artifacts on disk. When `git-crawl` v0.3.0 `activity.json` is present, it is the aggregate source of truth. These are git change metrics, not current source lines of code.
 
 When detailed rows are available, `/api/subnets/<netuid>/file-changes` returns code-change rows only and `/api/subnets/<netuid>/commits` returns only commits with credited code changes. Commit, file-change, repo-day, contributor-day, and org-day row payloads use the same public names as aggregate totals: `file_changes`, `lines_added`, and `lines_deleted`.
 
