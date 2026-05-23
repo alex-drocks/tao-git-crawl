@@ -38,6 +38,8 @@ Move entries into a dated version section when cutting the next tag.
 ### Fixed
 
 - Avoid importing crawler-only `git-crawl` dependencies when loading API-only modules.
+- Keep `/health` from parsing subnet crawl payloads so malformed output cannot break service health checks.
+- Avoid falling back to raw summary top-repository/top-path rankings when credited file-change rows are unavailable.
 
 ## [0.2.0] - 2026-05-22
 

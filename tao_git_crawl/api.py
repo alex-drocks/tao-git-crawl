@@ -433,8 +433,18 @@ def _health_payload(output_dir: Path) -> dict[str, object]:
     return {
         "ok": output_dir.exists(),
         "output_dir": str(output_dir),
-        "subnets": len(list_subnets(output_dir)),
+        "subnets": _count_subnet_dirs(output_dir),
     }
+
+
+def _count_subnet_dirs(output_dir: Path) -> int:
+    subnets_dir = output_dir / "subnets"
+    if not subnets_dir.exists():
+        return 0
+    try:
+        return sum(1 for path in subnets_dir.iterdir() if path.is_dir() and path.name.isdigit())
+    except OSError:
+        return 0
 
 
 def _subnet_overview(subnet_dir: Path) -> dict[str, object]:
@@ -539,6 +549,8 @@ def _read_json_optional(path: Path) -> object | None:
         return json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, f"invalid JSON in {path.name}: {exc}") from exc
+    except OSError as exc:
+        raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, f"could not read {path.name}: {exc}") from exc
 
 
 def _summary_with_score(
@@ -551,7 +563,7 @@ def _summary_with_score(
     if not isinstance(summary, dict):
         return summary
     canonical_activity = activity if activity is not None else _activity_from_summary(summary, crawl_dir)
-    top_activity = _top_activity_payload(summary, crawl_dir)
+    top_activity = _top_activity_payload(crawl_dir)
     return {
         "schema_version": SUBNET_SUMMARY_SCHEMA_VERSION,
         "status": summary.get("status"),
@@ -580,14 +592,11 @@ def _crawl_metadata_payload(summary: dict[str, object]) -> dict[str, object]:
     return {key: value for key, value in metadata.items() if value is not None}
 
 
-def _top_activity_payload(summary: dict[str, object], crawl_dir: Path | None) -> dict[str, list[dict[str, object]]]:
+def _top_activity_payload(crawl_dir: Path | None) -> dict[str, list[dict[str, object]]]:
     top_from_rows = _top_activity_from_jsonl(crawl_dir)
     if top_from_rows is not None:
         return top_from_rows
-    return {
-        "top_repositories": _top_repositories_payload(summary.get("top_repositories_by_commits")),
-        "top_paths": _top_paths_payload(summary.get("top_paths_by_lines_added")),
-    }
+    return {"top_repositories": [], "top_paths": []}
 
 
 def _activity_from_summary(summary: object, crawl_dir: Path | None = None) -> dict[str, object] | None:
@@ -805,11 +814,13 @@ def _skipped_reasons_from_summary(summary: dict[str, object]) -> dict[str, dict[
         if skipped_reason is None:
             continue
         totals = _mapping(totals_value)
-        skipped_by_reason[skipped_reason] = {
+        reason_totals = {
             "file_changes": _number_from_keys(totals, "file_changes", "files_changed"),
             "lines_added": _number(totals.get("lines_added")),
             "lines_deleted": _number(totals.get("lines_deleted")),
         }
+        if any(_number(value) > 0 for value in reason_totals.values()):
+            skipped_by_reason[skipped_reason] = reason_totals
     return skipped_by_reason
 
 
@@ -1118,45 +1129,6 @@ def _top_activity_from_jsonl(crawl_dir: Path | None) -> dict[str, list[dict[str,
             reverse=True,
         )[:10],
     }
-
-
-def _top_repositories_payload(value: object) -> list[dict[str, object]]:
-    if not isinstance(value, list):
-        return []
-    rows: list[dict[str, object]] = []
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        rows.append(
-            {
-                "repo": item.get("repo"),
-                "commits": _number(item.get("commits")),
-                "file_changes": _number_from_keys(item, "file_changes", "files_changed"),
-                "lines_added": _number(item.get("lines_added")),
-                "lines_deleted": _number(item.get("lines_deleted")),
-            }
-        )
-    return rows
-
-
-def _top_paths_payload(value: object) -> list[dict[str, object]]:
-    if not isinstance(value, list):
-        return []
-    rows: list[dict[str, object]] = []
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        rows.append(
-            {
-                "repo": item.get("repo"),
-                "path": item.get("path"),
-                "path_class": item.get("path_class"),
-                "file_changes": _number_from_keys(item, "file_changes", "files_changed"),
-                "lines_added": _number(item.get("lines_added")),
-                "lines_deleted": _number(item.get("lines_deleted")),
-            }
-        )
-    return rows
 
 
 def _repository_activity_payload(value: object) -> dict[str, int | float]:

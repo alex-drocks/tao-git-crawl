@@ -347,6 +347,30 @@ def test_handle_api_request_returns_json_errors(tmp_path):
     assert response.payload == {"error": "netuid must be an integer"}
 
 
+def test_health_does_not_parse_subnet_outputs(tmp_path):
+    crawl_dir = tmp_path / "subnets" / "94" / "crawl"
+    crawl_dir.mkdir(parents=True)
+    (crawl_dir / "summary.json").write_text("{not-json", encoding="utf-8")
+
+    response = handle_api_request(tmp_path, "/health")
+
+    assert response.status == HTTPStatus.OK
+    assert response.payload == {
+        "ok": True,
+        "output_dir": str(tmp_path),
+        "subnets": 1,
+    }
+
+
+def test_json_read_errors_return_json_errors(tmp_path):
+    (tmp_path / "subnet-scores.json").mkdir()
+
+    response = handle_api_request(tmp_path, "/api/scores")
+
+    assert response.status == HTTPStatus.INTERNAL_SERVER_ERROR
+    assert response.payload["error"].startswith("could not read subnet-scores.json:")
+
+
 def test_handle_api_request_returns_aggregate_scores(tmp_path):
     (tmp_path / "subnet-scores.json").write_text(json.dumps({"scores": [{"netuid": 1}]}), encoding="utf-8")
 
@@ -447,19 +471,8 @@ def test_summary_endpoint_includes_score_when_available(tmp_path):
     assert "top_repositories_by_commits" not in payload
     assert "top_paths_by_lines_added" not in payload
     assert "caveats" not in payload
-    assert payload["top_repositories"] == [
-        {"repo": "owner/code", "commits": 6, "file_changes": 8, "lines_added": 16, "lines_deleted": 2}
-    ]
-    assert payload["top_paths"] == [
-        {
-            "repo": "owner/code",
-            "path": "src/app.py",
-            "path_class": "source",
-            "file_changes": 8,
-            "lines_added": 16,
-            "lines_deleted": 2,
-        }
-    ]
+    assert payload["top_repositories"] == []
+    assert payload["top_paths"] == []
     assert payload["activity"]["totals"]["file_changes"] == 8
     assert payload["activity"]["averages"]["per_calendar_day"]["file_changes"] == 4.0
     assert payload["activity"]["averages"]["per_active_day"]["commits"] == 3.0
@@ -800,6 +813,32 @@ def test_activity_does_not_fall_back_to_raw_churn_totals(tmp_path):
     assert payload["skipped"]["file_changes"] == 500
     assert payload["skipped"]["lines_added"] == 10000
     assert payload["skipped"]["lines_deleted"] == 2000
+
+
+def test_activity_omits_empty_skipped_reason_buckets_from_summary(tmp_path):
+    crawl_dir = tmp_path / "subnets" / "94" / "crawl"
+    crawl_dir.mkdir(parents=True)
+    (crawl_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "status": "success",
+                "repositories": {"crawled": 1},
+                "totals": {"commits": 1, "file_changes": 2, "lines_added": 10, "lines_deleted": 1},
+                "source_like_totals": {"commits": 1, "file_changes": 1, "lines_added": 5, "lines_deleted": 1},
+                "path_classes": {
+                    "lockfile": {"files_changed": 0, "lines_added": 0, "lines_deleted": 0},
+                    "generated": {"files_changed": 1, "lines_added": 5, "lines_deleted": 0},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = get_subnet_dataset(tmp_path, 94, "activity")
+
+    assert payload["skipped"]["by_reason"] == {
+        "generated": {"file_changes": 1, "lines_added": 5, "lines_deleted": 0}
+    }
 
 
 def test_activity_keeps_empty_source_like_totals_as_empty_code_activity(tmp_path):
