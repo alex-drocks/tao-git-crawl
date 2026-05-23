@@ -94,13 +94,14 @@ Use `/api/subnets/<netuid>/activity` for frontend display of code-change git act
 
 The activity payload exposes:
 
-- `totals`: commits, filtered file changes, lines added/deleted, active days, repo days, contributor days, and distinct contributors.
+- `totals`: commits, file changes, lines added/deleted, active days, repo days, contributor days, and distinct contributors for real code changes only.
 - `averages.per_active_day`: commits, file changes, and line churn divided by active days.
 - `averages.per_calendar_day`, `per_calendar_week`, and `per_calendar_month`: the same metrics divided by the crawl calendar span.
-- `churn_filter`: the excluded path classes plus generated-like totals that are not included in activity totals or averages.
-- `calculation_source`: `jsonl` when detailed crawl rows were available, `summary` when filtered source-like aggregates were used, or `unavailable` when only raw churn totals exist.
+- `skipped`: file-change and line totals skipped because they were binary, lockfile, generated, vendored, or spec/schema-like changes.
 
-`activity.activity_scope` is `code_changes`. Binary, lockfile, generated, vendored, and spec/schema-like changes are excluded when path classification is available. These are git churn metrics, not current source lines of code. Public activity totals do not fall back to raw churn totals when filtered rows or source-like aggregates are unavailable.
+The normal API presents one canonical activity model: totals and averages are real code changes only. `/api/subnets/<netuid>/summary` uses those same totals and exposes skipped noisy changes under `skipped`; raw crawl summary fields such as unfiltered churn totals remain implementation artifacts on disk. These are git change metrics, not current source lines of code.
+
+When detailed rows are available, `/api/subnets/<netuid>/file-changes` returns code-change rows only and `/api/subnets/<netuid>/commits` returns only commits with credited code changes.
 
 ### Subnet Scores
 

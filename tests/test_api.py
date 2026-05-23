@@ -80,8 +80,7 @@ def test_list_subnets_includes_summary_and_target_counts(tmp_path):
     assert subnet["repository_target_count"] == 0
     assert subnet["owner_target_count"] == 1
     assert subnet["unresolved_count"] == 0
-    assert subnet["activity"]["activity_scope"] == "code_changes"
-    assert subnet["activity"]["calculation_source"] == "summary"
+    assert subnet["activity"]["schema_version"] == "tao-git-crawl-activity-v2"
     assert subnet["activity"]["totals"]["commits"] == 20
     assert subnet["activity"]["totals"]["file_changes"] == 40
     assert subnet["activity"]["averages"]["per_calendar_day"] == {
@@ -96,13 +95,21 @@ def test_list_subnets_includes_summary_and_target_counts(tmp_path):
         "lines_added": 80.0,
         "lines_deleted": 4.0,
     }
-    assert subnet["activity"]["churn_filter"]["excluded_generated_like_totals"] == {
+    assert subnet["activity"]["skipped"] == {
         "file_changes": 9,
         "lines_added": 90,
         "lines_deleted": 8,
+        "classes": ["binary", "lockfile", "generated", "vendored", "spec/schema-like"],
+        "by_class": {},
     }
-    assert subnet["activity"]["churn_filter"]["excluded_totals_are_included_in_activity"] is False
+    assert "activity_scope" not in subnet["activity"]
+    assert "calculation_source" not in subnet["activity"]
+    assert "churn_filter" not in subnet["activity"]
     assert subnet["summary"]["activity"] == subnet["activity"]
+    assert subnet["summary"]["totals"]["file_changes"] == 40
+    assert subnet["summary"]["skipped"] == subnet["activity"]["skipped"]
+    assert "source_like_totals" not in subnet["summary"]
+    assert "generated_like_totals" not in subnet["summary"]
     assert subnet["summary"]["score"] == {"score": 88.5, "percentile": 95.0}
 
 
@@ -172,6 +179,47 @@ def test_get_subnet_dataset_omits_next_offset_at_end(tmp_path):
     assert payload["pagination"]["next_offset"] is None
 
 
+def test_file_changes_dataset_only_returns_code_change_rows(tmp_path):
+    crawl_dir = tmp_path / "subnets" / "94" / "crawl"
+    crawl_dir.mkdir(parents=True)
+    _write_jsonl(
+        crawl_dir / "file_changes.jsonl",
+        [
+            {"repo": "owner/code", "sha": "code-a", "path": "src/app.py", "path_class": "source"},
+            {"repo": "owner/code", "sha": "lock-b", "path": "package-lock.json", "path_class": "lockfile"},
+            {"repo": "owner/code", "sha": "gen-c", "path": "generated/client.py", "is_generated_like": True},
+        ],
+    )
+
+    payload = get_subnet_dataset(tmp_path, 94, "file-changes")
+
+    assert payload["data"] == [{"repo": "owner/code", "sha": "code-a", "path": "src/app.py", "path_class": "source"}]
+
+
+def test_commits_dataset_only_returns_commits_with_code_changes_when_file_changes_exist(tmp_path):
+    crawl_dir = tmp_path / "subnets" / "94" / "crawl"
+    crawl_dir.mkdir(parents=True)
+    _write_jsonl(
+        crawl_dir / "file_changes.jsonl",
+        [
+            {"repo": "owner/code", "sha": "code-a", "path_class": "source"},
+            {"repo": "owner/code", "sha": "lock-b", "path_class": "lockfile"},
+        ],
+    )
+    _write_jsonl(
+        crawl_dir / "commits.jsonl",
+        [
+            {"repo": "owner/code", "sha": "code-a", "message": "real code"},
+            {"repo": "owner/code", "sha": "lock-b", "message": "lockfile only"},
+            {"repo": "owner/code", "sha": "doc-c", "message": "no file-change row"},
+        ],
+    )
+
+    payload = get_subnet_dataset(tmp_path, 94, "commits")
+
+    assert payload["data"] == [{"repo": "owner/code", "sha": "code-a", "message": "real code"}]
+
+
 def test_handle_api_request_returns_json_errors(tmp_path):
     response = handle_api_request(tmp_path, "/api/subnets/nope")
 
@@ -223,6 +271,8 @@ def test_summary_endpoint_includes_score_when_available(tmp_path):
 
     assert payload["status"] == "success"
     assert payload["score"] == {"score": 42.0}
+    assert payload["totals"]["file_changes"] == 8
+    assert "source_like_totals" not in payload
     assert payload["activity"]["totals"]["file_changes"] == 8
     assert payload["activity"]["averages"]["per_calendar_day"]["file_changes"] == 4.0
     assert payload["activity"]["averages"]["per_active_day"]["commits"] == 3.0
@@ -343,9 +393,7 @@ def test_activity_endpoint_returns_consistent_code_changes_activity_payload(tmp_
 
     payload = get_subnet_dataset(tmp_path, 64, "activity")
 
-    assert payload["schema_version"] == "tao-git-crawl-activity-v1"
-    assert payload["activity_scope"] == "code_changes"
-    assert payload["calculation_source"] == "jsonl"
+    assert payload["schema_version"] == "tao-git-crawl-activity-v2"
     assert payload["history"]["since"] == "2025-01-01"
     assert payload["repositories"]["crawled"] == 1
     assert payload["totals"] == {
@@ -370,14 +418,20 @@ def test_activity_endpoint_returns_consistent_code_changes_activity_payload(tmp_
         "lines_added": 7.0,
         "lines_deleted": 1.2,
     }
-    assert payload["churn_filter"]["excluded_classes"] == [
-        "binary",
-        "lockfile",
-        "generated",
-        "vendored",
-        "spec/schema-like",
-    ]
-    assert payload["churn_filter"]["excluded_totals_are_included_in_activity"] is False
+    assert payload["skipped"] == {
+        "file_changes": 2,
+        "lines_added": 1800,
+        "lines_deleted": 900,
+        "classes": ["binary", "lockfile", "generated", "vendored", "spec/schema-like"],
+        "by_class": {
+            "lockfile": {"file_changes": 1, "lines_added": 1000, "lines_deleted": 500},
+            "spec/schema-like": {"file_changes": 1, "lines_added": 800, "lines_deleted": 400},
+        },
+    }
+    assert "activity_scope" not in payload
+    assert "calculation_source" not in payload
+    assert "churn_filter" not in payload
+    assert "caveats" not in payload
 
 
 def test_summary_activity_matches_activity_endpoint_when_jsonl_rows_exist(tmp_path):
@@ -439,9 +493,10 @@ def test_summary_activity_matches_activity_endpoint_when_jsonl_rows_exist(tmp_pa
     activity_payload = get_subnet_dataset(tmp_path, 94, "activity")
 
     assert summary_payload["activity"] == activity_payload
-    assert activity_payload["calculation_source"] == "jsonl"
     assert activity_payload["totals"]["commits"] == 1
     assert activity_payload["totals"]["file_changes"] == 1
+    assert summary_payload["totals"] == activity_payload["totals"]
+    assert "source_like_totals" not in summary_payload
 
 
 def test_activity_does_not_fall_back_to_raw_churn_totals(tmp_path):
@@ -470,7 +525,6 @@ def test_activity_does_not_fall_back_to_raw_churn_totals(tmp_path):
 
     payload = get_subnet_dataset(tmp_path, 94, "activity")
 
-    assert payload["calculation_source"] == "unavailable"
     assert payload["totals"] == {
         "commits": 0,
         "file_changes": 0,
@@ -481,9 +535,12 @@ def test_activity_does_not_fall_back_to_raw_churn_totals(tmp_path):
         "contributor_days": 0,
         "distinct_contributors": 0,
     }
+    assert payload["skipped"]["file_changes"] == 500
+    assert payload["skipped"]["lines_added"] == 10000
+    assert payload["skipped"]["lines_deleted"] == 2000
 
 
-def test_activity_marks_present_empty_source_like_totals_as_summary_source(tmp_path):
+def test_activity_keeps_empty_source_like_totals_as_empty_code_activity(tmp_path):
     crawl_dir = tmp_path / "subnets" / "94" / "crawl"
     crawl_dir.mkdir(parents=True)
     (crawl_dir / "summary.json").write_text(
@@ -500,7 +557,6 @@ def test_activity_marks_present_empty_source_like_totals_as_summary_source(tmp_p
 
     payload = get_subnet_dataset(tmp_path, 94, "activity")
 
-    assert payload["calculation_source"] == "summary"
     assert payload["totals"] == {
         "commits": 0,
         "file_changes": 0,
@@ -511,6 +567,8 @@ def test_activity_marks_present_empty_source_like_totals_as_summary_source(tmp_p
         "contributor_days": 0,
         "distinct_contributors": 0,
     }
+    assert payload["skipped"]["file_changes"] == 100
+    assert payload["skipped"]["lines_added"] == 500
 
 
 def test_sliding_window_rate_limiter_blocks_and_recovers():

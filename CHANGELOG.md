@@ -16,6 +16,21 @@ Move entries into a dated version section when cutting the next tag.
 
 ### Fixed
 
+## [0.3.0] - 2026-05-22
+
+### Changed
+
+- Make public activity and summary API payloads expose one canonical code-change model: `totals` now means
+  filtered real code changes, and skipped noisy changes are reported under `skipped`.
+- Remove raw/filter implementation fields such as `activity_scope`, `calculation_source`, `churn_filter`,
+  `source_like_totals`, `generated_like_totals`, and `path_classes` from normal public API summary/activity payloads.
+- Filter `/api/subnets/<netuid>/file-changes` to code-change rows and `/api/subnets/<netuid>/commits` to commits
+  with credited code changes when detailed file-change rows are available.
+
+### Fixed
+
+- Avoid importing crawler-only `git-crawl` dependencies when loading API-only modules.
+
 ## [0.2.0] - 2026-05-22
 
 ### Added
@@ -59,7 +74,8 @@ Move entries into a dated version section when cutting the next tag.
 
 - Keep local runtime state directories out of git and Docker build contexts.
 
-[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/alex-drocks/tao-git-crawl/releases/tag/v0.1.0

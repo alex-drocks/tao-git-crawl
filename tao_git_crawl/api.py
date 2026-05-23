@@ -16,7 +16,7 @@ from pathlib import Path
 from threading import Lock
 from urllib.parse import parse_qs, unquote, urlparse
 
-from .activity_filter import CODE_ACTIVITY_EXCLUDED_CHURN_CLASSES, is_noise_change
+from .activity_filter import CODE_ACTIVITY_EXCLUDED_CHURN_CLASSES, is_noise_change, noise_change_class
 
 DEFAULT_OUTPUT_DIR = Path("/data/output")
 DEFAULT_HOST = "0.0.0.0"
@@ -25,7 +25,7 @@ DEFAULT_LIMIT = 100
 MAX_LIMIT = 1000
 DEFAULT_RATE_LIMIT_REQUESTS = 1200
 DEFAULT_RATE_LIMIT_WINDOW_SECONDS = 60
-ACTIVITY_SCHEMA_VERSION = "tao-git-crawl-activity-v1"
+ACTIVITY_SCHEMA_VERSION = "tao-git-crawl-activity-v2"
 
 JSON_DATASETS = {
     "summary": "summary.json",
@@ -198,6 +198,22 @@ def get_subnet_dataset(
     if dataset in JSONL_DATASETS:
         limit = _parse_query_int(query_params, "limit", DEFAULT_LIMIT)
         offset = _parse_query_int(query_params, "offset", 0)
+        if dataset == "file-changes":
+            return _read_jsonl_page(
+                crawl_dir / JSONL_DATASETS[dataset],
+                limit=limit,
+                offset=offset,
+                row_filter=_is_code_change_row,
+            )
+        if dataset == "commits":
+            credited_commit_keys = _credited_commit_keys_from_file_changes(crawl_dir)
+            if credited_commit_keys is not None:
+                return _read_jsonl_page(
+                    crawl_dir / JSONL_DATASETS[dataset],
+                    limit=limit,
+                    offset=offset,
+                    row_filter=lambda row: _commit_key(row) in credited_commit_keys if isinstance(row, dict) else False,
+                )
         return _read_jsonl_page(crawl_dir / JSONL_DATASETS[dataset], limit=limit, offset=offset)
 
     raise ApiProblem(HTTPStatus.NOT_FOUND, f"unknown subnet dataset: {dataset}")
@@ -487,6 +503,12 @@ def _summary_with_score(
         return summary
     enriched = dict(summary)
     enriched["activity"] = activity if activity is not None else _activity_from_summary(summary, crawl_dir)
+    if isinstance(enriched["activity"], dict):
+        enriched["totals"] = dict(_mapping(enriched["activity"].get("totals")))
+        enriched["averages"] = dict(_mapping(enriched["activity"].get("averages")))
+        enriched["skipped"] = dict(_mapping(enriched["activity"].get("skipped")))
+    for internal_key in ("source_like_totals", "generated_like_totals", "path_classes"):
+        enriched.pop(internal_key, None)
     enriched["score"] = score
     return enriched
 
@@ -499,32 +521,26 @@ def _activity_from_summary(summary: object, crawl_dir: Path | None = None) -> di
     has_source_like_totals = isinstance(source_like_totals_value, dict)
     source_like_totals = _mapping(source_like_totals_value)
     calendar_span = _mapping(summary.get("calendar_span"))
-    jsonl_totals = _code_activity_totals_from_jsonl(crawl_dir)
-    if jsonl_totals is not None:
-        totals = jsonl_totals
-        calculation_source = "jsonl"
+    jsonl_activity = _code_activity_from_jsonl(crawl_dir)
+    if jsonl_activity is not None:
+        totals = _mapping(jsonl_activity.get("totals"))
+        skipped = _mapping(jsonl_activity.get("skipped"))
     elif has_source_like_totals:
         totals = _activity_totals_from_summary(source_like_totals)
-        calculation_source = "summary"
+        skipped = _skipped_activity_from_summary(summary, totals)
     else:
         totals = _empty_activity_totals()
-        calculation_source = "unavailable"
+        skipped = _skipped_activity_from_summary(summary, totals)
     active_days = totals["active_days"]
 
     return {
         "schema_version": ACTIVITY_SCHEMA_VERSION,
         "status": summary.get("status"),
-        "activity_scope": "code_changes",
-        "activity_scope_description": (
-            "Totals and averages count code changes only. Lockfiles, generated files, vendored code, binaries, "
-            "and spec/schema-like churn are excluded when path classification is available."
-        ),
         "history": {
             "since": summary.get("history_since"),
             "until": summary.get("history_until"),
             "calendar_span": dict(calendar_span),
         },
-        "calculation_source": calculation_source,
         "repositories": _repository_activity_payload(summary.get("repositories")),
         "totals": totals,
         "averages": {
@@ -533,16 +549,7 @@ def _activity_from_summary(summary: object, crawl_dir: Path | None = None) -> di
             "per_calendar_week": _activity_average(totals, _number(calendar_span.get("weeks"))),
             "per_calendar_month": _activity_average(totals, _number(calendar_span.get("months"))),
         },
-        "path_classes": dict(_mapping(summary.get("path_classes"))),
-        "churn_filter": {
-            "excluded_classes": list(CODE_ACTIVITY_EXCLUDED_CHURN_CLASSES),
-            "excluded_generated_like_totals": dict(_mapping(summary.get("generated_like_totals"))),
-            "excluded_totals_are_included_in_activity": False,
-        },
-        "caveats": [
-            "These are git churn metrics, not current source lines of code.",
-            "Averages are recomputed from the filtered code-change totals in this activity block.",
-        ],
+        "skipped": skipped,
     }
 
 
@@ -576,7 +583,7 @@ def _empty_activity_totals() -> dict[str, int | float]:
     }
 
 
-def _code_activity_totals_from_jsonl(crawl_dir: Path | None) -> dict[str, int | float] | None:
+def _code_activity_from_jsonl(crawl_dir: Path | None) -> dict[str, object] | None:
     if crawl_dir is None:
         return None
     file_changes_path = crawl_dir / "file_changes.jsonl"
@@ -588,16 +595,20 @@ def _code_activity_totals_from_jsonl(crawl_dir: Path | None) -> dict[str, int | 
     file_changes = 0
     lines_added: int | float = 0
     lines_deleted: int | float = 0
+    skipped = _empty_skipped_activity()
     for row in _iter_jsonl_objects(file_changes_path):
-        if not isinstance(row, dict) or is_noise_change(row):
+        if not isinstance(row, dict):
+            continue
+        skipped_class = noise_change_class(row)
+        if skipped_class is not None:
+            _add_skipped_change(skipped, row, skipped_class)
             continue
         file_changes += 1
         lines_added += _number_from_keys(row, "additions", "lines_added")
         lines_deleted += _number_from_keys(row, "deletions", "lines_deleted")
-        repo = str(row.get("repo", ""))
-        sha = str(row.get("sha", ""))
-        if repo and sha:
-            credited_commit_keys.add((repo, sha))
+        commit_key = _commit_key(row)
+        if commit_key is not None:
+            credited_commit_keys.add(commit_key)
 
     commits = 0
     active_days: set[str] = set()
@@ -608,13 +619,12 @@ def _code_activity_totals_from_jsonl(crawl_dir: Path | None) -> dict[str, int | 
     for row in _iter_jsonl_objects(commits_path):
         if not isinstance(row, dict):
             continue
-        repo = str(row.get("repo", ""))
-        sha = str(row.get("sha", ""))
-        commit_key = (repo, sha)
-        if commit_key not in credited_commit_keys or commit_key in seen_commits:
+        commit_key = _commit_key(row)
+        if commit_key is None or commit_key not in credited_commit_keys or commit_key in seen_commits:
             continue
         seen_commits.add(commit_key)
         commits += 1
+        repo = commit_key[0]
         contributor = _contributor_key(row)
         contributors.add(contributor)
         authored_day = _authored_day(row.get("authored_at"))
@@ -625,15 +635,118 @@ def _code_activity_totals_from_jsonl(crawl_dir: Path | None) -> dict[str, int | 
         contributor_days.add((contributor, authored_day))
 
     return {
-        "commits": commits,
-        "file_changes": file_changes,
-        "lines_added": lines_added,
-        "lines_deleted": lines_deleted,
-        "active_days": len(active_days),
-        "repo_days": len(repo_days),
-        "contributor_days": len(contributor_days),
-        "distinct_contributors": len(contributors),
+        "totals": {
+            "commits": commits,
+            "file_changes": file_changes,
+            "lines_added": lines_added,
+            "lines_deleted": lines_deleted,
+            "active_days": len(active_days),
+            "repo_days": len(repo_days),
+            "contributor_days": len(contributor_days),
+            "distinct_contributors": len(contributors),
+        },
+        "skipped": skipped,
     }
+
+
+def _skipped_activity_from_summary(
+    summary: dict[str, object],
+    included_totals: dict[str, int | float],
+) -> dict[str, object]:
+    skipped = _empty_skipped_activity()
+    generated_like_totals = _mapping(summary.get("generated_like_totals"))
+    raw_totals = _mapping(summary.get("totals"))
+    skipped["file_changes"] = _skipped_total(generated_like_totals, raw_totals, included_totals, "file_changes")
+    skipped["lines_added"] = _skipped_total(generated_like_totals, raw_totals, included_totals, "lines_added")
+    skipped["lines_deleted"] = _skipped_total(generated_like_totals, raw_totals, included_totals, "lines_deleted")
+    skipped["by_class"] = _skipped_classes_from_summary(summary)
+    return skipped
+
+
+def _skipped_total(
+    explicit_skipped: dict[str, object],
+    raw_totals: dict[str, object],
+    included_totals: dict[str, int | float],
+    key: str,
+) -> int | float:
+    if explicit_skipped:
+        return _number(explicit_skipped.get(key))
+    return max(_number(raw_totals.get(key)) - _number(included_totals.get(key)), 0)
+
+
+def _skipped_classes_from_summary(summary: dict[str, object]) -> dict[str, dict[str, int | float]]:
+    skipped_by_class: dict[str, dict[str, int | float]] = {}
+    for path_class, totals_value in _mapping(summary.get("path_classes")).items():
+        skipped_class = _noise_class_from_path_class(str(path_class))
+        if skipped_class is None:
+            continue
+        totals = _mapping(totals_value)
+        skipped_by_class[skipped_class] = {
+            "file_changes": _number_from_keys(totals, "file_changes", "files_changed"),
+            "lines_added": _number(totals.get("lines_added")),
+            "lines_deleted": _number(totals.get("lines_deleted")),
+        }
+    return skipped_by_class
+
+
+def _noise_class_from_path_class(path_class: str) -> str | None:
+    normalized = path_class.strip().lower()
+    if normalized == "spec":
+        return "spec/schema-like"
+    if normalized in CODE_ACTIVITY_EXCLUDED_CHURN_CLASSES:
+        return normalized
+    return None
+
+
+def _empty_skipped_activity() -> dict[str, object]:
+    return {
+        "file_changes": 0,
+        "lines_added": 0,
+        "lines_deleted": 0,
+        "classes": list(CODE_ACTIVITY_EXCLUDED_CHURN_CLASSES),
+        "by_class": {},
+    }
+
+
+def _add_skipped_change(skipped: dict[str, object], row: dict[str, object], skipped_class: str) -> None:
+    lines_added = _number_from_keys(row, "additions", "lines_added")
+    lines_deleted = _number_from_keys(row, "deletions", "lines_deleted")
+    skipped["file_changes"] = _number(skipped.get("file_changes")) + 1
+    skipped["lines_added"] = _number(skipped.get("lines_added")) + lines_added
+    skipped["lines_deleted"] = _number(skipped.get("lines_deleted")) + lines_deleted
+    by_class = _mapping(skipped.get("by_class"))
+    class_totals = dict(_mapping(by_class.get(skipped_class)))
+    class_totals["file_changes"] = _number(class_totals.get("file_changes")) + 1
+    class_totals["lines_added"] = _number(class_totals.get("lines_added")) + lines_added
+    class_totals["lines_deleted"] = _number(class_totals.get("lines_deleted")) + lines_deleted
+    by_class[skipped_class] = class_totals
+    skipped["by_class"] = by_class
+
+
+def _is_code_change_row(row: object) -> bool:
+    return isinstance(row, dict) and not is_noise_change(row)
+
+
+def _credited_commit_keys_from_file_changes(crawl_dir: Path) -> set[tuple[str, str]] | None:
+    file_changes_path = crawl_dir / "file_changes.jsonl"
+    if not file_changes_path.exists():
+        return None
+    credited_commit_keys: set[tuple[str, str]] = set()
+    for row in _iter_jsonl_objects(file_changes_path):
+        if not _is_code_change_row(row):
+            continue
+        commit_key = _commit_key(row)
+        if commit_key is not None:
+            credited_commit_keys.add(commit_key)
+    return credited_commit_keys
+
+
+def _commit_key(row: dict[str, object]) -> tuple[str, str] | None:
+    repo = str(row.get("repo", ""))
+    sha = str(row.get("sha") or row.get("commit_sha") or "")
+    if not repo or not sha:
+        return None
+    return repo, sha
 
 
 def _repository_activity_payload(value: object) -> dict[str, int | float]:
@@ -702,7 +815,13 @@ def _contributor_key(row: dict[str, object]) -> str:
     return "unknown"
 
 
-def _read_jsonl_page(path: Path, *, limit: int, offset: int) -> dict[str, object]:
+def _read_jsonl_page(
+    path: Path,
+    *,
+    limit: int,
+    offset: int,
+    row_filter: Callable[[object], bool] | None = None,
+) -> dict[str, object]:
     if not path.exists():
         raise ApiProblem(HTTPStatus.NOT_FOUND, f"file not found: {path.name}")
     limit = min(max(limit, 1), MAX_LIMIT)
@@ -716,19 +835,22 @@ def _read_jsonl_page(path: Path, *, limit: int, offset: int) -> dict[str, object
             for line_number, line in enumerate(handle):
                 if not line.strip():
                     continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise ApiProblem(
+                        HTTPStatus.INTERNAL_SERVER_ERROR,
+                        f"invalid JSONL in {path.name} at line {line_number + 1}: {exc}",
+                    ) from exc
+                if row_filter is not None and not row_filter(row):
+                    continue
                 if row_index < offset:
                     row_index += 1
                     continue
                 if len(rows) >= limit:
                     has_more = True
                     break
-                try:
-                    rows.append(json.loads(line))
-                except json.JSONDecodeError as exc:
-                    raise ApiProblem(
-                        HTTPStatus.INTERNAL_SERVER_ERROR,
-                        f"invalid JSONL in {path.name} at line {line_number + 1}: {exc}",
-                    ) from exc
+                rows.append(row)
                 row_index += 1
     except OSError as exc:
         raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, f"could not read {path.name}: {exc}") from exc
