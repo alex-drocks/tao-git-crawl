@@ -751,6 +751,207 @@ def test_activity_endpoint_prefers_git_crawl_activity_json_when_available(tmp_pa
     assert payload["skipped"] == {"file_changes": 0, "lines_added": 0, "lines_deleted": 0}
 
 
+def test_activity_endpoint_prefers_jsonl_rows_over_activity_json_when_available(tmp_path):
+    crawl_dir = tmp_path / "subnets" / "94" / "crawl"
+    crawl_dir.mkdir(parents=True)
+    (crawl_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "status": "success",
+                "history_since": "2025-01-01",
+                "calendar_span": {"days": 10, "weeks": 2, "months": 1},
+                "repositories": {"crawled": 1},
+                "source_like_totals": {"commits": 99, "file_changes": 99, "lines_added": 99, "active_days": 99},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (crawl_dir / "activity.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "git-crawl-activity-v1",
+                "totals": {
+                    "commits": 50,
+                    "file_changes": 50,
+                    "lines_added": 50000,
+                    "lines_deleted": 0,
+                    "active_days": 10,
+                    "repo_days": 10,
+                    "contributor_days": 10,
+                    "distinct_contributors": 10,
+                },
+                "skipped": {"file_changes": 0, "lines_added": 0, "lines_deleted": 0},
+            }
+        ),
+        encoding="utf-8",
+    )
+    _write_jsonl(
+        crawl_dir / "file_changes.jsonl",
+        [
+            {"repo": "owner/code", "sha": "code-a", "path": "src/app.py", "additions": 3, "deletions": 1},
+            {
+                "repo": "owner/code",
+                "sha": "data-b",
+                "path": "datasets/swebench_verified.json",
+                "additions": 7502,
+                "deletions": 0,
+            },
+        ],
+    )
+    _write_jsonl(
+        crawl_dir / "commits.jsonl",
+        [
+            {
+                "repo": "owner/code",
+                "sha": "code-a",
+                "authored_at": "2025-01-01T10:00:00Z",
+                "author_login": "dev",
+            },
+            {
+                "repo": "owner/code",
+                "sha": "data-b",
+                "authored_at": "2025-01-02T10:00:00Z",
+                "author_login": "data-bot",
+            },
+        ],
+    )
+
+    payload = get_subnet_dataset(tmp_path, 94, "activity")
+
+    assert payload["totals"] == {
+        "commits": 1,
+        "file_changes": 1,
+        "lines_added": 3,
+        "lines_deleted": 1,
+        "active_days": 1,
+        "repo_days": 1,
+        "contributor_days": 1,
+        "distinct_contributors": 1,
+    }
+    assert payload["skipped"] == {
+        "file_changes": 1,
+        "lines_added": 7502,
+        "lines_deleted": 0,
+        "by_reason": {"artifact/data": {"file_changes": 1, "lines_added": 7502, "lines_deleted": 0}},
+    }
+
+
+def test_activity_endpoint_ignores_invalid_activity_json_when_jsonl_rows_exist(tmp_path):
+    crawl_dir = tmp_path / "subnets" / "94" / "crawl"
+    crawl_dir.mkdir(parents=True)
+    (crawl_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "status": "success",
+                "history_since": "2025-01-01",
+                "calendar_span": {"days": 1, "weeks": 1, "months": 1},
+                "repositories": {"crawled": 1},
+                "source_like_totals": {"commits": 99, "file_changes": 99, "lines_added": 99, "active_days": 99},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (crawl_dir / "activity.json").write_text(json.dumps({"schema_version": "old"}), encoding="utf-8")
+    _write_jsonl(
+        crawl_dir / "file_changes.jsonl",
+        [{"repo": "owner/code", "sha": "code-a", "path": "src/app.py", "additions": 3, "deletions": 1}],
+    )
+    _write_jsonl(
+        crawl_dir / "commits.jsonl",
+        [
+            {
+                "repo": "owner/code",
+                "sha": "code-a",
+                "authored_at": "2025-01-01T10:00:00Z",
+                "author_login": "dev",
+            }
+        ],
+    )
+
+    payload = get_subnet_dataset(tmp_path, 94, "activity")
+
+    assert payload["totals"]["commits"] == 1
+    assert payload["totals"]["file_changes"] == 1
+    assert payload["totals"]["lines_added"] == 3
+
+
+def test_api_ignores_stale_crawl_outputs_for_current_inaccessible_report_entry(tmp_path):
+    subnet_dir = tmp_path / "subnets" / "2"
+    crawl_dir = subnet_dir / "crawl"
+    crawl_dir.mkdir(parents=True)
+    (crawl_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "status": "success",
+                "history_since": "2025-01-01",
+                "calendar_span": {"days": 365, "weeks": 53, "months": 12},
+                "repositories": {"crawled": 1},
+                "source_like_totals": {
+                    "commits": 100,
+                    "file_changes": 100,
+                    "lines_added": 1000,
+                    "active_days": 100,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    _write_jsonl(
+        crawl_dir / "commits.jsonl",
+        [
+            {
+                "repo": "old/team",
+                "sha": "stale",
+                "authored_at": "2025-01-01T00:00:00Z",
+                "author_login": "old-dev",
+            }
+        ],
+    )
+    _write_jsonl(
+        crawl_dir / "file_changes.jsonl",
+        [{"repo": "old/team", "sha": "stale", "path": "src/app.py", "additions": 1000}],
+    )
+    (subnet_dir / "score.json").write_text(
+        json.dumps({"status": "crawl_failed", "score": 0.0, "reason": "GitHub target inaccessible: 404"}),
+        encoding="utf-8",
+    )
+    (tmp_path / "crawl-report.json").write_text(
+        json.dumps(
+            {
+                "succeeded": [],
+                "failed": [],
+                "skipped_unresolved_netuids": [],
+                "skipped_inaccessible": [{"netuid": 2, "reason": "GitHub API request failed with HTTP 404"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    subnets = list_subnets(tmp_path)
+    detail = get_subnet_detail(tmp_path, 2)
+    activity_response = handle_api_request(tmp_path, "/api/subnets/2/activity")
+    commits_response = handle_api_request(tmp_path, "/api/subnets/2/commits")
+
+    assert subnets[0]["has_crawl"] is False
+    assert subnets[0]["has_summary"] is False
+    assert subnets[0]["activity"] is None
+    assert subnets[0]["summary"] is None
+    assert subnets[0]["score"]["status"] == "crawl_failed"
+    assert subnets[0]["current_crawl"]["status"] == "crawl_failed"
+    assert subnets[0]["current_crawl"]["current"] is False
+    assert "GitHub target inaccessible" in subnets[0]["current_crawl"]["reason"]
+    assert detail["activity"] is None
+    assert activity_response.status == HTTPStatus.NOT_FOUND
+    assert activity_response.payload == {
+        "error": (
+            "current crawl did not produce subnet 2: "
+            "GitHub target inaccessible: GitHub API request failed with HTTP 404"
+        )
+    }
+    assert commits_response.status == HTTPStatus.NOT_FOUND
+    assert commits_response.payload["error"].startswith("current crawl did not produce subnet 2:")
+
+
 def test_activity_endpoint_rejects_non_object_summary_json(tmp_path):
     crawl_dir = tmp_path / "subnets" / "94" / "crawl"
     crawl_dir.mkdir(parents=True)

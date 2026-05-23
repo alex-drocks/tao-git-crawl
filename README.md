@@ -40,7 +40,7 @@ Compose creates one named volume, `tao-data`, mounted at `/data`:
 
 - `/data/output`: resolver outputs and per-subnet crawl metrics.
 - `/data/cache`: bare git mirrors.
-- `/data/state`: SQLite state.
+- `/data/state`: optional SQLite state for explicit incremental crawls.
 - `/data/logs`: per-run crawl logs.
 
 Docker Compose environment:
@@ -52,9 +52,11 @@ Docker Compose environment:
 | `TAO_CRAWL_NETWORK` | `finney` | Bittensor network preset |
 | `TAO_CRAWL_OUTPUT_DIR` | `/data/output` | Output directory |
 | `TAO_CRAWL_CACHE_DIR` | `/data/cache` | Bare git mirror cache |
-| `TAO_CRAWL_STATE_DB` | `/data/state/db.sqlite` | SQLite state DB |
+| `TAO_CRAWL_INCREMENTAL` | `false` | Set `true` to use git-crawl incremental state instead of full-window outputs |
+| `TAO_CRAWL_STATE_DB` | `/data/state/db.sqlite` | SQLite state DB used only when `TAO_CRAWL_INCREMENTAL=true` |
 | `TAO_CRAWL_WORKERS` | `4` | Concurrent repo workers per subnet |
-| `TAO_CRAWL_SINCE` | `2025-01-01` | Commit since date |
+| `TAO_CRAWL_WINDOW_DAYS` | `365` | Rolling score/activity window in days when `TAO_CRAWL_SINCE` is unset |
+| `TAO_CRAWL_SINCE` | unset | Advanced fixed commit since date override |
 | `TAO_CRAWL_COMMIT_CHANGES_FILTRATION_LEVEL` | `source_like` | `all`, `non_binary`, or `source_like` |
 | `TAO_CRAWL_REGISTRY_URL` | unset | Remote JSON override registry |
 | `TAO_CRAWL_REGISTRY` | unset | Local JSON override registry path in the container |
@@ -70,6 +72,16 @@ Docker Compose environment:
 | `TAO_API_RATE_LIMIT_WINDOW_SECONDS` | `60` | API rate-limit window in seconds; set `0` to disable |
 
 For local registry or config files, mount the file into the container and set `TAO_CRAWL_REGISTRY` or `TAO_CRAWL_CONFIG` to that container path, for example `/data/registry.json`.
+
+Docker scheduler runs use a trailing 365-day score/activity window by default: when `TAO_CRAWL_SINCE` is unset, each
+scheduled crawl computes `--since` from the current UTC date minus `TAO_CRAWL_WINDOW_DAYS`. Bare git mirrors still
+persist under `/data/cache`, so repeat runs reuse local clones and fetch current refs before recomputing the rolling
+window. This default keeps investor-facing rankings focused on sustained recent shipping, not ancient history or only
+the repositories that changed since the previous scheduler run.
+
+Set `TAO_CRAWL_INCREMENTAL=true` only for operator diagnostics where latest-delta output is intentional. Incremental
+mode uses `TAO_CRAWL_STATE_DB` to crawl only changes since the previously stored default-branch head, so API activity
+and scores from that output are not comparable to rolling-window rankings.
 
 The API service mounts the same `tao-data` volume read-only and exposes frontend-friendly JSON endpoints:
 
@@ -90,6 +102,11 @@ The API service mounts the same `tao-data` volume read-only and exposes frontend
 
 Diagnostic crawl-file endpoints such as `/failures`, `/excluded`, and `/crawl-runs` remain available per subnet, but they are not part of the normal frontend activity contract.
 
+When `crawl-report.json` is present, the API treats it as the current-run source of truth. If the latest run marks a
+subnet as unresolved, failed, inaccessible, or not yet crawled, subnet detail payloads expose `current_crawl` plus the
+current score/target metadata, but crawl-derived summary, activity, and JSONL datasets are not served from stale files.
+Those dataset endpoints return a JSON `404` instead of leaking activity from an older crawl.
+
 ### Subnet Activity
 
 Use `/api/subnets/<netuid>/activity` for frontend display of code-change git activity. The same `activity` object is also embedded in `/api/subnets`, `/api/subnets/<netuid>`, and `/api/subnets/<netuid>/summary`.
@@ -99,9 +116,15 @@ The activity payload exposes:
 - `totals`: commits, file changes, lines added/deleted, active days, repo days, contributor days, and distinct contributors for real code changes only.
 - `averages.per_active_day`: commits, file changes, and line churn divided by active days.
 - `averages.per_calendar_day`, `per_calendar_week`, and `per_calendar_month`: the same metrics divided by the crawl calendar span.
-- `skipped`: file-change and line totals skipped because they were binary, lockfile, generated, vendored, or spec/schema-like changes. When reason details are available, `by_reason` breaks those totals down.
+- `skipped`: file-change and line totals skipped because they were binary, lockfile, generated, vendored,
+  spec/schema-like, or artifact/data changes. When reason details are available, `by_reason` breaks those totals down.
 
-The normal API presents one canonical activity model: totals and averages are real code changes only. `/api/subnets/<netuid>/summary` uses those same totals and exposes skipped noisy changes under `skipped`; raw crawl summary fields such as unfiltered churn totals remain implementation artifacts on disk. When `git-crawl` v0.3.0 `activity.json` is present, it is the aggregate source of truth. These are git change metrics, not current source lines of code.
+The normal API presents one canonical activity model: totals and averages are real code/docs changes only.
+`/api/subnets/<netuid>/summary` uses those same totals and exposes skipped noisy changes under `skipped`; raw crawl
+summary fields such as unfiltered churn totals remain implementation artifacts on disk. When `file_changes.jsonl` is
+available, the API recomputes activity from row-level changes so local artifact/data guardrails are applied consistently;
+otherwise it falls back to `git-crawl` v0.3.0 `activity.json` or filtered summary totals. These are git change metrics,
+not current source lines of code.
 
 When detailed rows are available, `/api/subnets/<netuid>/file-changes` returns code-change rows only and `/api/subnets/<netuid>/commits` returns only commits with credited code changes. Commit, file-change, repo-day, contributor-day, and org-day row payloads use the same public names as aggregate totals: `file_changes`, `lines_added`, and `lines_deleted`.
 
@@ -115,14 +138,24 @@ The weighted score is:
 
 | Metric | Weight |
 | ------ | ------ |
-| Average credited commits per active day | `25%` |
+| Active days | `40%` |
 | Credited file changes | `20%` |
-| Active days | `20%` |
-| Credited lines added | `15%` |
-| Repositories crawled with credited activity | `10%` |
-| Distinct contributors | `10%` |
+| Average credited commits per active day | `15%` |
+| Distinct contributors | `15%` |
+| Credited lines added | `10%` |
 
-Credited activity uses `git-crawl` path classification. When `file_changes.jsonl` is available, the scorer excludes rows marked binary, lockfile, generated, vendored, or spec/schema-like before counting file changes, lines, active days, contributors, and commits-per-active-day. If only `summary.json` is available, it uses already-filtered source-like aggregate totals and does not fall back to raw churn totals. Repositories only receive score credit when they have credited activity in the scoring window. The default `source_like` crawl filter applies the same noise policy before outputs are written.
+Credited activity uses `git-crawl` path classification plus local artifact/data guardrails. When `file_changes.jsonl` is
+available, the scorer excludes rows marked binary, lockfile, generated, vendored, spec/schema-like, or artifact/data
+before counting file changes, lines, active days, contributors, and commits-per-active-day. If detailed rows are
+unavailable, it falls back to `git-crawl` `activity.json` or already-filtered source-like aggregate totals and does not
+fall back to raw churn totals. Repository breadth is reported only for repositories with credited activity in the
+scoring window. The default `source_like` crawl filter reduces upstream noise before outputs are written;
+`tao-git-crawl` then rechecks detailed rows for investor-facing scoring and API activity.
+
+`repos_crawled` remains in `raw_metrics` for context, but it is not a weighted score input. Repo count reflects project
+layout too much to be a reliable investor-facing activity signal.
+
+Score payloads include `scoring_window.score_since`, `scoring_window.score_until`, and `scoring_window.scoring_window_days` so consumers can show the exact rolling window behind a rank.
 
 Percentile rank is still computed across every subnet after final scores are calculated for consumers that need it.
 
@@ -161,7 +194,6 @@ docker compose run --rm --entrypoint python scheduler \
   --network finney \
   --output-dir /data/output \
   --cache-dir /data/cache \
-  --state-db /data/state/db.sqlite \
   --since 2026-01-01
 ```
 
@@ -244,12 +276,12 @@ tao-git-crawl crawl \
   --from-json examples/subnets.sample.json \
   --output-dir out/tao-crawl \
   --cache-dir .cache/git-crawl \
-  --state-db .state/git-crawl.sqlite \
   --since 2026-01-01 \
   --workers 4
 ```
 
-The `--state-db` path should stay stable across scheduled runs so `git-crawl` can persist run metadata and incremental default-branch heads.
+For investor-facing score output, omit `--state-db` so each crawl output covers the complete selected `--since` window.
+Use `--state-db` only when you intentionally want incremental default-branch output from the previous stored heads.
 
 Crawl SN64 from the full Chutes owner:
 
@@ -259,7 +291,6 @@ tao-git-crawl crawl \
   --netuid 64 \
   --output-dir out/tao-chutes \
   --cache-dir .cache/git-crawl \
-  --state-db .state/git-crawl.sqlite \
   --since 2026-01-01 \
   --workers 4
 ```
@@ -307,7 +338,6 @@ tao-git-crawl crawl \
   --config config.py \
   --output-dir out/tao-crawl \
   --cache-dir .cache/git-crawl \
-  --state-db .state/git-crawl.sqlite \
   --since 2026-01-01
 ```
 
@@ -321,7 +351,6 @@ tao-git-crawl crawl \
   --repository-policy owner \
   --output-dir out/tao-owner-crawl \
   --cache-dir .cache/git-crawl \
-  --state-db .state/git-crawl.sqlite \
   --since 2026-01-01
 ```
 

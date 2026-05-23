@@ -10,9 +10,11 @@ Environment variables (all have defaults):
     TAO_CRAWL_NETWORK               Bittensor network preset (default: finney)
     TAO_CRAWL_OUTPUT_DIR            Output directory (default: /data/output)
     TAO_CRAWL_CACHE_DIR             Git mirror cache (default: /data/cache)
-    TAO_CRAWL_STATE_DB              SQLite state path (default: /data/state/db.sqlite)
+    TAO_CRAWL_INCREMENTAL           Use git-crawl incremental state (default: false)
+    TAO_CRAWL_STATE_DB              SQLite state path when incremental mode is enabled
     TAO_CRAWL_WORKERS               Concurrent repo workers (default: 4)
-    TAO_CRAWL_SINCE                 Commit since date (default: 2025-01-01)
+    TAO_CRAWL_WINDOW_DAYS           Rolling score/activity window (default: 365)
+    TAO_CRAWL_SINCE                 Fixed commit since date override (default: unset)
     TAO_CRAWL_COMMIT_CHANGES_FILTRATION_LEVEL
                                     all | non_binary | source_like (default: source_like)
     TAO_CRAWL_REGISTRY_URL          Optional remote JSON registry URL
@@ -29,10 +31,11 @@ import os
 import subprocess
 import sys
 import time
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 logger = logging.getLogger("tao-git-crawl.scheduler")
+DEFAULT_CRAWL_WINDOW_DAYS = 365
 
 
 # ---------------------------------------------------------------------------
@@ -44,7 +47,10 @@ def _env(name: str, default: str) -> str:
 
 
 def _env_int(name: str, default: int) -> int:
-    return int(os.environ.get(name, str(default)))
+    value = os.environ.get(name, "").strip()
+    if not value:
+        return default
+    return int(value)
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -52,6 +58,22 @@ def _env_bool(name: str, default: bool) -> bool:
     if not val:
         return default
     return val in {"1", "true", "yes", "on"}
+
+
+def _today_utc() -> date:
+    return datetime.now(UTC).date()
+
+
+def _crawl_since_from_env(today: date | None = None) -> str:
+    explicit_since = os.environ.get("TAO_CRAWL_SINCE", "").strip()
+    if explicit_since:
+        return explicit_since
+
+    window_days = _env_int("TAO_CRAWL_WINDOW_DAYS", DEFAULT_CRAWL_WINDOW_DAYS)
+    if window_days <= 0:
+        raise ValueError("TAO_CRAWL_WINDOW_DAYS must be greater than 0")
+    anchor_date = today if today is not None else _today_utc()
+    return (anchor_date - timedelta(days=window_days)).isoformat()
 
 
 # ---------------------------------------------------------------------------
@@ -65,11 +87,13 @@ def build_crawl_command() -> list[str]:
         "--network", _env("TAO_CRAWL_NETWORK", "finney"),
         "--output-dir", _env("TAO_CRAWL_OUTPUT_DIR", "/data/output"),
         "--cache-dir", _env("TAO_CRAWL_CACHE_DIR", "/data/cache"),
-        "--state-db", _env("TAO_CRAWL_STATE_DB", "/data/state/db.sqlite"),
         "--workers", _env("TAO_CRAWL_WORKERS", "4"),
-        "--since", _env("TAO_CRAWL_SINCE", "2025-01-01"),
+        "--since", _crawl_since_from_env(),
         "--commit-changes-filtration-level", _env("TAO_CRAWL_COMMIT_CHANGES_FILTRATION_LEVEL", "source_like"),
     ]
+
+    if _env_bool("TAO_CRAWL_INCREMENTAL", False):
+        cmd += ["--state-db", _env("TAO_CRAWL_STATE_DB", "/data/state/db.sqlite")]
 
     registry_url = os.environ.get("TAO_CRAWL_REGISTRY_URL")
     if registry_url:

@@ -36,13 +36,15 @@ def test_changelog_is_ready_for_release_notes_and_packaged_in_sdist():
     metadata = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))
     changelog = Path('CHANGELOG.md').read_text(encoding='utf-8')
 
-    assert metadata['project']['version'] == '0.3.0'
+    assert metadata['project']['version'] == '0.4.0'
     assert '## [Unreleased]' in changelog
+    assert '## [0.4.0] - 2026-05-23' in changelog
     assert '## [0.3.0] - 2026-05-23' in changelog
     assert '## [0.2.0] - 2026-05-22' in changelog
     assert '## [0.1.1] - 2026-05-22' in changelog
     assert '## [0.1.0] - 2026-05-22' in changelog
-    assert '[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.3.0...HEAD' in changelog
+    assert '[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.4.0...HEAD' in changelog
+    assert '[0.4.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.3.0...v0.4.0' in changelog
     assert '[0.3.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.2.0...v0.3.0' in changelog
     assert '[0.2.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.1.1...v0.2.0' in changelog
     assert '[0.1.1]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.1.0...v0.1.1' in changelog
@@ -59,6 +61,8 @@ def test_readme_manual_override_and_per_subnet_examples_match_cli_behavior():
     assert 'Do not pass --max-repos if you want full owner coverage.' in readme
     assert 'Add --include-forks or --include-archived if you also want those repos.' in readme
     assert 'excluded repositories do not consume the limit.' in readme
+    assert '--state-db .state/git-crawl.sqlite' not in readme
+    assert '--state-db /data/state/db.sqlite' not in readme
     assert "SN64's `repository-manifest.json` is intentionally empty" in readme
     assert 'out/tao/subnets/99/repository-manifest.json' in readme
     assert 'https://github.com/RendixNetwork' in readme
@@ -74,9 +78,12 @@ def test_docker_docs_and_compose_pass_documented_scheduler_environment():
     for name in [
         'TAO_CRAWL_OUTPUT_DIR',
         'TAO_CRAWL_CACHE_DIR',
+        'TAO_CRAWL_INCREMENTAL',
         'TAO_CRAWL_STATE_DB',
         'TAO_CRAWL_LOG_DIR',
         'TAO_CRAWL_RUN_ON_START',
+        'TAO_CRAWL_WINDOW_DAYS',
+        'TAO_CRAWL_SINCE',
         'TAO_CRAWL_REGISTRY_URL',
         'TAO_CRAWL_REGISTRY',
         'TAO_CRAWL_CONFIG',
@@ -101,13 +108,16 @@ def test_docker_docs_and_compose_pass_documented_scheduler_environment():
     assert '1200` requests per `60` seconds per TCP peer' in readme
     assert 'GET /api/subnets/<netuid>/activity' in readme
     assert 'one canonical activity model' in readme
-    assert '`git-crawl` v0.3.0 `activity.json` is present' in readme
+    assert 'falls back to `git-crawl` v0.3.0 `activity.json`' in readme
     assert '`skipped`' in readme
     assert 'averages.per_active_day' in readme
     assert 'GET /api/subnets/<netuid>/score' in readme
     assert 'GET /api/scores' in readme
     assert 'Average credited commits per active day' in readme
     assert 'Credited file changes' in readme
+    assert 'trailing 365-day score/activity window by default' in readme
+    assert 'rolling-window rankings' in readme
+    assert 'TAO_CRAWL_INCREMENTAL=true' in readme
 
 
 def test_docker_compose_uses_single_data_volume_for_persistent_paths():
@@ -131,3 +141,6 @@ def test_env_example_keeps_api_local_by_default():
     assert 'TAO_API_BIND_HOST=0.0.0.0' in example
     assert 'TAO_API_RATE_LIMIT_REQUESTS=1200' in example
     assert 'TAO_API_RATE_LIMIT_WINDOW_SECONDS=60' in example
+    assert 'TAO_CRAWL_WINDOW_DAYS=365' in example
+    assert 'TAO_CRAWL_SINCE=' in example
+    assert 'TAO_CRAWL_INCREMENTAL=false' in example

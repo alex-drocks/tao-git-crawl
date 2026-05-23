@@ -72,6 +72,14 @@ class RateLimitDecision:
     retry_after_seconds: int = 0
 
 
+@dataclass(frozen=True)
+class ApiCrawlReportState:
+    succeeded: set[int]
+    failed_reasons: dict[int, str]
+    inaccessible_reasons: dict[int, list[str]]
+    skipped_unresolved: set[int]
+
+
 class ApiProblem(ValueError):
     def __init__(self, status: HTTPStatus, message: str):
         super().__init__(message)
@@ -149,11 +157,13 @@ def handle_api_request(output_dir: str | Path, raw_target: str) -> ApiResponse:
 
 
 def list_subnets(output_dir: str | Path) -> list[dict[str, object]]:
-    subnets_dir = Path(output_dir) / "subnets"
+    output_path = Path(output_dir)
+    subnets_dir = output_path / "subnets"
     if not subnets_dir.exists():
         return []
+    report_state = _crawl_report_state(output_path)
     return [
-        _subnet_overview(subnet_dir)
+        _subnet_overview(subnet_dir, report_state=report_state)
         for subnet_dir in sorted(
             (path for path in subnets_dir.iterdir() if path.is_dir() and path.name.isdigit()),
             key=lambda path: int(path.name),
@@ -162,8 +172,9 @@ def list_subnets(output_dir: str | Path) -> list[dict[str, object]]:
 
 
 def get_subnet_detail(output_dir: str | Path, netuid: int) -> dict[str, object]:
-    subnet_dir = _subnet_dir(Path(output_dir), netuid)
-    overview = _subnet_overview(subnet_dir)
+    output_path = Path(output_dir)
+    subnet_dir = _subnet_dir(output_path, netuid)
+    overview = _subnet_overview(subnet_dir, report_state=_crawl_report_state(output_path))
     overview["files"] = _subnet_files(subnet_dir)
     overview["endpoints"] = _subnet_endpoints(netuid)
     overview["diagnostic_endpoints"] = _subnet_diagnostic_endpoints(netuid)
@@ -171,7 +182,9 @@ def get_subnet_detail(output_dir: str | Path, netuid: int) -> dict[str, object]:
 
 
 def get_subnet_activity(output_dir: str | Path, netuid: int) -> object:
-    subnet_dir = _subnet_dir(Path(output_dir), netuid)
+    output_path = Path(output_dir)
+    subnet_dir = _subnet_dir(output_path, netuid)
+    _require_current_crawl_output(output_path, netuid)
     crawl_dir = subnet_dir / "crawl"
     summary = _read_json_required(crawl_dir / "summary.json")
     return _activity_from_summary(summary, crawl_dir)
@@ -184,20 +197,25 @@ def get_subnet_dataset(
     query: dict[str, list[str]] | None = None,
 ) -> dict[str, object] | list[object] | object:
     dataset = JSONL_DATASET_ALIASES.get(dataset, dataset)
-    subnet_dir = _subnet_dir(Path(output_dir), netuid)
+    output_path = Path(output_dir)
+    subnet_dir = _subnet_dir(output_path, netuid)
     crawl_dir = subnet_dir / "crawl"
     query_params = query or {}
 
     if dataset == "activity":
+        _require_current_crawl_output(output_path, netuid)
         return _activity_from_summary(_read_json_required(crawl_dir / "summary.json"), crawl_dir)
 
     if dataset in JSON_DATASETS:
         if dataset == "summary":
+            _require_current_crawl_output(output_path, netuid)
             return _summary_with_score(
                 _read_json_required(crawl_dir / JSON_DATASETS[dataset]),
                 _read_json_optional(subnet_dir / "score.json"),
                 crawl_dir,
             )
+        if dataset == "manifest":
+            _require_current_crawl_output(output_path, netuid)
         path = (
             (crawl_dir / JSON_DATASETS[dataset])
             if dataset in {"summary", "manifest"}
@@ -206,6 +224,7 @@ def get_subnet_dataset(
         return _read_json_required(path)
 
     if dataset in JSONL_DATASETS:
+        _require_current_crawl_output(output_path, netuid)
         limit = _parse_query_int(query_params, "limit", DEFAULT_LIMIT)
         offset = _parse_query_int(query_params, "offset", 0)
         if dataset == "file-changes":
@@ -447,7 +466,7 @@ def _count_subnet_dirs(output_dir: Path) -> int:
         return 0
 
 
-def _subnet_overview(subnet_dir: Path) -> dict[str, object]:
+def _subnet_overview(subnet_dir: Path, *, report_state: ApiCrawlReportState | None = None) -> dict[str, object]:
     netuid = int(subnet_dir.name)
     targets_doc = _read_json_optional(subnet_dir / "subnet-targets.json")
     unresolved = _read_json_optional(subnet_dir / "unresolved.json") or []
@@ -457,14 +476,15 @@ def _subnet_overview(subnet_dir: Path) -> dict[str, object]:
     ]
     owner_targets = [target for target in targets if isinstance(target, dict) and target.get("kind") == "owner"]
     crawl_dir = subnet_dir / "crawl"
-    summary = _read_json_optional(crawl_dir / "summary.json")
+    use_crawl_output = _is_current_crawl_output(report_state, netuid)
+    summary = _read_json_optional(crawl_dir / "summary.json") if use_crawl_output else None
     score = _read_json_optional(subnet_dir / "score.json")
-    activity = _activity_from_summary(summary, crawl_dir)
+    activity = _activity_from_summary(summary, crawl_dir) if summary is not None else None
 
-    return {
+    payload: dict[str, object] = {
         "netuid": netuid,
         "subnet_name": _subnet_name(targets, unresolved),
-        "has_crawl": crawl_dir.exists(),
+        "has_crawl": crawl_dir.exists() and use_crawl_output,
         "has_summary": summary is not None,
         "activity": activity,
         "summary": _summary_with_score(summary, score, activity=activity),
@@ -474,6 +494,10 @@ def _subnet_overview(subnet_dir: Path) -> dict[str, object]:
         "owner_target_count": len(owner_targets),
         "unresolved_count": len(unresolved) if isinstance(unresolved, list) else 0,
     }
+    current_crawl = _current_crawl_payload(report_state, netuid)
+    if current_crawl is not None:
+        payload["current_crawl"] = current_crawl
+    return payload
 
 
 def _subnet_name(targets: object, unresolved: object) -> str:
@@ -533,6 +557,115 @@ def _subnet_dir(output_dir: Path, netuid: int) -> Path:
     if not subnet_dir.exists():
         raise ApiProblem(HTTPStatus.NOT_FOUND, f"subnet {netuid} not found")
     return subnet_dir
+
+
+def _require_current_crawl_output(output_dir: Path, netuid: int) -> None:
+    report_state = _crawl_report_state(output_dir)
+    if _is_current_crawl_output(report_state, netuid):
+        return
+    current_crawl = _current_crawl_payload(report_state, netuid) or {}
+    reason = current_crawl.get("reason") or current_crawl.get("status") or "not crawled in current report"
+    raise ApiProblem(HTTPStatus.NOT_FOUND, f"current crawl did not produce subnet {netuid}: {reason}")
+
+
+def _is_current_crawl_output(report_state: ApiCrawlReportState | None, netuid: int) -> bool:
+    return report_state is None or netuid in report_state.succeeded
+
+
+def _current_crawl_payload(
+    report_state: ApiCrawlReportState | None,
+    netuid: int,
+) -> dict[str, object] | None:
+    if report_state is None:
+        return None
+    if netuid in report_state.succeeded:
+        return {"status": "success", "current": True}
+    failed_reason = report_state.failed_reasons.get(netuid)
+    if failed_reason:
+        return {"status": "crawl_failed", "current": False, "reason": failed_reason}
+    inaccessible_reasons = report_state.inaccessible_reasons.get(netuid)
+    if inaccessible_reasons:
+        return {
+            "status": "crawl_failed",
+            "current": False,
+            "reason": f"GitHub target inaccessible: {'; '.join(inaccessible_reasons[:3])}",
+        }
+    if netuid in report_state.skipped_unresolved:
+        return {
+            "status": "unresolved",
+            "current": False,
+            "reason": "no resolved GitHub target in current report",
+        }
+    return {"status": "no_crawl", "current": False, "reason": "not crawled in current report"}
+
+
+def _crawl_report_state(output_dir: Path) -> ApiCrawlReportState | None:
+    report = _read_json_optional(output_dir / "crawl-report.json")
+    if not isinstance(report, dict):
+        return None
+
+    inaccessible_reasons: dict[int, list[str]] = {}
+    for item in _object_rows(report.get("skipped_inaccessible")):
+        netuid = _row_netuid(item)
+        if netuid is None:
+            continue
+        reason = item.get("reason")
+        inaccessible_reasons.setdefault(netuid, []).append(str(reason) if reason is not None else "inaccessible")
+
+    return ApiCrawlReportState(
+        succeeded=_netuid_set(report.get("succeeded")),
+        failed_reasons=_netuid_reasons(report.get("failed")),
+        inaccessible_reasons=inaccessible_reasons,
+        skipped_unresolved=_integer_set(report.get("skipped_unresolved_netuids")),
+    )
+
+
+def _netuid_set(value: object) -> set[int]:
+    netuids: set[int] = set()
+    for item in _object_rows(value):
+        netuid = _row_netuid(item)
+        if netuid is not None:
+            netuids.add(netuid)
+    return netuids
+
+
+def _netuid_reasons(value: object) -> dict[int, str]:
+    reasons: dict[int, str] = {}
+    for item in _object_rows(value):
+        netuid = _row_netuid(item)
+        if netuid is None:
+            continue
+        reason = item.get("reason")
+        reasons[netuid] = str(reason) if reason is not None else "crawl failed"
+    return reasons
+
+
+def _object_rows(value: object) -> list[dict[str, object]]:
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+
+def _row_netuid(row: dict[str, object]) -> int | None:
+    value = row.get("netuid")
+    if isinstance(value, bool):
+        return None
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _integer_set(value: object) -> set[int]:
+    if not isinstance(value, list):
+        return set()
+    integers: set[int] = set()
+    for item in value:
+        if isinstance(item, bool):
+            continue
+        try:
+            integers.add(int(item))
+        except (TypeError, ValueError):
+            continue
+    return integers
 
 
 def _read_json_required(path: Path) -> object:
@@ -613,14 +746,14 @@ def _activity_from_summary(summary: object, crawl_dir: Path | None = None) -> di
     has_source_like_totals = isinstance(source_like_totals_value, dict)
     source_like_totals = _mapping(source_like_totals_value)
     calendar_span = _mapping(summary.get("calendar_span"))
-    upstream_activity = _read_git_crawl_activity(crawl_dir)
-    jsonl_activity = None if upstream_activity is not None else _code_activity_from_jsonl(crawl_dir)
-    if upstream_activity is not None:
-        totals = _activity_totals_from_summary(_mapping(upstream_activity.get("totals")))
-        skipped = _public_skipped_activity(_mapping(upstream_activity.get("skipped")))
-    elif jsonl_activity is not None:
+    jsonl_activity = _code_activity_from_jsonl(crawl_dir)
+    upstream_activity = None if jsonl_activity is not None else _read_git_crawl_activity(crawl_dir)
+    if jsonl_activity is not None:
         totals = _mapping(jsonl_activity.get("totals"))
         skipped = _mapping(jsonl_activity.get("skipped"))
+    elif upstream_activity is not None:
+        totals = _activity_totals_from_summary(_mapping(upstream_activity.get("totals")))
+        skipped = _public_skipped_activity(_mapping(upstream_activity.get("skipped")))
     elif has_source_like_totals:
         totals = _activity_totals_from_summary(source_like_totals)
         skipped = _skipped_activity_from_summary(summary, totals)
@@ -847,6 +980,8 @@ def _noise_class_from_path_class(path_class: str) -> str | None:
     normalized = path_class.strip().lower()
     if normalized == "spec":
         return "spec/schema-like"
+    if normalized in {"asset", "assets", "artifact", "data", "dataset", "datasets"}:
+        return "artifact/data"
     if normalized in CODE_ACTIVITY_EXCLUDED_CHURN_CLASSES:
         return normalized
     return None

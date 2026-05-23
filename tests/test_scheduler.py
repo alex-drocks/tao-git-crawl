@@ -1,5 +1,6 @@
 import os
 import subprocess
+from datetime import date
 from types import SimpleNamespace
 
 import pytest
@@ -12,6 +13,10 @@ class TestBuildCrawlCommand:
         monkeypatch.delenv("TAO_CRAWL_REGISTRY_URL", raising=False)
         monkeypatch.delenv("TAO_CRAWL_REGISTRY", raising=False)
         monkeypatch.delenv("TAO_CRAWL_CONFIG", raising=False)
+        monkeypatch.delenv("TAO_CRAWL_INCREMENTAL", raising=False)
+        monkeypatch.delenv("TAO_CRAWL_SINCE", raising=False)
+        monkeypatch.delenv("TAO_CRAWL_WINDOW_DAYS", raising=False)
+        monkeypatch.setattr("tao_git_crawl.scheduler._today_utc", lambda: date(2026, 5, 23))
 
         cmd = build_crawl_command()
 
@@ -24,14 +29,56 @@ class TestBuildCrawlCommand:
         assert "/data/output" in cmd
         assert "--cache-dir" in cmd
         assert "/data/cache" in cmd
-        assert "--state-db" in cmd
-        assert "/data/state/db.sqlite" in cmd
+        assert "--state-db" not in cmd
         assert "--workers" in cmd
         assert "4" in cmd
         assert "--since" in cmd
-        assert "2025-01-01" in cmd
+        assert "2025-05-23" in cmd
         assert "--commit-changes-filtration-level" in cmd
         assert "source_like" in cmd
+
+    def test_window_days_controls_default_since_date(self, monkeypatch):
+        monkeypatch.delenv("TAO_CRAWL_SINCE", raising=False)
+        monkeypatch.setenv("TAO_CRAWL_WINDOW_DAYS", "90")
+        monkeypatch.setattr("tao_git_crawl.scheduler._today_utc", lambda: date(2026, 5, 23))
+
+        cmd = build_crawl_command()
+
+        idx = cmd.index("--since")
+        assert cmd[idx + 1] == "2026-02-22"
+
+    def test_empty_window_days_uses_default_since_date(self, monkeypatch):
+        monkeypatch.delenv("TAO_CRAWL_SINCE", raising=False)
+        monkeypatch.setenv("TAO_CRAWL_WINDOW_DAYS", "")
+        monkeypatch.setattr("tao_git_crawl.scheduler._today_utc", lambda: date(2026, 5, 23))
+
+        cmd = build_crawl_command()
+
+        idx = cmd.index("--since")
+        assert cmd[idx + 1] == "2025-05-23"
+
+    def test_explicit_since_overrides_rolling_window(self, monkeypatch):
+        monkeypatch.setenv("TAO_CRAWL_SINCE", "2024-01-15")
+        monkeypatch.setenv("TAO_CRAWL_WINDOW_DAYS", "90")
+        monkeypatch.setattr("tao_git_crawl.scheduler._today_utc", lambda: date(2026, 5, 23))
+
+        cmd = build_crawl_command()
+
+        idx = cmd.index("--since")
+        assert cmd[idx + 1] == "2024-01-15"
+
+    def test_incremental_mode_explicitly_enables_state_db(self, monkeypatch):
+        monkeypatch.delenv("TAO_CRAWL_REGISTRY_URL", raising=False)
+        monkeypatch.delenv("TAO_CRAWL_REGISTRY", raising=False)
+        monkeypatch.delenv("TAO_CRAWL_CONFIG", raising=False)
+        monkeypatch.setenv("TAO_CRAWL_INCREMENTAL", "true")
+        monkeypatch.setenv("TAO_CRAWL_STATE_DB", "/data/state/custom.sqlite")
+
+        cmd = build_crawl_command()
+
+        assert "--state-db" in cmd
+        idx = cmd.index("--state-db")
+        assert cmd[idx + 1] == "/data/state/custom.sqlite"
 
     def test_registry_url_appended(self, monkeypatch):
         monkeypatch.setenv("TAO_CRAWL_REGISTRY_URL", "https://example.com/registry.json")
