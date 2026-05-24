@@ -44,6 +44,7 @@ GITHUB_RESERVED_OWNER_PATHS = {
     "trending",
 }
 URL_LEFT_BOUNDARY = r"(?<![A-Za-z0-9._/@:-])"
+OWNER_URL_RIGHT_BOUNDARY = r"(?![A-Za-z0-9_/-]|\.[A-Za-z0-9_/-])"
 REPOSITORY_URL_RE = re.compile(
     URL_LEFT_BOUNDARY +
     r"(?:"
@@ -67,7 +68,7 @@ OWNER_URL_RE = re.compile(
     r")"
     r"/?"
     r"(?:[?#][^\s<>'\")]+)?"
-    r"(?![A-Za-z0-9._/-])"
+    + OWNER_URL_RIGHT_BOUNDARY
 )
 
 BARE_OWNER_REPO_RE = re.compile(

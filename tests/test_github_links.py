@@ -60,6 +60,28 @@ def test_scans_fallback_text_fields_for_owner_roots():
     ]
 
 
+def test_scans_owner_root_followed_by_sentence_period():
+    record = SubnetIdentityRecord(
+        netuid=10,
+        description="Code is maintained by the org at https://github.com/chutesai.",
+    )
+
+    targets = extract_github_targets(record)
+
+    assert [(target.kind, target.url, target.confidence) for target in targets] == [
+        ("owner", "https://github.com/chutesai", "low")
+    ]
+
+
+def test_owner_root_period_boundary_does_not_truncate_invalid_owner_path():
+    record = SubnetIdentityRecord(
+        netuid=11,
+        description="This is not a GitHub owner root: https://github.com/chutesai.com",
+    )
+
+    assert extract_github_targets(record) == []
+
+
 def test_scans_repository_urls_with_trailing_slashes_in_fallback_text():
     record = SubnetIdentityRecord(
         netuid=9,
