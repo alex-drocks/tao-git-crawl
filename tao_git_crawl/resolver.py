@@ -8,7 +8,7 @@ from .github_links import extract_github_targets, manual_github_target_from_url
 from .models import GITHUB_DISCOVERY_FIELDS, GitHubTarget, SubnetIdentityRecord, UnresolvedSubnetRecord
 from .overrides import EMPTY_RESOLVER_CONFIG, ResolverConfig
 
-RESOLUTION_SCHEMA_VERSION = "tao-git-crawl-resolution-v1"
+RESOLUTION_SCHEMA_VERSION = "tao-git-crawl-resolution-v2"
 
 
 @dataclass(frozen=True)

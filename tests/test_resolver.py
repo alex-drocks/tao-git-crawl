@@ -14,9 +14,10 @@ def test_resolve_subnets_emits_git_crawl_manifest_targets_and_unresolved_records
 
     document = resolve_subnets(records, target_label="bittensor-subnets")
 
-    assert document.schema_version == "tao-git-crawl-resolution-v1"
+    assert document.schema_version == "tao-git-crawl-resolution-v2"
     assert [target.netuid for target in document.repository_targets] == [1]
     assert [target.netuid for target in document.owner_targets] == [2]
+    assert "confidence" not in document.repository_targets[0].to_dict()
     assert document.git_crawl_repository_manifest == {
         "target": "bittensor-subnets",
         "repositories": [
