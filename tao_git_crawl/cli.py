@@ -15,6 +15,8 @@ from .providers import (
     DEFAULT_ENDPOINT,
     DEFAULT_NETWORK,
     DEFAULT_NETWORK_ENDPOINTS,
+    MAX_REGULAR_SUBNET_NETUID,
+    MIN_REGULAR_SUBNET_NETUID,
     JsonSubnetIdentityProvider,
     SubstrateSubnetIdentityProvider,
 )
@@ -38,7 +40,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Bittensor network endpoint preset for live chain queries (default: finney)",
     )
     resolve.add_argument("--endpoint", help=f"override live chain WebSocket endpoint (default: {DEFAULT_ENDPOINT})")
-    resolve.add_argument("--netuid", type=int, action="append", help="limit resolution to one netuid; repeatable")
+    resolve.add_argument(
+        "--netuid",
+        type=_regular_subnet_netuid,
+        action="append",
+        help=(
+            "limit resolution to one regular subnet netuid "
+            f"({MIN_REGULAR_SUBNET_NETUID}-{MAX_REGULAR_SUBNET_NETUID}); repeatable"
+        ),
+    )
     resolve.add_argument("--target", default="bittensor-subnets", help="target label for git-crawl manifest output")
     resolve.add_argument(
         "--config",
@@ -75,7 +85,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Bittensor network endpoint preset for live chain queries (default: finney)",
     )
     crawl.add_argument("--endpoint", help=f"override live chain WebSocket endpoint (default: {DEFAULT_ENDPOINT})")
-    crawl.add_argument("--netuid", type=int, action="append", help="limit resolution to one netuid; repeatable")
+    crawl.add_argument(
+        "--netuid",
+        type=_regular_subnet_netuid,
+        action="append",
+        help=(
+            "limit resolution to one regular subnet netuid "
+            f"({MIN_REGULAR_SUBNET_NETUID}-{MAX_REGULAR_SUBNET_NETUID}); repeatable"
+        ),
+    )
     crawl.add_argument("--target", default="bittensor-subnets", help="target label for aggregate resolver output")
     crawl.add_argument(
         "--config",
@@ -303,6 +321,16 @@ def _positive_int(value: str) -> int:
     parsed = int(value)
     if parsed < 1:
         raise argparse.ArgumentTypeError("must be >= 1")
+    return parsed
+
+
+def _regular_subnet_netuid(value: str) -> int:
+    parsed = int(value)
+    if parsed < MIN_REGULAR_SUBNET_NETUID or parsed > MAX_REGULAR_SUBNET_NETUID:
+        raise argparse.ArgumentTypeError(
+            "use regular subnet netuids "
+            f"{MIN_REGULAR_SUBNET_NETUID}-{MAX_REGULAR_SUBNET_NETUID}; netuid 0 is the root network"
+        )
     return parsed
 
 

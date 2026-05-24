@@ -14,6 +14,9 @@ Move entries into a dated version section when cutting the next tag.
 
 ### Changed
 
+- Restrict live and JSON subnet identity inputs to regular subnet slots `1` through `128`, excluding netuid `0`, the
+  Bittensor root network.
+
 ### Fixed
 
 ## [0.4.0] - 2026-05-23

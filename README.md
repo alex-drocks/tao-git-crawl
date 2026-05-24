@@ -7,6 +7,8 @@ It is self-hosted. You provide the chain endpoint or JSON export, GitHub token, 
 ## What It Does
 
 - Reads `SubtensorModule.SubnetIdentitiesV3(netuid)` from a live chain endpoint, or reads the same fields from JSON.
+- Restricts subnet resolution to regular subnet slots `1` through `128`, excluding netuid `0`, the Bittensor root
+  network.
 - Extracts GitHub repository URLs, owner roots, and bare `owner/repo` values from subnet identity text.
 - Treats `github_repo` as the highest-confidence field and scans `subnet_url`, `description`, `additional`, and `subnet_contact` as fallback fields.
 - Writes aggregate resolver outputs plus split outputs under `subnets/<netuid>/`.
@@ -258,6 +260,8 @@ tao-git-crawl resolve \
 ```
 
 The default Finney endpoint is `wss://entrypoint-finney.opentensor.ai:443`. Use `--endpoint` for a self-hosted or archive node.
+Live and JSON resolution only consider regular subnet slots, netuids `1` through `128`. Netuid `0` is the root network,
+not a regular subnet.
 
 Resolver outputs:
 

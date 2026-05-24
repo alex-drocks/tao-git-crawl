@@ -6,6 +6,9 @@
 SubtensorModule.SubnetIdentitiesV3(netuid) -> Option<SubnetIdentityV3>
 ```
 
+Regular subnet slots are netuids `1` through `128`. Netuid `0` is the Bittensor root network and is excluded from
+resolver/crawler input.
+
 GitHub discovery uses these `SubnetIdentityV3` fields:
 
 - `github_repo`
