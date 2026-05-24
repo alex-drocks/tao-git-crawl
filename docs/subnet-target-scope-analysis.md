@@ -22,7 +22,8 @@ Use these target scopes in order of preference:
 1. **Exact repository target**: use when on-chain identity names a concrete `owner/repo`. This is the safest default and
    prevents org-wide activity from leaking between subnets.
 2. **Curated repository set**: use when a subnet legitimately spans multiple repos under the same owner. Represent it as
-   multiple explicit repository targets, usually through the registry or user config. Do not promote the whole owner.
+   multiple explicit repository targets, usually through `registry/default.json`, a custom registry, or user config. Do
+   not promote the whole owner.
 3. **Owner-expansion target**: use only when the GitHub account is effectively dedicated to that subnet, or when a
    manually reviewed registry entry intentionally treats the account as the subnet boundary.
 4. **Unresolved / needs review**: use when the only available signal is an org root but the org has unrelated repos or

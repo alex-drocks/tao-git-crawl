@@ -52,6 +52,10 @@ def test_changelog_is_ready_for_release_notes_and_packaged_in_sdist():
     assert '[0.1.1]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.1.0...v0.1.1' in changelog
     assert '[0.1.0]: https://github.com/alex-drocks/tao-git-crawl/releases/tag/v0.1.0' in changelog
     assert '/CHANGELOG.md' in metadata['tool']['hatch']['build']['targets']['sdist']['include']
+    assert '/registry' in metadata['tool']['hatch']['build']['targets']['sdist']['include']
+    assert metadata['tool']['hatch']['build']['targets']['wheel']['force-include'] == {
+        'registry/default.json': 'tao_git_crawl/default_registry.json',
+    }
     assert metadata['project']['urls']['Changelog'].endswith('/CHANGELOG.md')
 
 
@@ -104,6 +108,7 @@ def test_docker_docs_and_compose_pass_documented_scheduler_environment():
     assert 'git-crawl.git@v0.3.0' in compose
     assert 'git-crawl.git@main' not in dockerfile
     assert 'git-crawl.git@main' not in compose
+    assert 'COPY registry/ ./registry/' in dockerfile
     assert 'raw.githubusercontent.com/alex-drocks/tao-git-crawl/main/registry.json' not in readme
     assert '${TAO_API_BIND_HOST:-127.0.0.1}:${TAO_API_PORT:-8080}:8080' in compose
     assert 'reverse_proxy 127.0.0.1:8080' in readme

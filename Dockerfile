@@ -22,6 +22,7 @@ RUN pip install --no-cache-dir \
 # Copy the package and install in editable mode so code changes are reflected
 # on rebuild without layer invalidation from git-crawl.
 COPY pyproject.toml README.md ./
+COPY registry/ ./registry/
 COPY tao_git_crawl/ ./tao_git_crawl/
 RUN pip install --no-cache-dir -e ".${INSTALL_EXTRAS}"
 

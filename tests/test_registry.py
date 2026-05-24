@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
 from tao_git_crawl.overrides import TargetOverride
 from tao_git_crawl.registry import (
+    DEFAULT_REGISTRY_REPO_PATH,
     DEFAULT_REGISTRY_SCHEMA_VERSION,
     RegistryError,
+    load_built_in_registry,
     load_registry,
     load_registry_from_path,
     merge_registries,
@@ -203,6 +206,14 @@ def test_load_registry_built_in_only():
     registry = load_registry()
     # Built-in SN64 should be present
     assert 64 in registry.overrides
+
+
+def test_built_in_registry_is_tracked_json_file():
+    assert Path("registry/default.json").resolve() == DEFAULT_REGISTRY_REPO_PATH
+    registry = load_built_in_registry()
+
+    assert 64 in registry.overrides
+    assert registry.raw["overrides"]["64"]["note"]
 
 
 def test_load_registry_local_override(tmp_path):

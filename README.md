@@ -319,6 +319,27 @@ git-crawl crawl-repos out/tao/subnets/99/repository-manifest.json \
 
 Use overrides when on-chain metadata points at the wrong GitHub scope.
 
+The built-in registry is tracked at `registry/default.json` so subnet teams can open PRs to update their own target
+scope. Prefer exact `repository` targets unless the whole GitHub account is intentionally dedicated to one subnet.
+
+Registry JSON:
+
+```json
+{
+  "schema_version": "tao-git-crawl-registry-v1",
+  "overrides": {
+    "4": {
+      "replace": true,
+      "targets": [
+        {"kind": "repository", "url": "https://github.com/manifold-inc/targon"},
+        {"kind": "repository", "url": "https://github.com/manifold-inc/targon-sdk"}
+      ],
+      "note": "Targon curated repo set; do not expand all manifold-inc repos"
+    }
+  }
+}
+```
+
 Python config:
 
 ```python

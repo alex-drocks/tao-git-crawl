@@ -14,6 +14,9 @@ Move entries into a dated version section when cutting the next tag.
 
 ### Changed
 
+- Move the built-in subnet override registry into tracked `registry/default.json` so subnet teams can propose repo-scope
+  updates by PR.
+
 ### Fixed
 
 ## [0.5.0] - 2026-05-24

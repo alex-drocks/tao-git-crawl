@@ -8,25 +8,10 @@ from typing import Any
 
 from .overrides import ResolverConfig, SubnetOverride, TargetOverride
 
-# This is the built-in default registry so SN64 and any other well-known subnets
-# work out of the box even when running offline. The registry is merged before
-# user-supplied --config overrides, so --config always wins.
-DEFAULT_REGISTRY: dict[str, Any] = {
-    "schema_version": "tao-git-crawl-registry-v1",
-    "updated_at": "2026-05-17T00:00:00Z",
-    "overrides": {
-        "64": {
-            "replace": True,
-            "targets": [
-                {"kind": "owner", "url": "https://github.com/chutesai", "confidence": "high"}
-            ],
-            "note": "Chutes AI — requires owner-level crawl to capture multi-repo activity",
-        }
-    },
-}
-
 DEFAULT_REGISTRY_SCHEMA_VERSION = "tao-git-crawl-registry-v1"
 DEFAULT_REGISTRY_CACHE_TTL_SECONDS = 3600  # 1 hour
+DEFAULT_REGISTRY_REPO_PATH = Path(__file__).resolve().parents[1] / "registry" / "default.json"
+PACKAGED_DEFAULT_REGISTRY_PATH = Path(__file__).with_name("default_registry.json")
 
 
 class RegistryError(ValueError):
@@ -55,6 +40,17 @@ def load_registry_from_path(path: str | Path) -> Registry:
     except Exception as exc:
         raise RegistryError(f"could not read registry file {path}: {exc}") from exc
     return parse_registry_json(text)
+
+
+def load_built_in_registry() -> Registry:
+    """Load the tracked built-in registry from source tree or packaged data."""
+    for path in (DEFAULT_REGISTRY_REPO_PATH, PACKAGED_DEFAULT_REGISTRY_PATH):
+        if path.exists():
+            return load_registry_from_path(path)
+    raise RegistryError(
+        "built-in registry file is missing; expected registry/default.json in source "
+        "or default_registry.json in package"
+    )
 
 
 def load_registry_from_remote(
@@ -213,14 +209,14 @@ def load_registry(
     """Load and merge registries from built-in defaults, a remote URL, and a local path.
 
     Merge order (later wins):
-    1. built-in DEFAULT_REGISTRY (if ``use_built_in=True``)
+    1. tracked built-in ``registry/default.json`` (if ``use_built_in=True``)
     2. remote ``registry_url`` (fetched with optional cache)
     3. local ``registry_path`` (user override)
     """
     parts: list[Registry] = []
 
     if use_built_in:
-        parts.append(parse_registry_json(json.dumps(DEFAULT_REGISTRY)))
+        parts.append(load_built_in_registry())
 
     if registry_url:
         cache_file: Path | None = None
