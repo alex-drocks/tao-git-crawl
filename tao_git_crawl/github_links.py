@@ -74,6 +74,19 @@ OWNER_URL_RE = re.compile(
 BARE_OWNER_REPO_RE = re.compile(
     rf"^(?P<owner>{GITHUB_OWNER_PATTERN})/(?P<repo>[A-Za-z0-9._-]+)(?:\.git)?$"
 )
+BARE_OWNER_REPO_TEXT_RE = re.compile(
+    URL_LEFT_BOUNDARY +
+    rf"{GITHUB_OWNER_PATTERN}/[A-Za-z0-9._-]+(?:\.git)?"
+    r"(?![A-Za-z0-9._/-])"
+)
+BARE_OWNER_REPO_CONTEXT_RE = re.compile(
+    r"(?:"
+    r"github(?:\s+(?:repo|repos|repository|source|code))?\s*(?::|=|-|is|at|->)?"
+    r"|"
+    r"(?:repo|repos|repository|source(?:\s+code)?|code)\s*(?::|=|-|is|at|->)"
+    r")\s*$",
+    re.IGNORECASE,
+)
 
 FIELD_CONFIDENCE = {
     "github_repo": "high",
@@ -157,7 +170,19 @@ def _candidate_values(field: str, raw_value: str) -> list[str]:
         candidates.append(raw_value.strip())
     candidates.extend(match.group(0).strip().rstrip(".,;") for match in REPOSITORY_URL_RE.finditer(raw_value))
     candidates.extend(match.group(0).strip().rstrip(".,;") for match in OWNER_URL_RE.finditer(raw_value))
+    candidates.extend(
+        match.group(0).strip().rstrip(".,;")
+        for match in BARE_OWNER_REPO_TEXT_RE.finditer(raw_value)
+        if _bare_owner_repo_context_allows(field, raw_value, match.start())
+    )
     return [candidate for candidate in candidates if candidate]
+
+
+def _bare_owner_repo_context_allows(field: str, raw_value: str, start: int) -> bool:
+    if field in {"github_repo", "subnet_url"}:
+        return True
+    context = raw_value[max(0, start - 80) : start]
+    return BARE_OWNER_REPO_CONTEXT_RE.search(context) is not None
 
 
 def _target_from_candidate(
