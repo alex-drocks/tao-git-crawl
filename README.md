@@ -332,7 +332,8 @@ Registry JSON:
       "replace": true,
       "targets": [
         {"kind": "repository", "url": "https://github.com/manifold-inc/targon"},
-        {"kind": "repository", "url": "https://github.com/manifold-inc/targon-sdk"}
+        {"kind": "repository", "url": "https://github.com/manifold-inc/targon-sdk"},
+        {"kind": "repository", "url": "https://github.com/manifold-inc/targon-nvidia-attest"}
       ],
       "note": "Targon curated repo set; do not expand all manifold-inc repos"
     }

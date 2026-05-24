@@ -204,15 +204,35 @@ def test_merge_registries():
 
 def test_load_registry_built_in_only():
     registry = load_registry()
-    # Built-in SN64 should be present
+    assert 4 in registry.overrides
+    assert 5 in registry.overrides
     assert 64 in registry.overrides
+
+    assert registry.overrides[4].replace is True
+    assert registry.overrides[4].targets == (
+        TargetOverride(kind="repository", url="https://github.com/manifold-inc/targon", confidence="high"),
+        TargetOverride(kind="repository", url="https://github.com/manifold-inc/targon-sdk", confidence="high"),
+        TargetOverride(
+            kind="repository", url="https://github.com/manifold-inc/targon-nvidia-attest", confidence="high"
+        ),
+    )
+    assert registry.overrides[5].replace is True
+    assert registry.overrides[5].targets == (
+        TargetOverride(kind="repository", url="https://github.com/manifold-inc/hone", confidence="high"),
+        TargetOverride(kind="repository", url="https://github.com/manifold-inc/hone-api", confidence="high"),
+        TargetOverride(kind="repository", url="https://github.com/manifold-inc/hone-dashboard", confidence="high"),
+    )
 
 
 def test_built_in_registry_is_tracked_json_file():
     assert Path("registry/overrides.json").resolve() == DEFAULT_REGISTRY_REPO_PATH
     registry = load_built_in_registry()
 
+    assert 4 in registry.overrides
+    assert 5 in registry.overrides
     assert 64 in registry.overrides
+    assert registry.raw["overrides"]["4"]["note"]
+    assert registry.raw["overrides"]["5"]["note"]
     assert registry.raw["overrides"]["64"]["note"]
 
 

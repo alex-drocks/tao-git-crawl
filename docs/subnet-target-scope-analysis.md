@@ -34,20 +34,20 @@ be treated as a shared-source warning unless there is a path-level or repo-level
 
 ## SN4 / SN5 Manifold
 
-Current live identity resolution is already attribution-safe:
+Current live identity resolution starts from attribution-safe exact repository targets:
 
 | Netuid | Subnet | Current target | Scope |
 | ---: | --- | --- | --- |
 | 4 | Targon | `https://github.com/manifold-inc/targon` | exact repo |
 | 5 | Hone | `https://github.com/manifold-inc/hone` | exact repo |
 
-The Manifold org has `17` public repos. Recent non-target repos include `hone-api`, `hone-dashboard`, `targon-sdk`,
-`openclaw`, `targon-nvidia-attest`, `manifold-sdk`, `taoxyz-wallet`, `periscope`, and `targon-oracle`.
+The Manifold org has `17` public repos. Additional reviewed subnet repos include `targon-sdk`,
+`targon-nvidia-attest`, `hone-api`, and `hone-dashboard`. Other recent Manifold repos include `openclaw`,
+`manifold-sdk`, `taoxyz-wallet`, `periscope`, and `targon-oracle`.
 
 Therefore SN4 and SN5 must not be represented as `https://github.com/manifold-inc` owner targets. That would inflate
-both subnets with each other's repos plus unrelated Manifold repos. If SN4 needs `targon-sdk` or `targon-oracle`, add
-those as explicit SN4 repository targets. If SN5 needs `hone-api` or `hone-dashboard`, add those as explicit SN5
-repository targets. The correct model is a curated per-subnet repo set, not organization expansion.
+both subnets with each other's repos plus unrelated Manifold repos. The correct model is a curated per-subnet repo set,
+not organization expansion.
 
 Example registry shape:
 
@@ -59,7 +59,8 @@ Example registry shape:
       "replace": true,
       "targets": [
         {"kind": "repository", "url": "https://github.com/manifold-inc/targon"},
-        {"kind": "repository", "url": "https://github.com/manifold-inc/targon-sdk"}
+        {"kind": "repository", "url": "https://github.com/manifold-inc/targon-sdk"},
+        {"kind": "repository", "url": "https://github.com/manifold-inc/targon-nvidia-attest"}
       ],
       "note": "Targon curated repo set; do not expand all manifold-inc repos"
     },
@@ -67,7 +68,8 @@ Example registry shape:
       "replace": true,
       "targets": [
         {"kind": "repository", "url": "https://github.com/manifold-inc/hone"},
-        {"kind": "repository", "url": "https://github.com/manifold-inc/hone-api"}
+        {"kind": "repository", "url": "https://github.com/manifold-inc/hone-api"},
+        {"kind": "repository", "url": "https://github.com/manifold-inc/hone-dashboard"}
       ],
       "note": "Hone curated repo set; do not expand all manifold-inc repos"
     }

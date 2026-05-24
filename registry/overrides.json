@@ -2,6 +2,48 @@
   "schema_version": "tao-git-crawl-registry-v1",
   "updated_at": "2026-05-24T00:00:00Z",
   "overrides": {
+    "4": {
+      "replace": true,
+      "targets": [
+        {
+          "kind": "repository",
+          "url": "https://github.com/manifold-inc/targon",
+          "confidence": "high"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/manifold-inc/targon-sdk",
+          "confidence": "high"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/manifold-inc/targon-nvidia-attest",
+          "confidence": "high"
+        }
+      ],
+      "note": "Targon curated repo set; do not expand all manifold-inc repos"
+    },
+    "5": {
+      "replace": true,
+      "targets": [
+        {
+          "kind": "repository",
+          "url": "https://github.com/manifold-inc/hone",
+          "confidence": "high"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/manifold-inc/hone-api",
+          "confidence": "high"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/manifold-inc/hone-dashboard",
+          "confidence": "high"
+        }
+      ],
+      "note": "Hone curated repo set; do not expand all manifold-inc repos"
+    },
     "64": {
       "replace": true,
       "targets": [
