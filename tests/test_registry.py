@@ -209,7 +209,7 @@ def test_load_registry_built_in_only():
 
 
 def test_built_in_registry_is_tracked_json_file():
-    assert Path("registry/default.json").resolve() == DEFAULT_REGISTRY_REPO_PATH
+    assert Path("registry/overrides.json").resolve() == DEFAULT_REGISTRY_REPO_PATH
     registry = load_built_in_registry()
 
     assert 64 in registry.overrides

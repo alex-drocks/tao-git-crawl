@@ -14,7 +14,7 @@ Move entries into a dated version section when cutting the next tag.
 
 ### Changed
 
-- Move the built-in subnet override registry into tracked `registry/default.json` so subnet teams can propose repo-scope
+- Move the built-in subnet override registry into tracked `registry/overrides.json` so subnet teams can propose repo-scope
   updates by PR.
 - Remove the obsolete user-facing `examples/` folder; the sample subnet JSON is now an internal test fixture.
 

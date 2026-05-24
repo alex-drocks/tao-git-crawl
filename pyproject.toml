@@ -42,7 +42,7 @@ include = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["tao_git_crawl"]
-force-include = { "registry/default.json" = "tao_git_crawl/default_registry.json" }
+force-include = { "registry/overrides.json" = "tao_git_crawl/registry_overrides.json" }
 
 [tool.ruff]
 line-length = 120

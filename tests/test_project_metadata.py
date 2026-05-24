@@ -55,7 +55,7 @@ def test_changelog_is_ready_for_release_notes_and_packaged_in_sdist():
     assert '/examples' not in metadata['tool']['hatch']['build']['targets']['sdist']['include']
     assert '/registry' in metadata['tool']['hatch']['build']['targets']['sdist']['include']
     assert metadata['tool']['hatch']['build']['targets']['wheel']['force-include'] == {
-        'registry/default.json': 'tao_git_crawl/default_registry.json',
+        'registry/overrides.json': 'tao_git_crawl/registry_overrides.json',
     }
     assert metadata['project']['urls']['Changelog'].endswith('/CHANGELOG.md')
 

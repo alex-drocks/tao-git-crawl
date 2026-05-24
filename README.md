@@ -319,7 +319,7 @@ git-crawl crawl-repos out/tao/subnets/99/repository-manifest.json \
 
 Use overrides when on-chain metadata points at the wrong GitHub scope.
 
-The built-in registry is tracked at `registry/default.json` so subnet teams can open PRs to update their own target
+The built-in registry is tracked at `registry/overrides.json` so subnet teams can open PRs to update their own target
 scope. Prefer exact `repository` targets unless the whole GitHub account is intentionally dedicated to one subnet.
 
 Registry JSON:

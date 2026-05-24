@@ -10,8 +10,8 @@ from .overrides import ResolverConfig, SubnetOverride, TargetOverride
 
 DEFAULT_REGISTRY_SCHEMA_VERSION = "tao-git-crawl-registry-v1"
 DEFAULT_REGISTRY_CACHE_TTL_SECONDS = 3600  # 1 hour
-DEFAULT_REGISTRY_REPO_PATH = Path(__file__).resolve().parents[1] / "registry" / "default.json"
-PACKAGED_DEFAULT_REGISTRY_PATH = Path(__file__).with_name("default_registry.json")
+DEFAULT_REGISTRY_REPO_PATH = Path(__file__).resolve().parents[1] / "registry" / "overrides.json"
+PACKAGED_DEFAULT_REGISTRY_PATH = Path(__file__).with_name("registry_overrides.json")
 
 
 class RegistryError(ValueError):
@@ -48,8 +48,8 @@ def load_built_in_registry() -> Registry:
         if path.exists():
             return load_registry_from_path(path)
     raise RegistryError(
-        "built-in registry file is missing; expected registry/default.json in source "
-        "or default_registry.json in package"
+        "built-in registry file is missing; expected registry/overrides.json in source "
+        "or registry_overrides.json in package"
     )
 
 
@@ -209,7 +209,7 @@ def load_registry(
     """Load and merge registries from built-in defaults, a remote URL, and a local path.
 
     Merge order (later wins):
-    1. tracked built-in ``registry/default.json`` (if ``use_built_in=True``)
+    1. tracked built-in ``registry/overrides.json`` (if ``use_built_in=True``)
     2. remote ``registry_url`` (fetched with optional cache)
     3. local ``registry_path`` (user override)
     """
