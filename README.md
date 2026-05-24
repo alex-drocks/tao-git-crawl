@@ -10,7 +10,7 @@ It is self-hosted. You provide the chain endpoint or JSON export, GitHub token, 
 - Restricts subnet resolution to regular subnet slots `1` through `128`, excluding netuid `0`, the Bittensor root
   network.
 - Extracts GitHub repository URLs, owner roots, and bare `owner/repo` values from subnet identity text.
-- Treats `github_repo` as the highest-confidence field and scans `subnet_url`, `description`, `additional`, and `subnet_contact` as fallback fields.
+- Treats `github_repo` as the primary GitHub metadata field and scans `subnet_url`, `description`, `additional`, and `subnet_contact` as fallback fields.
 - Writes aggregate resolver outputs plus split outputs under `subnets/<netuid>/`.
 - Crawls each resolved subnet as its own `git-crawl` target.
 - Scores each subnet from credited git activity and writes score details into the API summaries.

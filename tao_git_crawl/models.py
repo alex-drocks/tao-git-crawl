@@ -16,7 +16,6 @@ IDENTITY_FIELDS = (
 GITHUB_DISCOVERY_FIELDS = ("github_repo", "subnet_url", "description", "additional", "subnet_contact")
 
 TargetKind = Literal["repository", "owner"]
-Confidence = Literal["high", "medium", "low"]
 
 
 @dataclass(frozen=True)
@@ -54,7 +53,6 @@ class GitHubTarget:
     repo_full_name: str | None
     source_field: str
     raw_value: str
-    confidence: Confidence
     subnet_name: str = ""
 
     def to_dict(self) -> dict[str, object]:

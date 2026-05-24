@@ -150,7 +150,6 @@ def _promote_repository_target_to_owner(target: GitHubTarget) -> GitHubTarget:
         repo_full_name=None,
         source_field=target.source_field,
         raw_value=target.raw_value,
-        confidence=target.confidence,
         subnet_name=target.subnet_name,
     )
 
@@ -168,7 +167,6 @@ def _apply_manual_override(
             record,
             kind=target.kind,
             url=target.url,
-            confidence=target.confidence,
         )
         for target in override.targets
     ]

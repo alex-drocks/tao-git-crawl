@@ -152,12 +152,10 @@ def _parse_registry_target_override(netuid_key: str, idx: int, item: Any) -> Tar
     if not isinstance(url_item, str) or not url_item.strip():
         raise RegistryError(f"override for netuid {netuid_key}: target {idx}: 'url' must be a non-empty string")
 
-    confidence_item = item.get("confidence", "high")
-    confidence = str(confidence_item).strip().lower() if confidence_item else "high"
-    if confidence not in {"high", "medium", "low"}:
-        raise RegistryError(f"override for netuid {netuid_key}: target {idx}: 'confidence' must be high/medium/low")
+    if "confidence" in item:
+        raise RegistryError(f"override for netuid {netuid_key}: target {idx}: 'confidence' is not supported")
 
-    return TargetOverride(kind=kind, url=url_item.strip(), confidence=confidence)  # type: ignore[arg-type]
+    return TargetOverride(kind=kind, url=url_item.strip())  # type: ignore[arg-type]
 
 
 def _parse_registry_replace(netuid_key: str, value: Any) -> bool:

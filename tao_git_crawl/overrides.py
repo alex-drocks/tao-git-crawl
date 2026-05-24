@@ -6,13 +6,12 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Literal
 
-from .models import Confidence, TargetKind
+from .models import TargetKind
 
 RepositoryPolicy = Literal["repository", "owner"]
 
 VALID_REPOSITORY_POLICIES = {"repository", "owner"}
 VALID_TARGET_KINDS = {"repository", "owner"}
-VALID_CONFIDENCE_VALUES = {"high", "medium", "low"}
 
 
 class ResolverConfigError(ValueError):
@@ -23,15 +22,12 @@ class ResolverConfigError(ValueError):
 class TargetOverride:
     kind: TargetKind
     url: str
-    confidence: Confidence = "high"
 
     def __post_init__(self) -> None:
         if self.kind not in VALID_TARGET_KINDS:
             raise ResolverConfigError("target override kind must be one of 'repository' or 'owner'")
         if not self.url or not self.url.strip():
             raise ResolverConfigError("target override url must be a non-empty string")
-        if self.confidence not in VALID_CONFIDENCE_VALUES:
-            raise ResolverConfigError("target override confidence must be one of 'high', 'medium', or 'low'")
 
 
 @dataclass(frozen=True)
@@ -135,10 +131,11 @@ def _parse_target_override(value: object) -> TargetOverride:
         return TargetOverride(kind="owner", url=value)
     if not isinstance(value, dict):
         raise ResolverConfigError("target override must be a dict, string, or TargetOverride")
+    if "confidence" in value:
+        raise ResolverConfigError("target override confidence is not supported")
     kind = _require_string(value, "kind").strip().lower()
     url = _require_string(value, "url")
-    confidence = str(value.get("confidence", "high")).strip().lower()
-    return TargetOverride(kind=kind, url=url, confidence=confidence)  # type: ignore[arg-type]
+    return TargetOverride(kind=kind, url=url)  # type: ignore[arg-type]
 
 
 def _require_string(value: dict[str, Any], key: str) -> str:

@@ -24,13 +24,13 @@ GOOD_REGISTRY = {
     "overrides": {
         "64": {
             "replace": True,
-            "targets": [{"kind": "owner", "url": "https://github.com/chutesai", "confidence": "high"}],
+            "targets": [{"kind": "owner", "url": "https://github.com/chutesai"}],
             "note": "Chutes",
         },
         "1": {
             "replace": False,
             "targets": [
-                {"kind": "repository", "url": "https://github.com/alice/api", "confidence": "medium"},
+                {"kind": "repository", "url": "https://github.com/alice/api"},
             ],
         },
     },
@@ -46,13 +46,13 @@ def test_parse_registry_json_valid():
     override_64 = registry.overrides[64]
     assert override_64.replace is True
     assert override_64.targets == (
-        TargetOverride(kind="owner", url="https://github.com/chutesai", confidence="high"),
+        TargetOverride(kind="owner", url="https://github.com/chutesai"),
     )
 
     override_1 = registry.overrides[1]
     assert override_1.replace is False
     assert override_1.targets == (
-        TargetOverride(kind="repository", url="https://github.com/alice/api", confidence="medium"),
+        TargetOverride(kind="repository", url="https://github.com/alice/api"),
     )
 
 
@@ -116,8 +116,8 @@ def test_parse_registry_json_missing_url():
         )
 
 
-def test_parse_registry_json_invalid_confidence():
-    with pytest.raises(RegistryError, match="target 0"):
+def test_parse_registry_json_rejects_confidence():
+    with pytest.raises(RegistryError, match="'confidence' is not supported"):
         parse_registry_json(
             json.dumps(
                 {
@@ -181,11 +181,11 @@ def test_merge_registries():
                 "overrides": {
                     "64": {
                         "replace": False,
-                        "targets": [{"kind": "owner", "url": "https://github.com/chutesai-v2", "confidence": "high"}],
+                        "targets": [{"kind": "owner", "url": "https://github.com/chutesai-v2"}],
                     },
                     "99": {
                         "replace": True,
-                        "targets": [{"kind": "owner", "url": "https://github.com/acme", "confidence": "medium"}],
+                        "targets": [{"kind": "owner", "url": "https://github.com/acme"}],
                     },
                 },
             }
@@ -194,7 +194,7 @@ def test_merge_registries():
     merged = merge_registries(base, extension)
     # Later wins for netuid 64
     assert merged.overrides[64].targets == (
-        TargetOverride(kind="owner", url="https://github.com/chutesai-v2", confidence="high"),
+        TargetOverride(kind="owner", url="https://github.com/chutesai-v2"),
     )
     # Netuid 99 added
     assert 99 in merged.overrides
@@ -210,23 +210,25 @@ def test_load_registry_built_in_only():
 
     assert registry.overrides[4].replace is True
     assert registry.overrides[4].targets == (
-        TargetOverride(kind="repository", url="https://github.com/manifold-inc/targon", confidence="high"),
-        TargetOverride(kind="repository", url="https://github.com/manifold-inc/targon-sdk", confidence="high"),
-        TargetOverride(
-            kind="repository", url="https://github.com/manifold-inc/targon-nvidia-attest", confidence="high"
-        ),
+        TargetOverride(kind="repository", url="https://github.com/manifold-inc/targon"),
+        TargetOverride(kind="repository", url="https://github.com/manifold-inc/targon-sdk"),
+        TargetOverride(kind="repository", url="https://github.com/manifold-inc/targon-nvidia-attest"),
     )
     assert registry.overrides[5].replace is True
     assert registry.overrides[5].targets == (
-        TargetOverride(kind="repository", url="https://github.com/manifold-inc/hone", confidence="high"),
-        TargetOverride(kind="repository", url="https://github.com/manifold-inc/hone-api", confidence="high"),
-        TargetOverride(kind="repository", url="https://github.com/manifold-inc/hone-dashboard", confidence="high"),
+        TargetOverride(kind="repository", url="https://github.com/manifold-inc/hone"),
+        TargetOverride(kind="repository", url="https://github.com/manifold-inc/hone-api"),
+        TargetOverride(kind="repository", url="https://github.com/manifold-inc/hone-dashboard"),
     )
 
 
 def test_built_in_registry_is_tracked_json_file():
     assert Path("registry/overrides.json").resolve() == DEFAULT_REGISTRY_REPO_PATH
     registry = load_built_in_registry()
+
+    for raw_override in registry.raw["overrides"].values():
+        for raw_target in raw_override["targets"]:
+            assert "confidence" not in raw_target
 
     assert 4 in registry.overrides
     assert 5 in registry.overrides
