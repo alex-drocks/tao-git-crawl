@@ -35,7 +35,6 @@ include = [
   "/README.md",
   "/LICENSE",
   "/docs",
-  "/examples",
   "/registry",
   "/tests",
   "/tao_git_crawl",

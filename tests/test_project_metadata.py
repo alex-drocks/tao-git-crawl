@@ -52,6 +52,7 @@ def test_changelog_is_ready_for_release_notes_and_packaged_in_sdist():
     assert '[0.1.1]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.1.0...v0.1.1' in changelog
     assert '[0.1.0]: https://github.com/alex-drocks/tao-git-crawl/releases/tag/v0.1.0' in changelog
     assert '/CHANGELOG.md' in metadata['tool']['hatch']['build']['targets']['sdist']['include']
+    assert '/examples' not in metadata['tool']['hatch']['build']['targets']['sdist']['include']
     assert '/registry' in metadata['tool']['hatch']['build']['targets']['sdist']['include']
     assert metadata['tool']['hatch']['build']['targets']['wheel']['force-include'] == {
         'registry/default.json': 'tao_git_crawl/default_registry.json',
@@ -59,11 +60,12 @@ def test_changelog_is_ready_for_release_notes_and_packaged_in_sdist():
     assert metadata['project']['urls']['Changelog'].endswith('/CHANGELOG.md')
 
 
-def test_readme_manual_override_and_per_subnet_examples_match_cli_behavior():
+def test_readme_manual_override_and_per_subnet_commands_match_cli_behavior():
     readme = Path('README.md').read_text(encoding='utf-8')
 
     assert '--config config.py' in readme
     assert '--netuid 64' in readme
+    assert 'examples/' not in readme
     assert 'Do not pass --max-repos if you want full owner coverage.' in readme
     assert 'Add --include-forks or --include-archived if you also want those repos.' in readme
     assert 'excluded repositories do not consume the limit.' in readme

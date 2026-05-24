@@ -243,19 +243,19 @@ tao-git-crawl-api --output-dir out/tao-crawl --port 8080
 
 ## Resolve Targets
 
-Resolve from the sample JSON fixture:
-
-```bash
-tao-git-crawl resolve \
-  --from-json examples/subnets.sample.json \
-  --output-dir out/tao
-```
-
 Resolve from Finney:
 
 ```bash
 tao-git-crawl resolve \
   --network finney \
+  --output-dir out/tao
+```
+
+Resolve from an exported subnet identity JSON payload:
+
+```bash
+tao-git-crawl resolve \
+  --from-json path/to/subnets.json \
   --output-dir out/tao
 ```
 
@@ -277,7 +277,7 @@ Resolve and crawl every valid subnet independently:
 
 ```bash
 tao-git-crawl crawl \
-  --from-json examples/subnets.sample.json \
+  --network finney \
   --output-dir out/tao-crawl \
   --cache-dir .cache/git-crawl \
   --since 2026-01-01 \
@@ -291,7 +291,7 @@ Crawl SN64 from the full Chutes owner:
 
 ```bash
 tao-git-crawl crawl \
-  --from-json examples/subnets.sample.json \
+  --network finney \
   --netuid 64 \
   --output-dir out/tao-chutes \
   --cache-dir .cache/git-crawl \
