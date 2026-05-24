@@ -16,6 +16,9 @@ DEFAULT_NETWORK_ENDPOINTS = {
 }
 DEFAULT_NETWORK = "finney"
 DEFAULT_ENDPOINT = DEFAULT_NETWORK_ENDPOINTS[DEFAULT_NETWORK]
+ROOT_NETUID = 0
+MIN_REGULAR_SUBNET_NETUID = 1
+MAX_REGULAR_SUBNET_NETUID = 128
 
 
 class SubnetIdentityProvider(Protocol):
@@ -27,9 +30,11 @@ class JsonSubnetIdentityProvider:
         self.path = Path(path)
 
     def fetch(self, netuids: Iterable[int] | None = None) -> Iterable[SubnetIdentityRecord]:
-        wanted = {int(netuid) for netuid in netuids} if netuids is not None else None
+        wanted = _regular_subnet_netuid_set(netuids) if netuids is not None else None
         payload = json.loads(self.path.read_text(encoding="utf-8"))
         for record in records_from_json_payload(payload):
+            if not is_regular_subnet_netuid(record.netuid):
+                continue
             if wanted is not None and record.netuid not in wanted:
                 continue
             yield record
@@ -46,7 +51,13 @@ class SubstrateSubnetIdentityProvider:
         substrate = self._substrate or self._connect()
         if netuids is not None:
             for netuid in netuids:
-                yield decode_substrate_identity(int(netuid), _query_subnet_identity(substrate, int(netuid)))
+                regular_netuid = _normalize_regular_subnet_netuid(netuid)
+                if regular_netuid is None:
+                    continue
+                yield decode_substrate_identity(
+                    regular_netuid,
+                    _query_subnet_identity(substrate, regular_netuid),
+                )
             return
 
         discovered_netuids = list(_query_network_netuids(substrate))
@@ -56,7 +67,10 @@ class SubstrateSubnetIdentityProvider:
             return
 
         for key, value in substrate.query_map(module="SubtensorModule", storage_function="SubnetIdentitiesV3"):
-            yield decode_substrate_identity(_unwrap_netuid_key(key), value)
+            netuid = _unwrap_netuid_key(key)
+            if not is_regular_subnet_netuid(netuid):
+                continue
+            yield decode_substrate_identity(netuid, value)
 
     def _connect(self):
         try:
@@ -93,6 +107,24 @@ def records_from_json_payload(payload: object) -> list[SubnetIdentityRecord]:
     return records
 
 
+def is_regular_subnet_netuid(netuid: int) -> bool:
+    return netuid != ROOT_NETUID and MIN_REGULAR_SUBNET_NETUID <= netuid <= MAX_REGULAR_SUBNET_NETUID
+
+
+def _normalize_regular_subnet_netuid(netuid: object) -> int | None:
+    parsed = int(netuid)
+    return parsed if is_regular_subnet_netuid(parsed) else None
+
+
+def _regular_subnet_netuid_set(netuids: Iterable[int]) -> set[int]:
+    regular_netuids: set[int] = set()
+    for netuid in netuids:
+        regular_netuid = _normalize_regular_subnet_netuid(netuid)
+        if regular_netuid is not None:
+            regular_netuids.add(regular_netuid)
+    return regular_netuids
+
+
 def decode_substrate_identity(netuid: int, raw_value: object) -> SubnetIdentityRecord:
     value = _unwrap_scale_value(raw_value)
     if value is None:
@@ -125,7 +157,9 @@ def _query_network_netuids(substrate: object) -> list[int]:
         added = _unwrap_scale_value(value)
         if added is False:
             continue
-        netuids.append(_unwrap_netuid_key(key))
+        netuid = _unwrap_netuid_key(key)
+        if is_regular_subnet_netuid(netuid):
+            netuids.append(netuid)
     return sorted(set(netuids))
 
 

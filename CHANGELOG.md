@@ -16,6 +16,14 @@ Move entries into a dated version section when cutting the next tag.
 
 ### Fixed
 
+## [0.5.0] - 2026-05-24
+
+### Changed
+
+- Prepare package metadata for the v0.5.0 release.
+- Restrict live and JSON subnet identity inputs to regular subnet slots `1` through `128`, excluding netuid `0`, the
+  Bittensor root network.
+
 ## [0.4.0] - 2026-05-23
 
 ### Changed
@@ -111,7 +119,8 @@ Move entries into a dated version section when cutting the next tag.
 
 - Keep local runtime state directories out of git and Docker build contexts.
 
-[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.1.1...v0.2.0

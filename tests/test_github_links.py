@@ -28,6 +28,30 @@ def test_accepts_bare_owner_repo_in_github_repo_field():
     assert targets[0].confidence == "high"
 
 
+def test_scans_contextual_bare_owner_repo_in_fallback_text():
+    record = SubnetIdentityRecord(
+        netuid=13,
+        description="GitHub: opentensor/subtensor.",
+        additional="source code - latent-to/bittensor.git",
+    )
+
+    targets = extract_github_targets(record)
+
+    assert [(target.repo_full_name, target.source_field, target.confidence) for target in targets] == [
+        ("opentensor/subtensor", "description", "low"),
+        ("latent-to/bittensor", "additional", "low"),
+    ]
+
+
+def test_does_not_extract_uncontextual_bare_owner_repo_from_fallback_text():
+    record = SubnetIdentityRecord(
+        netuid=14,
+        description="Implementation notes mention docs/api and package/module paths.",
+    )
+
+    assert extract_github_targets(record) == []
+
+
 def test_scans_fallback_text_fields_and_deduplicates_repositories():
     record = SubnetIdentityRecord(
         netuid=7,
@@ -58,6 +82,28 @@ def test_scans_fallback_text_fields_for_owner_roots():
     assert [(target.kind, target.url, target.confidence) for target in targets] == [
         ("owner", "https://github.com/chutesai", "low")
     ]
+
+
+def test_scans_owner_root_followed_by_sentence_period():
+    record = SubnetIdentityRecord(
+        netuid=10,
+        description="Code is maintained by the org at https://github.com/chutesai.",
+    )
+
+    targets = extract_github_targets(record)
+
+    assert [(target.kind, target.url, target.confidence) for target in targets] == [
+        ("owner", "https://github.com/chutesai", "low")
+    ]
+
+
+def test_owner_root_period_boundary_does_not_truncate_invalid_owner_path():
+    record = SubnetIdentityRecord(
+        netuid=11,
+        description="This is not a GitHub owner root: https://github.com/chutesai.com",
+    )
+
+    assert extract_github_targets(record) == []
 
 
 def test_scans_repository_urls_with_trailing_slashes_in_fallback_text():

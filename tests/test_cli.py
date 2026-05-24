@@ -2,6 +2,7 @@ import json
 import os
 from types import SimpleNamespace
 
+import pytest
 from git_crawl.metrics import CommitChangesFiltrationLevel
 
 from tao_git_crawl.cli import main
@@ -146,6 +147,20 @@ def test_resolve_cli_repository_policy_owner_promotes_repo_links_to_owner_target
     assert [(item["netuid"], item["kind"], item["owner"], item["source_field"]) for item in owner_targets] == [
         (65, "owner", "chutesai", "github_repo")
     ]
+
+
+def test_resolve_cli_rejects_root_network_netuid_zero():
+    with pytest.raises(SystemExit) as exc_info:
+        main(["resolve", "--netuid", "0"])
+
+    assert exc_info.value.code == 2
+
+
+def test_resolve_cli_rejects_netuid_past_regular_subnet_slots():
+    with pytest.raises(SystemExit) as exc_info:
+        main(["resolve", "--netuid", "129"])
+
+    assert exc_info.value.code == 2
 
 
 def test_crawl_cli_loads_github_token_from_default_dotenv(monkeypatch, tmp_path):
