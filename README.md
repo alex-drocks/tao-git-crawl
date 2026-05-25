@@ -31,7 +31,7 @@ docker compose build
 docker compose up -d
 docker compose logs -f scheduler
 curl http://localhost:8080/health
-ls $(docker volume inspect -f '{{ .Mountpoint }}' tao-git-crawl_tao-data)
+docker compose exec scheduler ls /data
 ```
 
 By default, Compose publishes the API on `127.0.0.1:8080`, so it is reachable from the same server but not directly from other machines. This keeps clone-and-run deployments useful for local dashboards, reverse proxies, notebooks, or backend services without accidentally exposing a public unauthenticated API.
@@ -52,6 +52,9 @@ Compose creates one named volume, `tao-data`, mounted at `/data`:
 - `/data/cache`: bare git mirrors.
 - `/data/state`: optional SQLite state for explicit incremental crawls.
 - `/data/logs`: per-run crawl logs.
+
+Docker prefixes named volumes with the Compose project name. If the project name is `tao-git-crawl`, the host volume
+name is `tao-git-crawl_tao-data`; otherwise use `docker volume ls` or inspect paths from inside the container.
 
 Docker Compose environment:
 
@@ -123,7 +126,7 @@ Use `/api/subnets/<netuid>/activity` for frontend display of code-change git act
 
 The activity payload exposes:
 
-- `totals`: commits, file changes, lines added/deleted, active days, repo days, contributor days, and distinct contributors for real code changes only.
+- `totals`: commits, file changes, lines added/deleted, active days, repo days, contributor days, and distinct contributors for credited code/docs changes only.
 - `averages.per_active_day`: commits, file changes, and line churn divided by active days.
 - `averages.per_calendar_day`, `per_calendar_week`, and `per_calendar_month`: the same metrics divided by the crawl calendar span.
 - `skipped`: file-change and line totals skipped because they were binary, lockfile, generated, vendored,
@@ -142,7 +145,13 @@ When detailed rows are available, `/api/subnets/<netuid>/file-changes` returns c
 
 Each crawl writes `subnet-scores.json` plus `subnets/<netuid>/score.json`. The API also embeds the same score object in `/api/subnets`, `/api/subnets/<netuid>`, and `/api/subnets/<netuid>/summary`.
 
-Scores first use raw global-max normalization per metric across the full subnet population. The weighted metric composite is then rescaled so the top subnet score is `100.00`; the pre-rescale value is retained as `composite_score` for inspection. Each score also includes `rank` and `rank_total` fields for frontend display, where rank `1` is the top subnet and equal scores share the same rank. Unresolved GitHub metadata, missing crawl output, failed crawls, and subnets with no crawlable repositories score `0`.
+Scores first use raw global-max normalization per metric across the resolved subnet population for that crawl. For a
+full Finney crawl, that is the full regular subnet population. For `--netuid`, partial JSON exports, or otherwise
+filtered runs, `score`, `rank`, `rank_total`, and `percentile` are local to that subset and are not comparable to a
+full-network ranking. The weighted metric composite is then rescaled so the top subnet score is `100.00`; the
+pre-rescale value is retained as `composite_score` for inspection. Each score also includes `rank` and `rank_total`
+fields for frontend display, where rank `1` is the top subnet and equal scores share the same rank. Unresolved GitHub
+metadata, missing crawl output, failed crawls, and subnets with no crawlable repositories score `0`.
 
 The weighted score is:
 
@@ -213,9 +222,22 @@ Build without Compose:
 docker build -t tao-git-crawl:latest .
 docker run -d \
   --name tao-scheduler \
-  -e GITHUB_TOKEN=$GITHUB_TOKEN \
+  --env-file .env \
   -v tao-data:/data \
   tao-git-crawl:latest
+```
+
+That starts the scheduler only. To serve the read-only API without Compose, run a second container against the same
+volume:
+
+```bash
+docker run -d \
+  --name tao-api \
+  -p 127.0.0.1:8080:8080 \
+  -v tao-data:/data:ro \
+  --entrypoint python \
+  tao-git-crawl:latest \
+  -m tao_git_crawl.api
 ```
 
 ## Local CLI
