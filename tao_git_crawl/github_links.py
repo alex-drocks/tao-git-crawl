@@ -80,11 +80,7 @@ BARE_OWNER_REPO_TEXT_RE = re.compile(
     r"(?![A-Za-z0-9._/-])"
 )
 BARE_OWNER_REPO_CONTEXT_RE = re.compile(
-    r"(?:"
-    r"github(?:\s+(?:repo|repos|repository|source|code))?\s*(?::|=|-|is|at|->)?"
-    r"|"
-    r"(?:repo|repos|repository|source(?:\s+code)?|code)\s*(?::|=|-|is|at|->)"
-    r")\s*$",
+    r"github(?:\s+(?:repo|repos|repository|source(?:\s+code)?|code))?\s*(?::|=|-|is|at|->)?\s*$",
     re.IGNORECASE,
 )
 

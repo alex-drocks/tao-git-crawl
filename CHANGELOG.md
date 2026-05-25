@@ -24,7 +24,8 @@ Move entries into a dated version section when cutting the next tag.
 - Move the built-in subnet override registry into tracked `registry/overrides.json` so subnet teams can propose repo-scope
   updates by PR.
 - Add curated SN4 Targon and SN5 Hone Manifold repository override sets to avoid shared-org owner expansion.
-- Remove target `confidence` metadata from registry/config parsing and resolved target outputs.
+- Remove target `confidence` metadata from registry/config parsing and resolved target outputs, and bump the registry
+  schema to `tao-git-crawl-registry-v2`.
 - Remove the obsolete user-facing `examples/` folder; the sample subnet JSON is now an internal test fixture.
 
 ## [0.5.0] - 2026-05-24

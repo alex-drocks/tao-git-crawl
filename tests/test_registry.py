@@ -19,7 +19,7 @@ from tao_git_crawl.registry import (
 )
 
 GOOD_REGISTRY = {
-    "schema_version": "tao-git-crawl-registry-v1",
+    "schema_version": DEFAULT_REGISTRY_SCHEMA_VERSION,
     "updated_at": "2026-05-17T00:00:00Z",
     "overrides": {
         "64": {
@@ -128,6 +128,11 @@ def test_parse_registry_json_rejects_confidence():
                 }
             )
         )
+
+
+def test_parse_registry_json_rejects_v1_schema():
+    with pytest.raises(RegistryError, match="unsupported registry schema"):
+        parse_registry_json(json.dumps({"schema_version": "tao-git-crawl-registry-v1", "overrides": {}}))
 
 
 def test_parse_registry_json_rejects_non_boolean_replace():

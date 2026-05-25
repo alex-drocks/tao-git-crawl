@@ -8,7 +8,7 @@ from typing import Any
 
 from .overrides import ResolverConfig, SubnetOverride, TargetOverride
 
-DEFAULT_REGISTRY_SCHEMA_VERSION = "tao-git-crawl-registry-v1"
+DEFAULT_REGISTRY_SCHEMA_VERSION = "tao-git-crawl-registry-v2"
 DEFAULT_REGISTRY_CACHE_TTL_SECONDS = 3600  # 1 hour
 DEFAULT_REGISTRY_REPO_PATH = Path(__file__).resolve().parents[1] / "registry" / "overrides.json"
 PACKAGED_DEFAULT_REGISTRY_PATH = Path(__file__).with_name("registry_overrides.json")

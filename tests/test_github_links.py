@@ -30,7 +30,7 @@ def test_scans_contextual_bare_owner_repo_in_fallback_text():
     record = SubnetIdentityRecord(
         netuid=13,
         description="GitHub: opentensor/subtensor.",
-        additional="source code - latent-to/bittensor.git",
+        additional="GitHub source code - latent-to/bittensor.git",
     )
 
     targets = extract_github_targets(record)
@@ -45,6 +45,15 @@ def test_does_not_extract_uncontextual_bare_owner_repo_from_fallback_text():
     record = SubnetIdentityRecord(
         netuid=14,
         description="Implementation notes mention docs/api and package/module paths.",
+    )
+
+    assert extract_github_targets(record) == []
+
+
+def test_does_not_extract_local_path_after_generic_source_code_label():
+    record = SubnetIdentityRecord(
+        netuid=15,
+        description="Source code: docs/api and package/module paths.",
     )
 
     assert extract_github_targets(record) == []

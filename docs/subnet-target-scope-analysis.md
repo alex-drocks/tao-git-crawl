@@ -53,7 +53,7 @@ Example registry shape:
 
 ```json
 {
-  "schema_version": "tao-git-crawl-registry-v1",
+  "schema_version": "tao-git-crawl-registry-v2",
   "overrides": {
     "4": {
       "replace": true,
