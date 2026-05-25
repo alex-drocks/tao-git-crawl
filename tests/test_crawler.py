@@ -86,7 +86,6 @@ def test_crawl_resolved_subnets_discovers_owner_repos_and_labels_metrics_by_subn
         state_db=tmp_path / "state" / "git-crawl.sqlite",
         since="2026-01-01",
         workers=2,
-        output_format="jsonl",
     )
 
     assert calls["owners"] == [("chutesai", "auto", None)]

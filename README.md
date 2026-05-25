@@ -38,6 +38,14 @@ By default, Compose publishes the API on `127.0.0.1:8080`, so it is reachable fr
 
 On hosts with legacy Compose, use `docker-compose build` and `docker-compose up -d`.
 
+Run the Docker API end-to-end test with:
+
+```bash
+TAO_GIT_CRAWL_DOCKER_E2E=1 python -m pytest tests/test_docker_e2e.py -q
+```
+
+The test builds the Docker image by default. Set `TAO_GIT_CRAWL_DOCKER_IMAGE=<image>` to test an existing image instead.
+
 Compose creates one named volume, `tao-data`, mounted at `/data`:
 
 - `/data/output`: resolver outputs and per-subnet crawl metrics.

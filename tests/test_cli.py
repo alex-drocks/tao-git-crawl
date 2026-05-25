@@ -320,8 +320,6 @@ def test_crawl_cli_resolves_writes_manifests_and_crawls_each_subnet(monkeypatch,
             "2026-01-01",
             "--workers",
             "2",
-            "--format",
-            "jsonl",
         ]
     )
 
@@ -345,7 +343,6 @@ def test_crawl_cli_resolves_writes_manifests_and_crawls_each_subnet(monkeypatch,
                 "ref_scope": "default-branch",
                 "workers": 2,
                 "fail_fast": False,
-                "output_format": "jsonl",
                 "commit_changes_filtration_level": CommitChangesFiltrationLevel.SOURCE_LIKE,
             },
         )
@@ -353,3 +350,10 @@ def test_crawl_cli_resolves_writes_manifests_and_crawls_each_subnet(monkeypatch,
     assert (output_dir / "subnets" / "64" / "owner-targets.json").exists()
     captured = capsys.readouterr()
     assert "Crawled 1 subnets, 0 failed, 0 unresolved skipped, 0 inaccessible skipped." in captured.out
+
+
+def test_crawl_cli_rejects_removed_format_option():
+    with pytest.raises(SystemExit) as exc_info:
+        main(["crawl", "--format", "csv"])
+
+    assert exc_info.value.code == 2

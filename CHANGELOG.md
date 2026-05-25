@@ -16,6 +16,18 @@ Move entries into a dated version section when cutting the next tag.
 
 ### Fixed
 
+## [0.7.0] - 2026-05-25
+
+### Added
+
+- Add an opt-in Docker API end-to-end test that starts the real container service and exercises mounted crawl outputs
+  over HTTP.
+
+### Changed
+
+- Remove CSV crawl output support; `tao-git-crawl` now writes the JSON and JSONL files required by its scorer and API
+  as the single official output contract.
+
 ## [0.6.1] - 2026-05-25
 
 ### Fixed
@@ -138,7 +150,8 @@ Move entries into a dated version section when cutting the next tag.
 
 - Keep local runtime state directories out of git and Docker build contexts.
 
-[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.4.0...v0.5.0

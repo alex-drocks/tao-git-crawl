@@ -167,12 +167,6 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     crawl.add_argument(
-        "--format",
-        choices=["all", "jsonl", "csv"],
-        default="all",
-        help="output format to write (default: all)",
-    )
-    crawl.add_argument(
         "--ref-scope",
         choices=["default-branch", "all-refs"],
         default="default-branch",
@@ -264,7 +258,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             ref_scope=args.ref_scope,
             workers=args.workers,
             fail_fast=args.fail_fast,
-            output_format=args.format,
             commit_changes_filtration_level=args.commit_changes_filtration_level,
         )
         skipped_inaccessible = getattr(report, "skipped_inaccessible", [])

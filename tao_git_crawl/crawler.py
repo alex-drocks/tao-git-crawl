@@ -120,7 +120,6 @@ def crawl_resolved_subnets(
     ref_scope: str = REF_SCOPE_DEFAULT_BRANCH,
     workers: int = 1,
     fail_fast: bool = False,
-    output_format: str = "all",
     commit_changes_filtration_level: CommitChangesFiltrationLevel = DEFAULT_COMMIT_CHANGES_FILTRATION_LEVEL,
 ) -> SubnetCrawlReport:
     """Crawl each resolved subnet independently under subnet-scoped target labels."""
@@ -189,8 +188,8 @@ def crawl_resolved_subnets(
                 write_crawl_outputs(
                     result,
                     subnet_output_dir,
-                    write_json=output_format in {"all", "jsonl"},
-                    write_csv_files=output_format in {"all", "csv"},
+                    write_json=True,
+                    write_csv_files=False,
                 )
             )
             success = SubnetCrawlSuccess(

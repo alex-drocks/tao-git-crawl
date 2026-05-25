@@ -521,7 +521,7 @@ def _subnet_files(subnet_dir: Path) -> list[str]:
             files.append(str(path.relative_to(subnet_dir)))
         elif path.name == "crawl":
             files.append("crawl/")
-            # Do not recurse into crawl/ to avoid listing large JSONL/CSV outputs.
+            # Do not recurse into crawl/ to avoid listing large JSONL outputs.
         else:
             files.extend(
                 str(item.relative_to(subnet_dir)) for item in path.rglob("*") if item.is_file()
