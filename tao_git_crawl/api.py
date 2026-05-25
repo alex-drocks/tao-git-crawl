@@ -887,8 +887,8 @@ def _code_activity_from_jsonl(crawl_dir: Path | None) -> dict[str, object] | Non
             _add_skipped_change(skipped, row, skipped_class)
             continue
         file_changes += 1
-        lines_added += _number_from_keys(row, "additions", "lines_added")
-        lines_deleted += _number_from_keys(row, "deletions", "lines_deleted")
+        lines_added += _file_change_lines_added(row)
+        lines_deleted += _file_change_lines_deleted(row)
         commit_key = _commit_key(row)
         if commit_key is not None:
             credited_commit_keys.add(commit_key)
@@ -996,8 +996,8 @@ def _empty_skipped_activity() -> dict[str, object]:
 
 
 def _add_skipped_change(skipped: dict[str, object], row: dict[str, object], skipped_class: str) -> None:
-    lines_added = _number_from_keys(row, "additions", "lines_added")
-    lines_deleted = _number_from_keys(row, "deletions", "lines_deleted")
+    lines_added = _file_change_lines_added(row)
+    lines_deleted = _file_change_lines_deleted(row)
     skipped["file_changes"] = _number(skipped.get("file_changes")) + 1
     skipped["lines_added"] = _number(skipped.get("lines_added")) + lines_added
     skipped["lines_deleted"] = _number(skipped.get("lines_deleted")) + lines_deleted
@@ -1029,16 +1029,8 @@ def _credited_commit_stats_from_file_changes(crawl_dir: Path) -> dict[tuple[str,
                 {"file_changes": 0, "lines_added": 0, "lines_deleted": 0},
             )
             stats["file_changes"] = _number(stats.get("file_changes")) + 1
-            stats["lines_added"] = _number(stats.get("lines_added")) + _number_from_keys(
-                row,
-                "lines_added",
-                "additions",
-            )
-            stats["lines_deleted"] = _number(stats.get("lines_deleted")) + _number_from_keys(
-                row,
-                "lines_deleted",
-                "deletions",
-            )
+            stats["lines_added"] = _number(stats.get("lines_added")) + _file_change_lines_added(row)
+            stats["lines_deleted"] = _number(stats.get("lines_deleted")) + _file_change_lines_deleted(row)
     return credited_commit_stats
 
 
@@ -1073,8 +1065,8 @@ def _file_change_row_payload(row: object) -> object:
         return row
     payload = dict(row)
     payload["file_changes"] = 1
-    payload["lines_added"] = _number_from_keys(row, "lines_added", "additions")
-    payload["lines_deleted"] = _number_from_keys(row, "lines_deleted", "deletions")
+    payload["lines_added"] = _file_change_lines_added(row)
+    payload["lines_deleted"] = _file_change_lines_deleted(row)
     for internal_key in ("additions", "deletions", "is_binary", "is_generated_like", "is_lockfile"):
         payload.pop(internal_key, None)
     return payload
@@ -1240,16 +1232,8 @@ def _top_activity_from_jsonl(crawl_dir: Path | None) -> dict[str, list[dict[str,
             },
         )
         payload["file_changes"] = _number(payload.get("file_changes")) + 1
-        payload["lines_added"] = _number(payload.get("lines_added")) + _number_from_keys(
-            row,
-            "lines_added",
-            "additions",
-        )
-        payload["lines_deleted"] = _number(payload.get("lines_deleted")) + _number_from_keys(
-            row,
-            "lines_deleted",
-            "deletions",
-        )
+        payload["lines_added"] = _number(payload.get("lines_added")) + _file_change_lines_added(row)
+        payload["lines_deleted"] = _number(payload.get("lines_deleted")) + _file_change_lines_deleted(row)
 
     repo_stats: dict[str, dict[str, object]] = {}
     seen_commits: set[tuple[str, str]] = set()
@@ -1455,6 +1439,14 @@ def _number_from_keys(values: dict[str, object], *keys: str) -> int | float:
         if key in values:
             return _number(values.get(key))
     return 0
+
+
+def _file_change_lines_added(row: dict[str, object]) -> int | float:
+    return _number_from_keys(row, "additions", "lines_added")
+
+
+def _file_change_lines_deleted(row: dict[str, object]) -> int | float:
+    return _number_from_keys(row, "deletions", "lines_deleted")
 
 
 def _text_key(value: object) -> str:

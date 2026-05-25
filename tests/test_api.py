@@ -340,6 +340,64 @@ def test_day_datasets_are_recomputed_from_code_changes_when_rows_exist(tmp_path)
     assert org_days["data"][0]["file_changes"] == 2
 
 
+def test_file_change_detail_endpoints_match_activity_churn_precedence(tmp_path):
+    crawl_dir = tmp_path / "subnets" / "94" / "crawl"
+    crawl_dir.mkdir(parents=True)
+    (crawl_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "status": "success",
+                "calendar_span": {"days": 1, "weeks": 1, "months": 1},
+                "repositories": {"crawled": 1},
+                "source_like_totals": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    _write_jsonl(
+        crawl_dir / "file_changes.jsonl",
+        [
+            {
+                "repo": "owner/code",
+                "sha": "code-a",
+                "path": "src/app.py",
+                "path_class": "source",
+                "additions": 0,
+                "lines_added": 999,
+                "deletions": 0,
+                "lines_deleted": 888,
+            },
+        ],
+    )
+    _write_jsonl(
+        crawl_dir / "commits.jsonl",
+        [
+            {
+                "run_id": "run-1",
+                "org": "bittensor-subnet-94",
+                "repo": "owner/code",
+                "sha": "code-a",
+                "authored_at": "2025-01-01T10:00:00Z",
+                "author_login": "alice",
+            }
+        ],
+    )
+
+    activity = get_subnet_dataset(tmp_path, 94, "activity")
+    file_changes = get_subnet_dataset(tmp_path, 94, "file-changes")
+    commits = get_subnet_dataset(tmp_path, 94, "commits")
+    repo_days = get_subnet_dataset(tmp_path, 94, "repo-days")
+    summary = get_subnet_dataset(tmp_path, 94, "summary")
+
+    expected_churn = {"lines_added": 0, "lines_deleted": 0}
+    assert {key: activity["totals"][key] for key in expected_churn} == expected_churn
+    assert {key: file_changes["data"][0][key] for key in expected_churn} == expected_churn
+    assert {key: commits["data"][0][key] for key in expected_churn} == expected_churn
+    assert {key: repo_days["data"][0][key] for key in expected_churn} == expected_churn
+    assert {key: summary["top_paths"][0][key] for key in expected_churn} == expected_churn
+    assert {key: summary["top_repositories"][0][key] for key in expected_churn} == expected_churn
+
+
 def test_handle_api_request_returns_json_errors(tmp_path):
     response = handle_api_request(tmp_path, "/api/subnets/nope")
 

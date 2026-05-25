@@ -36,8 +36,9 @@ def test_changelog_is_ready_for_release_notes_and_packaged_in_sdist():
     metadata = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))
     changelog = Path('CHANGELOG.md').read_text(encoding='utf-8')
 
-    assert metadata['project']['version'] == '0.6.0'
+    assert metadata['project']['version'] == '0.6.1'
     assert '## [Unreleased]' in changelog
+    assert '## [0.6.1] - 2026-05-25' in changelog
     assert '## [0.6.0] - 2026-05-24' in changelog
     assert '## [0.5.0] - 2026-05-24' in changelog
     assert '## [0.4.0] - 2026-05-23' in changelog
@@ -45,7 +46,8 @@ def test_changelog_is_ready_for_release_notes_and_packaged_in_sdist():
     assert '## [0.2.0] - 2026-05-22' in changelog
     assert '## [0.1.1] - 2026-05-22' in changelog
     assert '## [0.1.0] - 2026-05-22' in changelog
-    assert '[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.6.0...HEAD' in changelog
+    assert '[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.6.1...HEAD' in changelog
+    assert '[0.6.1]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.6.0...v0.6.1' in changelog
     assert '[0.6.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.5.0...v0.6.0' in changelog
     assert '[0.5.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.4.0...v0.5.0' in changelog
     assert '[0.4.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.3.0...v0.4.0' in changelog
