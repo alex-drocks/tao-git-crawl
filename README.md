@@ -10,7 +10,7 @@ It is self-hosted. You provide the chain endpoint or JSON export, GitHub token, 
 - Restricts subnet resolution to regular subnet slots `1` through `128`, excluding netuid `0`, the Bittensor root
   network.
 - Extracts GitHub repository URLs, owner roots, and bare `owner/repo` values from subnet identity text.
-- Treats `github_repo` as the highest-confidence field and scans `subnet_url`, `description`, `additional`, and `subnet_contact` as fallback fields.
+- Treats `github_repo` as the primary GitHub metadata field and scans `subnet_url`, `description`, `additional`, and `subnet_contact` as fallback fields.
 - Writes aggregate resolver outputs plus split outputs under `subnets/<netuid>/`.
 - Crawls each resolved subnet as its own `git-crawl` target.
 - Scores each subnet from credited git activity and writes score details into the API summaries.
@@ -243,19 +243,19 @@ tao-git-crawl-api --output-dir out/tao-crawl --port 8080
 
 ## Resolve Targets
 
-Resolve from the sample JSON fixture:
-
-```bash
-tao-git-crawl resolve \
-  --from-json examples/subnets.sample.json \
-  --output-dir out/tao
-```
-
 Resolve from Finney:
 
 ```bash
 tao-git-crawl resolve \
   --network finney \
+  --output-dir out/tao
+```
+
+Resolve from an exported subnet identity JSON payload:
+
+```bash
+tao-git-crawl resolve \
+  --from-json path/to/subnets.json \
   --output-dir out/tao
 ```
 
@@ -277,7 +277,7 @@ Resolve and crawl every valid subnet independently:
 
 ```bash
 tao-git-crawl crawl \
-  --from-json examples/subnets.sample.json \
+  --network finney \
   --output-dir out/tao-crawl \
   --cache-dir .cache/git-crawl \
   --since 2026-01-01 \
@@ -291,7 +291,7 @@ Crawl SN64 from the full Chutes owner:
 
 ```bash
 tao-git-crawl crawl \
-  --from-json examples/subnets.sample.json \
+  --network finney \
   --netuid 64 \
   --output-dir out/tao-chutes \
   --cache-dir .cache/git-crawl \
@@ -318,6 +318,28 @@ git-crawl crawl-repos out/tao/subnets/99/repository-manifest.json \
 ## Overrides
 
 Use overrides when on-chain metadata points at the wrong GitHub scope.
+
+The built-in registry is tracked at `registry/overrides.json` so subnet teams can open PRs to update their own target
+scope. Prefer exact `repository` targets unless the whole GitHub account is intentionally dedicated to one subnet.
+
+Registry JSON:
+
+```json
+{
+  "schema_version": "tao-git-crawl-registry-v2",
+  "overrides": {
+    "4": {
+      "replace": true,
+      "targets": [
+        {"kind": "repository", "url": "https://github.com/manifold-inc/targon"},
+        {"kind": "repository", "url": "https://github.com/manifold-inc/targon-sdk"},
+        {"kind": "repository", "url": "https://github.com/manifold-inc/targon-nvidia-attest"}
+      ],
+      "note": "Targon curated repo set; do not expand all manifold-inc repos"
+    }
+  }
+}
+```
 
 Python config:
 

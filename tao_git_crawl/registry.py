@@ -8,25 +8,10 @@ from typing import Any
 
 from .overrides import ResolverConfig, SubnetOverride, TargetOverride
 
-# This is the built-in default registry so SN64 and any other well-known subnets
-# work out of the box even when running offline. The registry is merged before
-# user-supplied --config overrides, so --config always wins.
-DEFAULT_REGISTRY: dict[str, Any] = {
-    "schema_version": "tao-git-crawl-registry-v1",
-    "updated_at": "2026-05-17T00:00:00Z",
-    "overrides": {
-        "64": {
-            "replace": True,
-            "targets": [
-                {"kind": "owner", "url": "https://github.com/chutesai", "confidence": "high"}
-            ],
-            "note": "Chutes AI — requires owner-level crawl to capture multi-repo activity",
-        }
-    },
-}
-
-DEFAULT_REGISTRY_SCHEMA_VERSION = "tao-git-crawl-registry-v1"
+DEFAULT_REGISTRY_SCHEMA_VERSION = "tao-git-crawl-registry-v2"
 DEFAULT_REGISTRY_CACHE_TTL_SECONDS = 3600  # 1 hour
+DEFAULT_REGISTRY_REPO_PATH = Path(__file__).resolve().parents[1] / "registry" / "overrides.json"
+PACKAGED_DEFAULT_REGISTRY_PATH = Path(__file__).with_name("registry_overrides.json")
 
 
 class RegistryError(ValueError):
@@ -55,6 +40,17 @@ def load_registry_from_path(path: str | Path) -> Registry:
     except Exception as exc:
         raise RegistryError(f"could not read registry file {path}: {exc}") from exc
     return parse_registry_json(text)
+
+
+def load_built_in_registry() -> Registry:
+    """Load the tracked built-in registry from source tree or packaged data."""
+    for path in (DEFAULT_REGISTRY_REPO_PATH, PACKAGED_DEFAULT_REGISTRY_PATH):
+        if path.exists():
+            return load_registry_from_path(path)
+    raise RegistryError(
+        "built-in registry file is missing; expected registry/overrides.json in source "
+        "or registry_overrides.json in package"
+    )
 
 
 def load_registry_from_remote(
@@ -156,12 +152,10 @@ def _parse_registry_target_override(netuid_key: str, idx: int, item: Any) -> Tar
     if not isinstance(url_item, str) or not url_item.strip():
         raise RegistryError(f"override for netuid {netuid_key}: target {idx}: 'url' must be a non-empty string")
 
-    confidence_item = item.get("confidence", "high")
-    confidence = str(confidence_item).strip().lower() if confidence_item else "high"
-    if confidence not in {"high", "medium", "low"}:
-        raise RegistryError(f"override for netuid {netuid_key}: target {idx}: 'confidence' must be high/medium/low")
+    if "confidence" in item:
+        raise RegistryError(f"override for netuid {netuid_key}: target {idx}: 'confidence' is not supported")
 
-    return TargetOverride(kind=kind, url=url_item.strip(), confidence=confidence)  # type: ignore[arg-type]
+    return TargetOverride(kind=kind, url=url_item.strip())  # type: ignore[arg-type]
 
 
 def _parse_registry_replace(netuid_key: str, value: Any) -> bool:
@@ -213,14 +207,14 @@ def load_registry(
     """Load and merge registries from built-in defaults, a remote URL, and a local path.
 
     Merge order (later wins):
-    1. built-in DEFAULT_REGISTRY (if ``use_built_in=True``)
+    1. tracked built-in ``registry/overrides.json`` (if ``use_built_in=True``)
     2. remote ``registry_url`` (fetched with optional cache)
     3. local ``registry_path`` (user override)
     """
     parts: list[Registry] = []
 
     if use_built_in:
-        parts.append(parse_registry_json(json.dumps(DEFAULT_REGISTRY)))
+        parts.append(load_built_in_registry())
 
     if registry_url:
         cache_file: Path | None = None

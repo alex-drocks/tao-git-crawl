@@ -80,22 +80,9 @@ BARE_OWNER_REPO_TEXT_RE = re.compile(
     r"(?![A-Za-z0-9._/-])"
 )
 BARE_OWNER_REPO_CONTEXT_RE = re.compile(
-    r"(?:"
-    r"github(?:\s+(?:repo|repos|repository|source|code))?\s*(?::|=|-|is|at|->)?"
-    r"|"
-    r"(?:repo|repos|repository|source(?:\s+code)?|code)\s*(?::|=|-|is|at|->)"
-    r")\s*$",
+    r"github(?:\s+(?:repo|repos|repository|source(?:\s+code)?|code))?\s*(?::|=|-|is|at|->)?\s*$",
     re.IGNORECASE,
 )
-
-FIELD_CONFIDENCE = {
-    "github_repo": "high",
-    "subnet_url": "medium",
-    "description": "low",
-    "additional": "low",
-    "subnet_contact": "low",
-}
-
 
 def extract_github_targets(record: SubnetIdentityRecord) -> list[GitHubTarget]:
     """Extract normalized GitHub repository and owner targets from subnet identity fields."""
@@ -123,7 +110,6 @@ def manual_github_target_from_url(
     *,
     kind: str,
     url: str,
-    confidence: str = "high",
 ) -> GitHubTarget:
     """Build a normalized target from a manual config override URL."""
     if kind == "owner":
@@ -142,7 +128,6 @@ def manual_github_target_from_url(
             repo_full_name=None,
             source_field="manual_override",
             raw_value=url,
-            confidence=confidence,  # type: ignore[arg-type]
             subnet_name=record.subnet_name,
         )
     if kind == "repository":
@@ -158,7 +143,6 @@ def manual_github_target_from_url(
             repo_full_name=repository.full_name,
             source_field="manual_override",
             raw_value=url,
-            confidence=confidence,  # type: ignore[arg-type]
             subnet_name=record.subnet_name,
         )
     raise ValueError("manual override kind must be one of 'repository' or 'owner'")
@@ -193,7 +177,6 @@ def _target_from_candidate(
 ) -> GitHubTarget | None:
     owner = _parse_owner_root(candidate)
     if owner is not None:
-        confidence = "medium" if field in {"github_repo", "subnet_url"} else "low"
         return GitHubTarget(
             netuid=record.netuid,
             kind="owner",
@@ -203,13 +186,11 @@ def _target_from_candidate(
             repo_full_name=None,
             source_field=field,
             raw_value=raw_value,
-            confidence=confidence,  # type: ignore[arg-type]
             subnet_name=record.subnet_name,
         )
 
     repository = _parse_repository_candidate(candidate)
     if repository is not None:
-        confidence = FIELD_CONFIDENCE[field]
         return GitHubTarget(
             netuid=record.netuid,
             kind="repository",
@@ -219,7 +200,6 @@ def _target_from_candidate(
             repo_full_name=repository.full_name,
             source_field=field,
             raw_value=raw_value,
-            confidence=confidence,  # type: ignore[arg-type]
             subnet_name=record.subnet_name,
         )
     return None

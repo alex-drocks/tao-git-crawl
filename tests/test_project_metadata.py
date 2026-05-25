@@ -36,15 +36,17 @@ def test_changelog_is_ready_for_release_notes_and_packaged_in_sdist():
     metadata = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))
     changelog = Path('CHANGELOG.md').read_text(encoding='utf-8')
 
-    assert metadata['project']['version'] == '0.5.0'
+    assert metadata['project']['version'] == '0.6.0'
     assert '## [Unreleased]' in changelog
+    assert '## [0.6.0] - 2026-05-24' in changelog
     assert '## [0.5.0] - 2026-05-24' in changelog
     assert '## [0.4.0] - 2026-05-23' in changelog
     assert '## [0.3.0] - 2026-05-23' in changelog
     assert '## [0.2.0] - 2026-05-22' in changelog
     assert '## [0.1.1] - 2026-05-22' in changelog
     assert '## [0.1.0] - 2026-05-22' in changelog
-    assert '[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.5.0...HEAD' in changelog
+    assert '[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.6.0...HEAD' in changelog
+    assert '[0.6.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.5.0...v0.6.0' in changelog
     assert '[0.5.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.4.0...v0.5.0' in changelog
     assert '[0.4.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.3.0...v0.4.0' in changelog
     assert '[0.3.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.2.0...v0.3.0' in changelog
@@ -52,14 +54,20 @@ def test_changelog_is_ready_for_release_notes_and_packaged_in_sdist():
     assert '[0.1.1]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.1.0...v0.1.1' in changelog
     assert '[0.1.0]: https://github.com/alex-drocks/tao-git-crawl/releases/tag/v0.1.0' in changelog
     assert '/CHANGELOG.md' in metadata['tool']['hatch']['build']['targets']['sdist']['include']
+    assert '/examples' not in metadata['tool']['hatch']['build']['targets']['sdist']['include']
+    assert '/registry' in metadata['tool']['hatch']['build']['targets']['sdist']['include']
+    assert metadata['tool']['hatch']['build']['targets']['wheel']['force-include'] == {
+        'registry/overrides.json': 'tao_git_crawl/registry_overrides.json',
+    }
     assert metadata['project']['urls']['Changelog'].endswith('/CHANGELOG.md')
 
 
-def test_readme_manual_override_and_per_subnet_examples_match_cli_behavior():
+def test_readme_manual_override_and_per_subnet_commands_match_cli_behavior():
     readme = Path('README.md').read_text(encoding='utf-8')
 
     assert '--config config.py' in readme
     assert '--netuid 64' in readme
+    assert 'examples/' not in readme
     assert 'Do not pass --max-repos if you want full owner coverage.' in readme
     assert 'Add --include-forks or --include-archived if you also want those repos.' in readme
     assert 'excluded repositories do not consume the limit.' in readme
@@ -104,6 +112,7 @@ def test_docker_docs_and_compose_pass_documented_scheduler_environment():
     assert 'git-crawl.git@v0.3.0' in compose
     assert 'git-crawl.git@main' not in dockerfile
     assert 'git-crawl.git@main' not in compose
+    assert 'COPY registry/ ./registry/' in dockerfile
     assert 'raw.githubusercontent.com/alex-drocks/tao-git-crawl/main/registry.json' not in readme
     assert '${TAO_API_BIND_HOST:-127.0.0.1}:${TAO_API_PORT:-8080}:8080' in compose
     assert 'reverse_proxy 127.0.0.1:8080' in readme

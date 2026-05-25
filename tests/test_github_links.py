@@ -4,7 +4,7 @@ from tao_git_crawl.github_links import extract_github_targets
 from tao_git_crawl.models import SubnetIdentityRecord
 
 
-def test_extracts_high_confidence_repository_from_github_repo_url():
+def test_extracts_repository_from_github_repo_url():
     record = SubnetIdentityRecord(netuid=64, subnet_name="Chutes", github_repo="https://github.com/chutesai/api.git")
 
     targets = extract_github_targets(record)
@@ -12,7 +12,6 @@ def test_extracts_high_confidence_repository_from_github_repo_url():
     assert len(targets) == 1
     target = targets[0]
     assert target.kind == "repository"
-    assert target.confidence == "high"
     assert target.repo_full_name == "chutesai/api"
     assert target.url == "https://github.com/chutesai/api"
     assert target.source_field == "github_repo"
@@ -25,21 +24,20 @@ def test_accepts_bare_owner_repo_in_github_repo_field():
     targets = extract_github_targets(record)
 
     assert [target.url for target in targets] == ["https://github.com/opentensor/subtensor"]
-    assert targets[0].confidence == "high"
 
 
 def test_scans_contextual_bare_owner_repo_in_fallback_text():
     record = SubnetIdentityRecord(
         netuid=13,
         description="GitHub: opentensor/subtensor.",
-        additional="source code - latent-to/bittensor.git",
+        additional="GitHub source code - latent-to/bittensor.git",
     )
 
     targets = extract_github_targets(record)
 
-    assert [(target.repo_full_name, target.source_field, target.confidence) for target in targets] == [
-        ("opentensor/subtensor", "description", "low"),
-        ("latent-to/bittensor", "additional", "low"),
+    assert [(target.repo_full_name, target.source_field) for target in targets] == [
+        ("opentensor/subtensor", "description"),
+        ("latent-to/bittensor", "additional"),
     ]
 
 
@@ -47,6 +45,15 @@ def test_does_not_extract_uncontextual_bare_owner_repo_from_fallback_text():
     record = SubnetIdentityRecord(
         netuid=14,
         description="Implementation notes mention docs/api and package/module paths.",
+    )
+
+    assert extract_github_targets(record) == []
+
+
+def test_does_not_extract_local_path_after_generic_source_code_label():
+    record = SubnetIdentityRecord(
+        netuid=15,
+        description="Source code: docs/api and package/module paths.",
     )
 
     assert extract_github_targets(record) == []
@@ -67,7 +74,6 @@ def test_scans_fallback_text_fields_and_deduplicates_repositories():
 
     assert [target.repo_full_name for target in targets] == ["latent-to/bittensor"]
     assert targets[0].source_field == "description"
-    assert targets[0].confidence == "low"
 
 
 def test_scans_fallback_text_fields_for_owner_roots():
@@ -79,9 +85,7 @@ def test_scans_fallback_text_fields_for_owner_roots():
 
     targets = extract_github_targets(record)
 
-    assert [(target.kind, target.url, target.confidence) for target in targets] == [
-        ("owner", "https://github.com/chutesai", "low")
-    ]
+    assert [(target.kind, target.url) for target in targets] == [("owner", "https://github.com/chutesai")]
 
 
 def test_scans_owner_root_followed_by_sentence_period():
@@ -92,9 +96,7 @@ def test_scans_owner_root_followed_by_sentence_period():
 
     targets = extract_github_targets(record)
 
-    assert [(target.kind, target.url, target.confidence) for target in targets] == [
-        ("owner", "https://github.com/chutesai", "low")
-    ]
+    assert [(target.kind, target.url) for target in targets] == [("owner", "https://github.com/chutesai")]
 
 
 def test_owner_root_period_boundary_does_not_truncate_invalid_owner_path():
@@ -117,7 +119,7 @@ def test_scans_repository_urls_with_trailing_slashes_in_fallback_text():
     assert [target.repo_full_name for target in targets] == ["opentensor/subtensor"]
 
 
-def test_owner_root_is_preserved_as_lower_confidence_owner_target_not_repo():
+def test_owner_root_is_preserved_as_owner_target_not_repo():
     record = SubnetIdentityRecord(netuid=42, github_repo="https://github.com/chutesai")
 
     targets = extract_github_targets(record)
@@ -129,7 +131,6 @@ def test_owner_root_is_preserved_as_lower_confidence_owner_target_not_repo():
     assert target.repo is None
     assert target.repo_full_name is None
     assert target.url == "https://github.com/chutesai"
-    assert target.confidence == "medium"
 
 
 def test_github_orgs_owner_root_is_preserved_as_owner_target_not_repo_manifest_candidate():

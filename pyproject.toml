@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tao-git-crawl"
-version = "0.5.0"
+version = "0.6.0"
 description = "Resolve Bittensor subnet GitHub metadata and feed git-crawl."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -35,13 +35,14 @@ include = [
   "/README.md",
   "/LICENSE",
   "/docs",
-  "/examples",
+  "/registry",
   "/tests",
   "/tao_git_crawl",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["tao_git_crawl"]
+force-include = { "registry/overrides.json" = "tao_git_crawl/registry_overrides.json" }
 
 [tool.ruff]
 line-length = 120

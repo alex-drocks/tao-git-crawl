@@ -1,0 +1,52 @@
+{
+  "schema_version": "tao-git-crawl-registry-v2",
+  "updated_at": "2026-05-24T00:00:00Z",
+  "overrides": {
+    "4": {
+      "replace": true,
+      "targets": [
+        {
+          "kind": "repository",
+          "url": "https://github.com/manifold-inc/targon"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/manifold-inc/targon-sdk"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/manifold-inc/targon-nvidia-attest"
+        }
+      ],
+      "note": "Targon curated repo set; do not expand all manifold-inc repos"
+    },
+    "5": {
+      "replace": true,
+      "targets": [
+        {
+          "kind": "repository",
+          "url": "https://github.com/manifold-inc/hone"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/manifold-inc/hone-api"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/manifold-inc/hone-dashboard"
+        }
+      ],
+      "note": "Hone curated repo set; do not expand all manifold-inc repos"
+    },
+    "64": {
+      "replace": true,
+      "targets": [
+        {
+          "kind": "owner",
+          "url": "https://github.com/chutesai"
+        }
+      ],
+      "note": "Chutes AI - requires owner-level crawl to capture multi-repo activity"
+    }
+  }
+}
