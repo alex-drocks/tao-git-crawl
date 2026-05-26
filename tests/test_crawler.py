@@ -231,6 +231,239 @@ def test_crawl_resolved_subnets_skips_inaccessible_github_404_targets(monkeypatc
     assert '"netuid": 2' in report_json
 
 
+def test_replace_override_primary_success_does_not_attempt_fallback(monkeypatch, tmp_path):
+    document = resolve_subnets(
+        [SubnetIdentityRecord(netuid=23, subnet_name="Subnet", github_repo="https://github.com/current/repo")],
+        target_label="bittensor-subnets",
+        config=ResolverConfig(
+            subnet_overrides={
+                23: SubnetOverride(
+                    replace=True,
+                    targets=(TargetOverride(kind="repository", url="https://github.com/manual/repo"),),
+                )
+            }
+        ),
+    )
+    calls = {"repo_urls": [], "crawls": []}
+
+    def fake_list_repositories_from_urls(urls, **kwargs):
+        url = next(iter(urls))
+        calls["repo_urls"].append(url)
+        if "current/repo" in url:
+            raise AssertionError("fallback target should not be resolved when primary succeeds")
+        return [_repo("manual/repo")]
+
+    def fake_crawl_repositories(target_label, repositories, **kwargs):
+        calls["crawls"].append([repo.full_name for repo in repositories])
+        return SimpleNamespace(
+            run=SimpleNamespace(status="success", run_id="test-run-0"),
+            repositories=list(repositories),
+        )
+
+    def fake_write_crawl_outputs(result, output_dir, **kwargs):
+        output_dir.mkdir(parents=True, exist_ok=True)
+        path = output_dir / "summary.json"
+        path.write_text("{}\n", encoding="utf-8")
+        return [path]
+
+    monkeypatch.setattr("tao_git_crawl.crawler.list_repositories_from_urls", fake_list_repositories_from_urls)
+    monkeypatch.setattr("tao_git_crawl.crawler.crawl_repositories", fake_crawl_repositories)
+    monkeypatch.setattr("tao_git_crawl.crawler.write_crawl_outputs", fake_write_crawl_outputs)
+
+    report = crawl_resolved_subnets(document, output_dir=tmp_path / "out", cache_dir=tmp_path / "cache")
+
+    assert report.succeeded_netuids == [23]
+    assert calls["repo_urls"] == ["https://github.com/manual/repo"]
+    assert calls["crawls"] == [["manual/repo"]]
+    assert report.fallback_used == []
+
+
+def test_replace_override_404_primary_falls_back_to_identity_target(monkeypatch, tmp_path):
+    document = resolve_subnets(
+        [SubnetIdentityRecord(netuid=23, subnet_name="Subnet", github_repo="https://github.com/current/repo")],
+        target_label="bittensor-subnets",
+        config=ResolverConfig(
+            subnet_overrides={
+                23: SubnetOverride(
+                    replace=True,
+                    targets=(TargetOverride(kind="repository", url="https://github.com/manual/missing"),),
+                )
+            }
+        ),
+    )
+    calls = {"repo_urls": [], "crawls": []}
+
+    def fake_list_repositories_from_urls(urls, **kwargs):
+        url = next(iter(urls))
+        calls["repo_urls"].append(url)
+        if "manual/missing" in url:
+            raise GitHubAPIError(
+                "GitHub API request failed with HTTP 404: Not Found",
+                status_code=404,
+                url="https://api.github.com/repos/manual/missing",
+            )
+        return [_repo("current/repo")]
+
+    def fake_crawl_repositories(target_label, repositories, **kwargs):
+        calls["crawls"].append([repo.full_name for repo in repositories])
+        return SimpleNamespace(
+            run=SimpleNamespace(status="success", run_id="test-run-0"),
+            repositories=list(repositories),
+        )
+
+    def fake_write_crawl_outputs(result, output_dir, **kwargs):
+        output_dir.mkdir(parents=True, exist_ok=True)
+        path = output_dir / "summary.json"
+        path.write_text("{}\n", encoding="utf-8")
+        return [path]
+
+    monkeypatch.setattr("tao_git_crawl.crawler.list_repositories_from_urls", fake_list_repositories_from_urls)
+    monkeypatch.setattr("tao_git_crawl.crawler.crawl_repositories", fake_crawl_repositories)
+    monkeypatch.setattr("tao_git_crawl.crawler.write_crawl_outputs", fake_write_crawl_outputs)
+
+    report = crawl_resolved_subnets(document, output_dir=tmp_path / "out", cache_dir=tmp_path / "cache")
+
+    assert report.succeeded_netuids == [23]
+    assert report.skipped_inaccessible == []
+    assert calls["repo_urls"] == ["https://github.com/manual/missing", "https://github.com/current/repo"]
+    assert calls["crawls"] == [["current/repo"]]
+    assert len(report.fallback_used) == 1
+    assert report.fallback_used[0].fallback_targets == ["https://github.com/current/repo"]
+    report_json = json.loads((tmp_path / "out" / "crawl-report.json").read_text(encoding="utf-8"))
+    assert report_json["fallback_used"][0]["netuid"] == 23
+    assert report_json["fallback_used"][0]["fallback_targets"] == ["https://github.com/current/repo"]
+
+
+def test_replace_override_404_primary_and_404_fallback_keep_inaccessible_skip(monkeypatch, tmp_path):
+    document = resolve_subnets(
+        [SubnetIdentityRecord(netuid=23, subnet_name="Subnet", github_repo="https://github.com/current/missing")],
+        target_label="bittensor-subnets",
+        config=ResolverConfig(
+            subnet_overrides={
+                23: SubnetOverride(
+                    replace=True,
+                    targets=(TargetOverride(kind="repository", url="https://github.com/manual/missing"),),
+                )
+            }
+        ),
+    )
+
+    def fake_list_repositories_from_urls(urls, **kwargs):
+        url = next(iter(urls))
+        full_name = url.removeprefix("https://github.com/")
+        raise GitHubAPIError(
+            "GitHub API request failed with HTTP 404: Not Found",
+            status_code=404,
+            url=f"https://api.github.com/repos/{full_name}",
+        )
+
+    def fake_crawl_repositories(target_label, repositories, **kwargs):
+        raise AssertionError("subnet should be skipped when primary and fallback targets are inaccessible")
+
+    monkeypatch.setattr("tao_git_crawl.crawler.list_repositories_from_urls", fake_list_repositories_from_urls)
+    monkeypatch.setattr("tao_git_crawl.crawler.crawl_repositories", fake_crawl_repositories)
+
+    report = crawl_resolved_subnets(document, output_dir=tmp_path / "out", cache_dir=tmp_path / "cache")
+
+    assert report.succeeded_netuids == []
+    assert report.failed == []
+    assert len(report.skipped_inaccessible) == 2
+    assert report.fallback_used == []
+
+
+def test_replace_override_non_404_primary_error_does_not_attempt_fallback(monkeypatch, tmp_path):
+    document = resolve_subnets(
+        [SubnetIdentityRecord(netuid=23, subnet_name="Subnet", github_repo="https://github.com/current/repo")],
+        target_label="bittensor-subnets",
+        config=ResolverConfig(
+            subnet_overrides={
+                23: SubnetOverride(
+                    replace=True,
+                    targets=(TargetOverride(kind="repository", url="https://github.com/manual/error"),),
+                )
+            }
+        ),
+    )
+    calls = []
+
+    def fake_list_repositories_from_urls(urls, **kwargs):
+        url = next(iter(urls))
+        calls.append(url)
+        if "current/repo" in url:
+            raise AssertionError("fallback target should not be resolved after a non-404 primary error")
+        raise GitHubAPIError(
+            "GitHub API request failed with HTTP 500: Server Error",
+            status_code=500,
+            url="https://api.github.com/repos/manual/error",
+        )
+
+    monkeypatch.setattr("tao_git_crawl.crawler.list_repositories_from_urls", fake_list_repositories_from_urls)
+
+    report = crawl_resolved_subnets(document, output_dir=tmp_path / "out", cache_dir=tmp_path / "cache")
+
+    assert report.succeeded_netuids == []
+    assert len(report.failed) == 1
+    assert calls == ["https://github.com/manual/error"]
+    assert report.fallback_used == []
+
+
+def test_replace_override_mixed_primary_success_and_404_does_not_attempt_fallback(monkeypatch, tmp_path):
+    document = resolve_subnets(
+        [SubnetIdentityRecord(netuid=23, subnet_name="Subnet", github_repo="https://github.com/current/repo")],
+        target_label="bittensor-subnets",
+        config=ResolverConfig(
+            subnet_overrides={
+                23: SubnetOverride(
+                    replace=True,
+                    targets=(
+                        TargetOverride(kind="repository", url="https://github.com/manual/good"),
+                        TargetOverride(kind="repository", url="https://github.com/manual/missing"),
+                    ),
+                )
+            }
+        ),
+    )
+    calls = {"repo_urls": [], "crawls": []}
+
+    def fake_list_repositories_from_urls(urls, **kwargs):
+        url = next(iter(urls))
+        calls["repo_urls"].append(url)
+        if "current/repo" in url:
+            raise AssertionError("fallback target should not be resolved when one primary target succeeds")
+        if "manual/missing" in url:
+            raise GitHubAPIError(
+                "GitHub API request failed with HTTP 404: Not Found",
+                status_code=404,
+                url="https://api.github.com/repos/manual/missing",
+            )
+        return [_repo("manual/good")]
+
+    def fake_crawl_repositories(target_label, repositories, **kwargs):
+        calls["crawls"].append([repo.full_name for repo in repositories])
+        return SimpleNamespace(
+            run=SimpleNamespace(status="success", run_id="test-run-0"),
+            repositories=list(repositories),
+        )
+
+    def fake_write_crawl_outputs(result, output_dir, **kwargs):
+        output_dir.mkdir(parents=True, exist_ok=True)
+        path = output_dir / "summary.json"
+        path.write_text("{}\n", encoding="utf-8")
+        return [path]
+
+    monkeypatch.setattr("tao_git_crawl.crawler.list_repositories_from_urls", fake_list_repositories_from_urls)
+    monkeypatch.setattr("tao_git_crawl.crawler.crawl_repositories", fake_crawl_repositories)
+    monkeypatch.setattr("tao_git_crawl.crawler.write_crawl_outputs", fake_write_crawl_outputs)
+
+    report = crawl_resolved_subnets(document, output_dir=tmp_path / "out", cache_dir=tmp_path / "cache")
+
+    assert report.succeeded_netuids == [23]
+    assert calls["repo_urls"] == ["https://github.com/manual/good", "https://github.com/manual/missing"]
+    assert calls["crawls"] == [["manual/good"]]
+    assert len(report.skipped_inaccessible) == 1
+    assert report.fallback_used == []
+
+
 def test_crawl_resolved_subnets_continues_after_unresolved_and_per_subnet_failures(monkeypatch, tmp_path):
     document = resolve_subnets(
         [
