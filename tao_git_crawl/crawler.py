@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -46,9 +46,27 @@ class SubnetCrawlSkip:
 
 
 @dataclass(frozen=True)
+class SubnetFallbackUse:
+    netuid: int
+    target_label: str
+    primary_reasons: list[str]
+    fallback_targets: list[str]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "netuid": self.netuid,
+            "target": self.target_label,
+            "primary_reasons": list(self.primary_reasons),
+            "fallback_targets": list(self.fallback_targets),
+        }
+
+
+@dataclass(frozen=True)
 class RepositoryResolution:
     repositories: list[Any]
     skipped_inaccessible: list[str]
+    inaccessible_status_codes: list[int]
+    attempted_targets: int
 
 
 @dataclass(frozen=True)
@@ -89,6 +107,7 @@ class SubnetCrawlReport:
     skipped_unresolved_netuids: list[int]
     skipped_inaccessible: list[SubnetCrawlSkip]
     report_path: Path | None = None
+    fallback_used: list[SubnetFallbackUse] = field(default_factory=list)
 
     @property
     def succeeded_netuids(self) -> list[int]:
@@ -100,6 +119,7 @@ class SubnetCrawlReport:
             "failed": [item.to_dict() for item in self.failed],
             "skipped_unresolved_netuids": list(self.skipped_unresolved_netuids),
             "skipped_inaccessible": [item.to_dict() for item in self.skipped_inaccessible],
+            "fallback_used": [item.to_dict() for item in self.fallback_used],
         }
 
 
@@ -128,6 +148,7 @@ def crawl_resolved_subnets(
     succeeded: list[SubnetCrawlSuccess] = []
     failed: list[SubnetCrawlFailure] = []
     skipped_inaccessible: list[SubnetCrawlSkip] = []
+    fallback_used: list[SubnetFallbackUse] = []
     unresolved_netuids = {item.netuid for item in document.unresolved}
     _publish_progress_outputs(
         document,
@@ -136,6 +157,7 @@ def crawl_resolved_subnets(
         failed=failed,
         skipped_unresolved_netuids=unresolved_netuids,
         skipped_inaccessible=skipped_inaccessible,
+        fallback_used=fallback_used,
     )
 
     for netuid in document.netuids:
@@ -152,20 +174,64 @@ def crawl_resolved_subnets(
                 include_forks=include_forks,
                 max_repos=max_repos,
             )
-            skipped_inaccessible.extend(
-                SubnetCrawlSkip(netuid=netuid, target_label=target_label, reason=reason)
-                for reason in resolution.skipped_inaccessible
-            )
-            if not resolution.repositories and resolution.skipped_inaccessible:
-                _publish_progress_outputs(
-                    document,
-                    output_path,
-                    succeeded=succeeded,
-                    failed=failed,
-                    skipped_unresolved_netuids=unresolved_netuids,
-                    skipped_inaccessible=skipped_inaccessible,
+            if _should_retry_with_fallback(resolution, subnet_document.fallback_targets):
+                fallback_resolution = _resolve_repositories_for_subnet(
+                    subnet_document.fallback_targets,
+                    token=token,
+                    active_since=active_since,
+                    include_archived=include_archived,
+                    include_forks=include_forks,
+                    max_repos=max_repos,
                 )
-                continue
+                if fallback_resolution.repositories:
+                    fallback_used.append(
+                        SubnetFallbackUse(
+                            netuid=netuid,
+                            target_label=target_label,
+                            primary_reasons=list(resolution.skipped_inaccessible),
+                            fallback_targets=[target.url for target in subnet_document.fallback_targets],
+                        )
+                    )
+                    skipped_inaccessible.extend(
+                        SubnetCrawlSkip(netuid=netuid, target_label=target_label, reason=reason)
+                        for reason in fallback_resolution.skipped_inaccessible
+                    )
+                    resolution = fallback_resolution
+                else:
+                    skipped_inaccessible.extend(
+                        SubnetCrawlSkip(netuid=netuid, target_label=target_label, reason=reason)
+                        for reason in resolution.skipped_inaccessible
+                    )
+                    skipped_inaccessible.extend(
+                        SubnetCrawlSkip(netuid=netuid, target_label=target_label, reason=reason)
+                        for reason in fallback_resolution.skipped_inaccessible
+                    )
+                    _publish_progress_outputs(
+                        document,
+                        output_path,
+                        succeeded=succeeded,
+                        failed=failed,
+                        skipped_unresolved_netuids=unresolved_netuids,
+                        skipped_inaccessible=skipped_inaccessible,
+                        fallback_used=fallback_used,
+                    )
+                    continue
+            else:
+                skipped_inaccessible.extend(
+                    SubnetCrawlSkip(netuid=netuid, target_label=target_label, reason=reason)
+                    for reason in resolution.skipped_inaccessible
+                )
+                if not resolution.repositories and resolution.skipped_inaccessible:
+                    _publish_progress_outputs(
+                        document,
+                        output_path,
+                        succeeded=succeeded,
+                        failed=failed,
+                        skipped_unresolved_netuids=unresolved_netuids,
+                        skipped_inaccessible=skipped_inaccessible,
+                        fallback_used=fallback_used,
+                    )
+                    continue
             result = crawl_repositories(
                 target_label,
                 resolution.repositories,
@@ -210,6 +276,7 @@ def crawl_resolved_subnets(
                     failed=failed,
                     skipped_unresolved_netuids=unresolved_netuids,
                     skipped_inaccessible=skipped_inaccessible,
+                    fallback_used=fallback_used,
                 )
                 continue
             failed.append(
@@ -226,6 +293,7 @@ def crawl_resolved_subnets(
                 failed=failed,
                 skipped_unresolved_netuids=unresolved_netuids,
                 skipped_inaccessible=skipped_inaccessible,
+                fallback_used=fallback_used,
             )
             if fail_fast:
                 break
@@ -238,6 +306,7 @@ def crawl_resolved_subnets(
                 failed=failed,
                 skipped_unresolved_netuids=unresolved_netuids,
                 skipped_inaccessible=skipped_inaccessible,
+                fallback_used=fallback_used,
             )
             if fail_fast:
                 break
@@ -249,6 +318,7 @@ def crawl_resolved_subnets(
         failed=failed,
         skipped_unresolved_netuids=unresolved_netuids,
         skipped_inaccessible=skipped_inaccessible,
+        fallback_used=fallback_used,
     )
 
 
@@ -260,6 +330,7 @@ def _publish_progress_outputs(
     failed: list[SubnetCrawlFailure],
     skipped_unresolved_netuids: set[int],
     skipped_inaccessible: list[SubnetCrawlSkip],
+    fallback_used: list[SubnetFallbackUse],
 ) -> SubnetCrawlReport:
     report = SubnetCrawlReport(
         succeeded=list(succeeded),
@@ -267,6 +338,7 @@ def _publish_progress_outputs(
         skipped_unresolved_netuids=sorted(skipped_unresolved_netuids),
         skipped_inaccessible=list(skipped_inaccessible),
         report_path=output_path / "crawl-report.json",
+        fallback_used=list(fallback_used),
     )
     report_path = output_path / "crawl-report.json"
     _write_report(report_path, report.to_dict())
@@ -285,6 +357,8 @@ def _resolve_repositories_for_subnet(
 ) -> RepositoryResolution:
     repositories: list[Any] = []
     skipped_inaccessible: list[str] = []
+    inaccessible_status_codes: list[int] = []
+    attempted_targets = 0
     repo_urls = [target.url for target in targets if target.kind == "repository"]
     for repo_url in repo_urls:
         if _has_reached_selected_repo_limit(
@@ -295,6 +369,7 @@ def _resolve_repositories_for_subnet(
             max_repos=max_repos,
         ):
             break
+        attempted_targets += 1
         try:
             _append_unique_repositories(
                 repositories,
@@ -308,6 +383,7 @@ def _resolve_repositories_for_subnet(
             if exc.status_code != 404:
                 raise
             skipped_inaccessible.append(redact_text(exc))
+            inaccessible_status_codes.append(exc.status_code)
     for target in targets:
         if target.kind != "owner":
             continue
@@ -319,6 +395,7 @@ def _resolve_repositories_for_subnet(
             max_repos=max_repos,
         ):
             break
+        attempted_targets += 1
         try:
             owner_repos = list_owner_repositories(target.owner, owner_type="auto", token=token)
             _append_unique_repositories(
@@ -333,9 +410,24 @@ def _resolve_repositories_for_subnet(
             if exc.status_code != 404:
                 raise
             skipped_inaccessible.append(redact_text(exc))
+            inaccessible_status_codes.append(exc.status_code)
     return RepositoryResolution(
         repositories=_dedupe_repositories(repositories),
         skipped_inaccessible=skipped_inaccessible,
+        inaccessible_status_codes=inaccessible_status_codes,
+        attempted_targets=attempted_targets,
+    )
+
+
+def _should_retry_with_fallback(
+    resolution: RepositoryResolution,
+    fallback_targets: list[GitHubTarget] | tuple[GitHubTarget, ...],
+) -> bool:
+    if not fallback_targets or resolution.repositories or resolution.attempted_targets <= 0:
+        return False
+    return (
+        len(resolution.inaccessible_status_codes) == resolution.attempted_targets
+        and all(status == 404 for status in resolution.inaccessible_status_codes)
     )
 
 

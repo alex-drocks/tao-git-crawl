@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .github_links import extract_github_targets, manual_github_target_from_url
@@ -17,6 +17,7 @@ class ResolutionDocument:
     targets: list[GitHubTarget]
     unresolved: list[UnresolvedSubnetRecord]
     schema_version: str = RESOLUTION_SCHEMA_VERSION
+    fallback_targets: list[GitHubTarget] = field(default_factory=list)
 
     @property
     def repository_targets(self) -> list[GitHubTarget]:
@@ -59,6 +60,7 @@ class ResolutionDocument:
             targets=[target for target in self.targets if target.netuid == netuid],
             unresolved=[item for item in self.unresolved if item.netuid == netuid],
             schema_version=self.schema_version,
+            fallback_targets=[target for target in self.fallback_targets if target.netuid == netuid],
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -66,6 +68,7 @@ class ResolutionDocument:
             "schema_version": self.schema_version,
             "target": self.target_label,
             "targets": [target.to_dict() for target in self.targets],
+            "fallback_targets": [target.to_dict() for target in self.fallback_targets],
             "unresolved": [item.to_dict() for item in self.unresolved],
             "git_crawl_repository_manifest": self.git_crawl_repository_manifest,
         }
@@ -79,14 +82,18 @@ def resolve_subnets(
 ) -> ResolutionDocument:
     resolver_config = config or EMPTY_RESOLVER_CONFIG
     targets: list[GitHubTarget] = []
+    fallback_targets: list[GitHubTarget] = []
     unresolved: list[UnresolvedSubnetRecord] = []
     for record in records:
-        record_targets = extract_github_targets(record)
-        record_targets = _apply_repository_policy(record_targets, resolver_config.default_repository_policy)
-        record_targets = _apply_manual_override(record, record_targets, resolver_config)
+        identity_targets = extract_github_targets(record)
+        identity_targets = _apply_repository_policy(identity_targets, resolver_config.default_repository_policy)
+        identity_targets = _dedupe_targets(identity_targets)
+        record_targets, record_fallback_targets = _apply_manual_override(record, identity_targets, resolver_config)
         record_targets = _dedupe_targets(record_targets)
+        record_fallback_targets = _dedupe_targets(record_fallback_targets)
         if record_targets:
             targets.extend(record_targets)
+            fallback_targets.extend(record_fallback_targets)
             continue
         unresolved.append(
             UnresolvedSubnetRecord(
@@ -96,9 +103,15 @@ def resolve_subnets(
                 fields_checked=list(GITHUB_DISCOVERY_FIELDS),
             )
         )
-    targets.sort(key=lambda item: (item.netuid, item.kind, item.url))
+    targets.sort(key=_target_sort_key)
+    fallback_targets.sort(key=_target_sort_key)
     unresolved.sort(key=lambda item: item.netuid)
-    return ResolutionDocument(target_label=target_label, targets=targets, unresolved=unresolved)
+    return ResolutionDocument(
+        target_label=target_label,
+        targets=targets,
+        unresolved=unresolved,
+        fallback_targets=fallback_targets,
+    )
 
 
 def write_resolution_outputs(document: ResolutionDocument, output_dir: str | Path) -> list[Path]:
@@ -158,10 +171,10 @@ def _apply_manual_override(
     record: SubnetIdentityRecord,
     targets: list[GitHubTarget],
     config: ResolverConfig,
-) -> list[GitHubTarget]:
+) -> tuple[list[GitHubTarget], list[GitHubTarget]]:
     override = config.subnet_overrides.get(record.netuid)
     if override is None:
-        return targets
+        return targets, []
     override_targets = [
         manual_github_target_from_url(
             record,
@@ -171,8 +184,9 @@ def _apply_manual_override(
         for target in override.targets
     ]
     if override.replace:
-        return override_targets
-    return [*targets, *override_targets]
+        fallback_targets = targets if targets and override_targets else []
+        return override_targets, fallback_targets
+    return [*targets, *override_targets], []
 
 
 def _dedupe_targets(targets: list[GitHubTarget]) -> list[GitHubTarget]:
@@ -180,6 +194,10 @@ def _dedupe_targets(targets: list[GitHubTarget]) -> list[GitHubTarget]:
     for target in targets:
         grouped.setdefault((target.netuid, target.kind, target.url.lower()), target)
     return list(grouped.values())
+
+
+def _target_sort_key(target: GitHubTarget) -> tuple[int, str, str]:
+    return target.netuid, target.kind, target.url
 
 
 def _write_json(path: Path, payload: object) -> None:

@@ -70,7 +70,34 @@ def test_subnet_override_can_replace_single_repo_identity_with_owner_crawl_targe
         for target in document.owner_targets
     ]
     assert owner_target_rows == [(64, "owner", "chutesai", "https://github.com/chutesai", "manual_override")]
+    fallback_target_rows = [
+        (target.netuid, target.kind, target.repo_full_name, target.source_field)
+        for target in document.fallback_targets
+    ]
+    assert fallback_target_rows == [(64, "repository", "chutesai/api", "github_repo")]
     assert document.git_crawl_repository_manifest == {"target": "bittensor-subnets", "repositories": []}
+
+
+def test_replace_false_subnet_override_does_not_duplicate_identity_targets_as_fallback():
+    records = [
+        SubnetIdentityRecord(netuid=64, subnet_name="Chutes", github_repo="https://github.com/chutesai/api"),
+    ]
+    config = ResolverConfig(
+        subnet_overrides={
+            64: SubnetOverride(
+                replace=False,
+                targets=(TargetOverride(kind="owner", url="https://github.com/chutesai"),),
+            )
+        }
+    )
+
+    document = resolve_subnets(records, target_label="bittensor-subnets", config=config)
+
+    assert [(target.kind, target.url) for target in document.targets] == [
+        ("owner", "https://github.com/chutesai"),
+        ("repository", "https://github.com/chutesai/api"),
+    ]
+    assert document.fallback_targets == []
 
 
 def test_repository_policy_owner_promotes_repo_links_to_owner_targets_without_manual_netuid_override():
@@ -127,4 +154,12 @@ def test_resolution_outputs_include_per_subnet_manifests_for_company_scoped_craw
     subnet_64_owners = json.loads((tmp_path / "subnets" / "64" / "owner-targets.json").read_text(encoding="utf-8"))
     assert [(item["kind"], item["owner"], item["source_field"]) for item in subnet_64_owners] == [
         ("owner", "chutesai", "manual_override")
+    ]
+    subnet_64_targets = json.loads((tmp_path / "subnets" / "64" / "subnet-targets.json").read_text(encoding="utf-8"))
+    fallback_rows = [
+        (item["kind"], item["repo_full_name"], item["source_field"])
+        for item in subnet_64_targets["fallback_targets"]
+    ]
+    assert fallback_rows == [
+        ("repository", "chutesai/api", "github_repo")
     ]

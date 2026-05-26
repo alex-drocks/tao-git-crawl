@@ -16,6 +16,19 @@ Move entries into a dated version section when cutting the next tag.
 
 ### Fixed
 
+## [0.7.1] - 2026-05-26
+
+### Added
+
+- Add a curated SN23 TrishoolAI repository override set.
+- Preserve identity-derived fallback targets in resolver outputs when `replace: true` overrides mask on-chain metadata.
+- Report successful fallback usage in `crawl-report.json`.
+
+### Fixed
+
+- Retry preserved on-chain identity targets when every primary `replace: true` override target is inaccessible with a
+  GitHub HTTP 404, avoiding deadlocked subnet discovery without broadening normal curated crawls.
+
 ## [0.7.0] - 2026-05-25
 
 ### Added
@@ -150,7 +163,8 @@ Move entries into a dated version section when cutting the next tag.
 
 - Keep local runtime state directories out of git and Docker build contexts.
 
-[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.5.0...v0.6.0

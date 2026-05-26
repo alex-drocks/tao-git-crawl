@@ -211,6 +211,7 @@ def test_load_registry_built_in_only():
     registry = load_registry()
     assert 4 in registry.overrides
     assert 5 in registry.overrides
+    assert 23 in registry.overrides
     assert 64 in registry.overrides
 
     assert registry.overrides[4].replace is True
@@ -225,6 +226,14 @@ def test_load_registry_built_in_only():
         TargetOverride(kind="repository", url="https://github.com/manifold-inc/hone-api"),
         TargetOverride(kind="repository", url="https://github.com/manifold-inc/hone-dashboard"),
     )
+    assert registry.overrides[23].replace is True
+    assert registry.overrides[23].targets == (
+        TargetOverride(kind="repository", url="https://github.com/TrishoolAI/trishool-phase2"),
+        TargetOverride(kind="repository", url="https://github.com/TrishoolAI/trishool-ai-docs"),
+        TargetOverride(kind="repository", url="https://github.com/TrishoolAI/trishool-bloom"),
+        TargetOverride(kind="repository", url="https://github.com/TrishoolAI/trishool-bloom-viewer"),
+        TargetOverride(kind="repository", url="https://github.com/TrishoolAI/trishool-subnet"),
+    )
 
 
 def test_built_in_registry_is_tracked_json_file():
@@ -237,9 +246,11 @@ def test_built_in_registry_is_tracked_json_file():
 
     assert 4 in registry.overrides
     assert 5 in registry.overrides
+    assert 23 in registry.overrides
     assert 64 in registry.overrides
     assert registry.raw["overrides"]["4"]["note"]
     assert registry.raw["overrides"]["5"]["note"]
+    assert registry.raw["overrides"]["23"]["note"]
     assert registry.raw["overrides"]["64"]["note"]
 
 

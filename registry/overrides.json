@@ -1,6 +1,6 @@
 {
   "schema_version": "tao-git-crawl-registry-v2",
-  "updated_at": "2026-05-24T00:00:00Z",
+  "updated_at": "2026-05-26T00:00:00Z",
   "overrides": {
     "4": {
       "replace": true,
@@ -37,6 +37,32 @@
         }
       ],
       "note": "Hone curated repo set; do not expand all manifold-inc repos"
+    },
+    "23": {
+      "replace": true,
+      "targets": [
+        {
+          "kind": "repository",
+          "url": "https://github.com/TrishoolAI/trishool-phase2"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/TrishoolAI/trishool-ai-docs"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/TrishoolAI/trishool-bloom"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/TrishoolAI/trishool-bloom-viewer"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/TrishoolAI/trishool-subnet"
+        }
+      ],
+      "note": "TrishoolAI curated repo set"
     },
     "64": {
       "replace": true,
