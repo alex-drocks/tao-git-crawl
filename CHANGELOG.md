@@ -10,11 +10,21 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 Use this section for changes that have merged but have not been released yet.
 Move entries into a dated version section when cutting the next tag.
 
+## [1.0.0] - 2026-05-29
+
 ### Added
+
+- Expose each subnet's 30-day momentum as top-level `score_momentum` in score outputs for frontend table columns.
 
 ### Changed
 
-### Fixed
+- Reweight subnet scoring to keep 365-day active days as a 35% sustained-activity anchor, increase credited file changes
+  to 30%, add a 15% nested 30-day momentum component, and reduce commits-per-active-day and distinct contributors to
+  5% supporting signals.
+- Compute 30-day momentum over a half-open `[score_until - 30 days, score_until)` day range to avoid double-counting the
+  upper boundary date, while including the current UTC day when a crawl has no explicit `history_until`.
+- Keep aggregate-only score fallbacks at zero 30-day momentum for crawl windows wider than 30 days, since aggregate
+  outputs cannot reconstruct recent activity from row-level commit dates.
 
 ## [0.7.1] - 2026-05-26
 
@@ -163,7 +173,8 @@ Move entries into a dated version section when cutting the next tag.
 
 - Keep local runtime state directories out of git and Docker build contexts.
 
-[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.7.1...v1.0.0
 [0.7.1]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.6.0...v0.6.1

@@ -2,25 +2,37 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from .activity_filter import is_noise_change
 from .resolver import ResolutionDocument
 
-SCORE_SCHEMA_VERSION = "tao-git-crawl-score-v2"
+SCORE_SCHEMA_VERSION = "tao-git-crawl-score-v3"
 GIT_CRAWL_ACTIVITY_SCHEMA_VERSION = "git-crawl-activity-v1"
+MOMENTUM_WINDOW_DAYS = 30
 
 SCORE_WEIGHTS = {
-    "active_days": 0.40,
-    "credited_file_changes": 0.20,
-    "avg_credited_commits_per_active_day": 0.15,
-    "distinct_contributors": 0.15,
+    "active_days": 0.35,
+    "credited_file_changes": 0.30,
+    "momentum_30d": 0.15,
+    "avg_credited_commits_per_active_day": 0.05,
     "credited_lines_added": 0.10,
+    "distinct_contributors": 0.05,
 }
 
-RAW_METRICS = tuple(SCORE_WEIGHTS) + ("repos_crawled",)
+MOMENTUM_30D_WEIGHTS = {
+    "momentum_30d_credited_file_changes": 0.40,
+    "momentum_30d_active_days": 0.30,
+    "momentum_30d_avg_credited_commits_per_active_day": 0.15,
+    "momentum_30d_credited_lines_added": 0.15,
+}
+
+SCORE_METRIC_MAXIMA = tuple(metric for metric in SCORE_WEIGHTS if metric != "momentum_30d") + tuple(
+    MOMENTUM_30D_WEIGHTS
+)
+RAW_METRICS = SCORE_METRIC_MAXIMA + ("repos_crawled",)
 ZERO_METRICS = {metric: 0.0 for metric in RAW_METRICS}
 
 
@@ -86,6 +98,10 @@ def build_score_document(document: ResolutionDocument, output_dir: str | Path) -
             "score_method": "max_weighted_composite_to_100",
             "rank_method": "competition_score_desc",
             "metric_maxima": metric_maxima,
+            "momentum_30d": {
+                "window_days": MOMENTUM_WINDOW_DAYS,
+                "weights": MOMENTUM_30D_WEIGHTS,
+            },
         },
         "weights": SCORE_WEIGHTS,
         "scores": scores,
@@ -243,14 +259,25 @@ def _credited_metrics_from_outputs(subnet_dir: Path, summary: dict[str, object])
         )
     )
 
+    credited_file_changes = _number(fallback_credited_totals.get("file_changes"))
+    credited_lines_added = _number(fallback_credited_totals.get("lines_added"))
     avg_commits_per_active_day = credited_commits / active_days if active_days > 0 else 0.0
+    momentum_metrics = _aggregate_momentum_metrics(
+        summary,
+        None,
+        credited_commits=credited_commits,
+        active_days=active_days,
+        credited_file_changes=credited_file_changes,
+        credited_lines_added=credited_lines_added,
+    )
     return {
         "avg_credited_commits_per_active_day": avg_commits_per_active_day,
-        "credited_file_changes": _number(fallback_credited_totals.get("file_changes")),
+        "credited_file_changes": credited_file_changes,
         "active_days": active_days,
-        "credited_lines_added": _number(fallback_credited_totals.get("lines_added")),
+        "credited_lines_added": credited_lines_added,
         "repos_crawled": _summary_repo_count_with_credited_activity(summary, has_credited_activity),
         "distinct_contributors": distinct_contributors,
+        **momentum_metrics,
     }
 
 
@@ -278,6 +305,14 @@ def _credited_metrics_from_activity_json(crawl_dir: Path, summary: dict[str, obj
     credited_repo_count = _credited_repo_count_from_file_changes(crawl_dir)
     if credited_repo_count is None:
         credited_repo_count = _credited_repo_count_from_repo_days(crawl_dir)
+    momentum_metrics = _aggregate_momentum_metrics(
+        summary,
+        activity,
+        credited_commits=credited_commits,
+        active_days=active_days,
+        credited_file_changes=credited_file_changes,
+        credited_lines_added=credited_lines_added,
+    )
     return {
         "avg_credited_commits_per_active_day": credited_commits / active_days if active_days > 0 else 0.0,
         "credited_file_changes": credited_file_changes,
@@ -285,6 +320,7 @@ def _credited_metrics_from_activity_json(crawl_dir: Path, summary: dict[str, obj
         "credited_lines_added": credited_lines_added,
         "repos_crawled": _repo_count_with_credited_activity(summary, has_credited_activity, credited_repo_count),
         "distinct_contributors": distinct_contributors,
+        **momentum_metrics,
     }
 
 
@@ -296,6 +332,7 @@ def _credited_metrics_from_jsonl(crawl_dir: Path, summary: dict[str, object]) ->
 
     credited_commit_keys: set[tuple[str, str]] = set()
     credited_repos: set[str] = set()
+    credited_change_stats_by_commit: dict[tuple[str, str], dict[str, float]] = {}
     credited_file_changes = 0
     credited_lines_added = 0.0
 
@@ -314,10 +351,19 @@ def _credited_metrics_from_jsonl(crawl_dir: Path, summary: dict[str, object]) ->
             commit_key = _commit_key(row)
             if commit_key is not None:
                 credited_commit_keys.add(commit_key)
+                commit_stats = credited_change_stats_by_commit.setdefault(
+                    commit_key,
+                    {"file_changes": 0.0, "lines_added": 0.0},
+                )
+                commit_stats["file_changes"] += 1.0
+                commit_stats["lines_added"] += _number_from_keys(row, "additions", "lines_added")
 
     credited_commits = 0
     active_days: set[str] = set()
     contributors: set[str] = set()
+    momentum_since, momentum_until = _momentum_date_window(summary, None)
+    momentum_commit_keys: set[tuple[str, str]] = set()
+    momentum_active_days: set[str] = set()
     seen_commits: set[tuple[str, str]] = set()
     with commits_path.open(encoding="utf-8") as handle:
         for line in handle:
@@ -335,9 +381,29 @@ def _credited_metrics_from_jsonl(crawl_dir: Path, summary: dict[str, object]) ->
             if authored_day:
                 active_days.add(authored_day)
             contributors.add(_contributor_key(row))
+            if _is_day_in_range(authored_day, momentum_since, momentum_until):
+                momentum_commit_keys.add(commit_key)
+                if authored_day:
+                    momentum_active_days.add(authored_day)
 
     active_day_count = float(len(active_days))
     has_credited_activity = credited_file_changes > 0 or credited_commits > 0 or credited_lines_added > 0
+    momentum_commits = float(len(momentum_commit_keys))
+    momentum_active_day_count = float(len(momentum_active_days))
+    momentum_file_changes = sum(
+        (
+            credited_change_stats_by_commit.get(commit_key, {}).get("file_changes", 0.0)
+            for commit_key in momentum_commit_keys
+        ),
+        0.0,
+    )
+    momentum_lines_added = sum(
+        (
+            credited_change_stats_by_commit.get(commit_key, {}).get("lines_added", 0.0)
+            for commit_key in momentum_commit_keys
+        ),
+        0.0,
+    )
     return {
         "avg_credited_commits_per_active_day": credited_commits / active_day_count if active_day_count > 0 else 0.0,
         "credited_file_changes": float(credited_file_changes),
@@ -349,14 +415,24 @@ def _credited_metrics_from_jsonl(crawl_dir: Path, summary: dict[str, object]) ->
             float(len(credited_repos)) if credited_repos else None,
         ),
         "distinct_contributors": float(len(contributors)),
+        "momentum_30d_active_days": momentum_active_day_count,
+        "momentum_30d_avg_credited_commits_per_active_day": (
+            momentum_commits / momentum_active_day_count if momentum_active_day_count > 0 else 0.0
+        ),
+        "momentum_30d_credited_file_changes": momentum_file_changes,
+        "momentum_30d_credited_lines_added": momentum_lines_added,
     }
 
 
 def _score_input(input_item: SubnetScoreInput, metric_maxima: dict[str, float]) -> dict[str, object]:
-    normalized_metrics = {
-        metric: _normalize(input_item.raw_metrics.get(metric, 0.0), metric_maxima.get(metric, 0.0))
-        for metric in SCORE_WEIGHTS
-    }
+    raw_metrics = dict(input_item.raw_metrics)
+    momentum_score = _momentum_30d_score(raw_metrics, metric_maxima)
+    normalized_metrics = {}
+    for metric in SCORE_WEIGHTS:
+        if metric == "momentum_30d":
+            normalized_metrics[metric] = momentum_score
+            continue
+        normalized_metrics[metric] = _normalize(raw_metrics.get(metric, 0.0), metric_maxima.get(metric, 0.0))
     weighted_components = {
         metric: normalized_metrics[metric] * weight * 100
         for metric, weight in SCORE_WEIGHTS.items()
@@ -367,11 +443,12 @@ def _score_input(input_item: SubnetScoreInput, metric_maxima: dict[str, float]) 
         "netuid": input_item.netuid,
         "status": input_item.status,
         "score": 0.0,
+        "score_momentum": round(momentum_score * 100, 2),
         "composite_score": round(composite_score, 2),
         "rank": 0,
         "rank_total": 0,
         "percentile": 0.0,
-        "raw_metrics": _rounded_metrics(input_item.raw_metrics),
+        "raw_metrics": _rounded_metrics(raw_metrics),
         "normalized_metrics": _rounded_metrics(normalized_metrics),
         "weighted_components": _rounded_metrics(weighted_components),
         "weights": SCORE_WEIGHTS,
@@ -478,8 +555,15 @@ def _apply_ranks(scores: list[dict[str, object]]) -> None:
 def _metric_maxima(inputs: list[SubnetScoreInput]) -> dict[str, float]:
     return {
         metric: max((item.raw_metrics.get(metric, 0.0) for item in inputs), default=0.0)
-        for metric in SCORE_WEIGHTS
+        for metric in SCORE_METRIC_MAXIMA
     }
+
+
+def _momentum_30d_score(raw_metrics: dict[str, float], metric_maxima: dict[str, float]) -> float:
+    return sum(
+        _normalize(raw_metrics.get(metric, 0.0), metric_maxima.get(metric, 0.0)) * weight
+        for metric, weight in MOMENTUM_30D_WEIGHTS.items()
+    )
 
 
 def _normalize(value: float, maximum: float) -> float:
@@ -490,6 +574,63 @@ def _normalize(value: float, maximum: float) -> float:
 
 def _rounded_metrics(metrics: dict[str, float]) -> dict[str, float]:
     return {metric: round(value, 4) for metric, value in metrics.items()}
+
+
+def _aggregate_momentum_metrics(
+    summary: dict[str, object],
+    upstream_activity: dict[str, object] | None,
+    *,
+    credited_commits: float,
+    active_days: float,
+    credited_file_changes: float,
+    credited_lines_added: float,
+) -> dict[str, float]:
+    if not _aggregate_window_is_within_days(summary, upstream_activity, MOMENTUM_WINDOW_DAYS):
+        return _zero_momentum_metrics()
+    return {
+        "momentum_30d_active_days": active_days,
+        "momentum_30d_avg_credited_commits_per_active_day": (
+            credited_commits / active_days if active_days > 0 else 0.0
+        ),
+        "momentum_30d_credited_file_changes": credited_file_changes,
+        "momentum_30d_credited_lines_added": credited_lines_added,
+    }
+
+
+def _zero_momentum_metrics() -> dict[str, float]:
+    return {metric: 0.0 for metric in MOMENTUM_30D_WEIGHTS}
+
+
+def _aggregate_window_is_within_days(
+    summary: dict[str, object],
+    upstream_activity: dict[str, object] | None,
+    days: int,
+) -> bool:
+    score_since = _date_string(_activity_metadata(summary, upstream_activity, "history_since"))
+    if score_since is None:
+        return False
+    score_until = _date_string(_activity_metadata(summary, upstream_activity, "history_until"))
+    if score_until is None:
+        score_until = _today_utc().isoformat()
+    span = _days_between_dates(score_since, score_until)
+    return span is not None and span <= days
+
+
+def _momentum_date_window(
+    summary: dict[str, object],
+    upstream_activity: dict[str, object] | None,
+) -> tuple[date, date]:
+    until_text = _date_string(_activity_metadata(summary, upstream_activity, "history_until"))
+    until_date = _date_from_day_string(until_text) if until_text is not None else None
+    if until_date is None:
+        # No explicit upper bound means the current UTC day is still in scope.
+        until_date = _today_utc() + timedelta(days=1)
+    return until_date - timedelta(days=MOMENTUM_WINDOW_DAYS), until_date
+
+
+def _is_day_in_range(day: str | None, since: date, until: date) -> bool:
+    day_date = _date_from_day_string(day)
+    return day_date is not None and since <= day_date < until
 
 
 def _today_utc() -> date:
@@ -542,6 +683,15 @@ def _date_string(value: object) -> str | None:
     if timestamp.tzinfo is not None and timestamp.utcoffset() is not None:
         timestamp = timestamp.astimezone(UTC)
     return timestamp.date().isoformat()
+
+
+def _date_from_day_string(value: str | None) -> date | None:
+    if value is None:
+        return None
+    try:
+        return date.fromisoformat(value[:10])
+    except ValueError:
+        return None
 
 
 def _days_between_dates(since: str | None, until: str | None) -> int | None:

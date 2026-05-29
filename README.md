@@ -144,30 +144,48 @@ When detailed rows are available, `/api/subnets/<netuid>/file-changes` returns c
 ### Subnet Scores
 
 Each crawl writes `subnet-scores.json` plus `subnets/<netuid>/score.json`. The API also embeds the same score object in `/api/subnets`, `/api/subnets/<netuid>`, and `/api/subnets/<netuid>/summary`.
+Score outputs use schema version `tao-git-crawl-score-v3`.
 
-Scores first use raw global-max normalization per metric across the resolved subnet population for that crawl. For a
-full Finney crawl, that is the full regular subnet population. For `--netuid`, partial JSON exports, or otherwise
-filtered runs, `score`, `rank`, `rank_total`, and `percentile` are local to that subset and are not comparable to a
-full-network ranking. The weighted metric composite is then rescaled so the top subnet score is `100.00`; the
-pre-rescale value is retained as `composite_score` for inspection. Each score also includes `rank` and `rank_total`
-fields for frontend display, where rank `1` is the top subnet and equal scores share the same rank. Unresolved GitHub
-metadata, missing crawl output, failed crawls, and subnets with no crawlable repositories score `0`.
+Scores first use raw global-max normalization per 365-day metric and per 30-day momentum sub-metric across the resolved
+subnet population for that crawl. For a full Finney crawl, that is the full regular subnet population. For `--netuid`,
+partial JSON exports, or otherwise filtered runs, `score`, `rank`, `rank_total`, and `percentile` are local to that
+subset and are not comparable to a full-network ranking. The weighted metric composite is then rescaled so the top
+subnet score is `100.00`; the pre-rescale value is retained as `composite_score` for inspection. Each score also
+includes `score_momentum`, a 0-100 frontend-friendly 30-day momentum score, plus `rank` and `rank_total` fields for
+frontend display, where rank `1` is the top subnet and equal scores share the same rank. Unresolved GitHub metadata,
+missing crawl output, failed crawls, and subnets with no crawlable repositories score `0`.
+`raw_metrics` contains source counts and 30-day momentum sub-metric counts; the derived 30-day display score is exposed
+only as top-level `score_momentum`.
 
 The weighted score is:
 
 | Metric | Weight |
 | ------ | ------ |
-| Active days | `40%` |
-| Credited file changes | `20%` |
-| Average credited commits per active day | `15%` |
-| Distinct contributors | `15%` |
-| Credited lines added | `10%` |
+| 365d Active days | `35%` |
+| 365d Credited file changes | `30%` |
+| 30d Momentum | `15%` |
+| 365d Average credited commits per active day | `5%` |
+| 365d Credited lines added | `10%` |
+| 365d Distinct contributors | `5%` |
+
+The 30d momentum component is a nested score over credited activity authored in the final 30 days of the crawl window,
+using a half-open `[score_until - 30 days, score_until)` day range when the crawl has an explicit `history_until`.
+Default scheduler crawls omit `history_until`, so the scorer uses tomorrow's UTC date as the exclusive bound and includes
+commits authored today.
+
+| Momentum metric | Momentum weight |
+| --------------- | --------------- |
+| 30d Credited file changes | `40%` |
+| 30d Active days | `30%` |
+| 30d Average credited commits per active day | `15%` |
+| 30d Credited lines added | `15%` |
 
 Credited activity uses `git-crawl` path classification plus local artifact/data guardrails. When `file_changes.jsonl` is
 available, the scorer excludes rows marked binary, lockfile, generated, vendored, spec/schema-like, or artifact/data
-before counting file changes, lines, active days, contributors, and commits-per-active-day. If detailed rows are
-unavailable, it falls back to `git-crawl` `activity.json` or already-filtered source-like aggregate totals and does not
-fall back to raw churn totals. Repository breadth is reported only for repositories with credited activity in the
+before counting file changes, lines, active days, contributors, commits-per-active-day, and momentum. If detailed rows
+are unavailable, it falls back to `git-crawl` `activity.json` or already-filtered source-like aggregate totals and does
+not fall back to raw churn totals. Aggregate fallbacks cannot reconstruct 30-day momentum unless the aggregate crawl
+window itself is 30 days or shorter. Repository breadth is reported only for repositories with credited activity in the
 scoring window. The default `source_like` crawl filter reduces upstream noise before outputs are written;
 `tao-git-crawl` then rechecks detailed rows for investor-facing scoring and API activity.
 

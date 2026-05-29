@@ -165,26 +165,40 @@ def test_build_score_document_uses_global_raw_max_and_full_population(tmp_path):
     assert score_document["normalization"]["metric_method"] == "global_max"
     assert score_document["normalization"]["score_method"] == "max_weighted_composite_to_100"
     assert score_document["normalization"]["rank_method"] == "competition_score_desc"
+    assert score_document["normalization"]["momentum_30d"] == {
+        "window_days": 30,
+        "weights": {
+            "momentum_30d_credited_file_changes": 0.40,
+            "momentum_30d_active_days": 0.30,
+            "momentum_30d_avg_credited_commits_per_active_day": 0.15,
+            "momentum_30d_credited_lines_added": 0.15,
+        },
+    }
     assert score_document["normalization"]["metric_maxima"] == {
         "active_days": 2.0,
         "avg_credited_commits_per_active_day": 1.5,
         "credited_file_changes": 10.0,
         "credited_lines_added": 100.0,
         "distinct_contributors": 2.0,
+        "momentum_30d_active_days": 0.0,
+        "momentum_30d_avg_credited_commits_per_active_day": 0.0,
+        "momentum_30d_credited_file_changes": 0.0,
+        "momentum_30d_credited_lines_added": 0.0,
     }
     assert "repos_crawled" not in score_document["weights"]
     assert "repos_crawled" not in scores[1]["normalized_metrics"]
     assert "repos_crawled" not in scores[1]["weighted_components"]
     assert scores[1]["score"] == 100.0
-    assert scores[1]["composite_score"] == 100.0
+    assert scores[1]["score_momentum"] == 0.0
+    assert scores[1]["composite_score"] == 85.0
     assert scores[1]["rank"] == 1
     assert scores[1]["rank_total"] == 3
     assert scores[1]["percentile"] == 100.0
     assert scores[1]["raw_metrics"]["avg_credited_commits_per_active_day"] == 1.5
     assert scores[1]["raw_metrics"]["active_days"] == 2.0
     assert scores[1]["raw_metrics"]["distinct_contributors"] == 2.0
-    assert scores[2]["score"] == 52.5
-    assert scores[2]["composite_score"] == 52.5
+    assert scores[2]["score"] == 50.98
+    assert scores[2]["composite_score"] == 43.33
     assert scores[2]["rank"] == 2
     assert scores[2]["rank_total"] == 3
     assert scores[2]["percentile"] == 50.0
@@ -194,6 +208,178 @@ def test_build_score_document_uses_global_raw_max_and_full_population(tmp_path):
     assert scores[3]["rank_total"] == 3
     assert scores[3]["status"] == "unresolved"
     assert scores[3]["percentile"] == 0.0
+
+
+def test_score_builds_30d_momentum_from_recent_credited_rows(tmp_path):
+    document = resolve_subnets(
+        [SubnetIdentityRecord(netuid=1, subnet_name="Current", github_repo="https://github.com/acme/current")],
+        target_label="bittensor-subnets",
+    )
+    crawl_dir = _write_summary(
+        tmp_path,
+        1,
+        repos_crawled=1,
+        file_changes=10,
+        lines_added=100,
+        history_since="2025-06-01",
+        history_until="2026-05-31",
+    )
+    _write_commits(
+        crawl_dir,
+        [
+            {
+                "sha": "old",
+                "authored_at": "2026-04-30T00:00:00+00:00",
+                "author_login": "dev",
+                "files_changed": 7,
+            },
+            {
+                "sha": "start-boundary",
+                "authored_at": "2026-05-01T00:00:00+00:00",
+                "author_login": "dev",
+                "files_changed": 1,
+            },
+            {
+                "sha": "recent-a",
+                "authored_at": "2026-05-10T00:00:00+00:00",
+                "author_login": "dev",
+                "files_changed": 2,
+            },
+            {
+                "sha": "recent-b",
+                "authored_at": "2026-05-11T00:00:00+00:00",
+                "author_login": "dev",
+                "files_changed": 1,
+            },
+            {
+                "sha": "until-boundary",
+                "authored_at": "2026-05-31T00:00:00+00:00",
+                "author_login": "dev",
+                "files_changed": 5,
+            },
+        ],
+    )
+    _write_source_file_changes(
+        crawl_dir,
+        [
+            ("old", 7, 70),
+            ("start-boundary", 1, 10),
+            ("recent-a", 2, 20),
+            ("recent-b", 1, 10),
+            ("until-boundary", 5, 50),
+        ],
+    )
+
+    score = build_score_document(document, tmp_path)["scores"][0]
+
+    assert score["raw_metrics"]["credited_file_changes"] == 16.0
+    assert score["raw_metrics"]["credited_lines_added"] == 160.0
+    assert score["raw_metrics"]["active_days"] == 5.0
+    assert score["raw_metrics"]["momentum_30d_credited_file_changes"] == 4.0
+    assert score["raw_metrics"]["momentum_30d_credited_lines_added"] == 40.0
+    assert score["raw_metrics"]["momentum_30d_active_days"] == 3.0
+    assert score["raw_metrics"]["momentum_30d_avg_credited_commits_per_active_day"] == 1.0
+    assert "momentum_30d" not in score["raw_metrics"]
+    assert score["score_momentum"] == 100.0
+    assert score["normalized_metrics"]["momentum_30d"] == 1.0
+    assert score["weighted_components"]["momentum_30d"] == 15.0
+
+
+def test_score_includes_today_in_implicit_30d_momentum_window(tmp_path, monkeypatch):
+    monkeypatch.setattr("tao_git_crawl.scoring._today_utc", lambda: date(2026, 5, 23))
+    document = resolve_subnets(
+        [SubnetIdentityRecord(netuid=1, subnet_name="Current", github_repo="https://github.com/acme/current")],
+        target_label="bittensor-subnets",
+    )
+    crawl_dir = _write_summary(
+        tmp_path,
+        1,
+        repos_crawled=1,
+        file_changes=4,
+        lines_added=40,
+        history_since="2025-05-23",
+    )
+    _write_commits(
+        crawl_dir,
+        [
+            {
+                "sha": "old",
+                "authored_at": "2026-04-23T00:00:00+00:00",
+                "author_login": "dev",
+                "files_changed": 1,
+            },
+            {
+                "sha": "start-boundary",
+                "authored_at": "2026-04-24T00:00:00+00:00",
+                "author_login": "dev",
+                "files_changed": 1,
+            },
+            {
+                "sha": "today",
+                "authored_at": "2026-05-23T12:00:00+00:00",
+                "author_login": "dev",
+                "files_changed": 1,
+            },
+            {
+                "sha": "tomorrow",
+                "authored_at": "2026-05-24T00:00:00+00:00",
+                "author_login": "dev",
+                "files_changed": 1,
+            },
+        ],
+    )
+    _write_source_file_changes(
+        crawl_dir,
+        [
+            ("old", 1, 10),
+            ("start-boundary", 1, 10),
+            ("today", 1, 10),
+            ("tomorrow", 1, 10),
+        ],
+    )
+
+    score = build_score_document(document, tmp_path)["scores"][0]
+
+    assert score["raw_metrics"]["momentum_30d_credited_file_changes"] == 2.0
+    assert score["raw_metrics"]["momentum_30d_credited_lines_added"] == 20.0
+    assert score["raw_metrics"]["momentum_30d_active_days"] == 2.0
+    assert score["raw_metrics"]["momentum_30d_avg_credited_commits_per_active_day"] == 1.0
+    assert score["score_momentum"] == 100.0
+
+
+def test_aggregate_score_fallback_zeroes_momentum_for_windows_over_30_days(tmp_path):
+    document = resolve_subnets(
+        [SubnetIdentityRecord(netuid=1, subnet_name="Aggregate", github_repo="https://github.com/acme/aggregate")],
+        target_label="bittensor-subnets",
+    )
+    crawl_dir = _write_summary(
+        tmp_path,
+        1,
+        repos_crawled=1,
+        file_changes=12,
+        lines_added=120,
+        history_since="2025-06-01",
+        history_until="2026-06-01",
+    )
+    _write_activity(
+        crawl_dir,
+        commits=6,
+        file_changes=12,
+        lines_added=120,
+        active_days=3,
+        distinct_contributors=2,
+    )
+
+    score = build_score_document(document, tmp_path)["scores"][0]
+
+    assert score["raw_metrics"]["credited_file_changes"] == 12.0
+    assert score["raw_metrics"]["momentum_30d_credited_file_changes"] == 0.0
+    assert score["raw_metrics"]["momentum_30d_active_days"] == 0.0
+    assert score["raw_metrics"]["momentum_30d_avg_credited_commits_per_active_day"] == 0.0
+    assert score["raw_metrics"]["momentum_30d_credited_lines_added"] == 0.0
+    assert "momentum_30d" not in score["raw_metrics"]
+    assert score["score_momentum"] == 0.0
+    assert score["weighted_components"]["momentum_30d"] == 0.0
 
 
 def test_score_document_exposes_scoring_window_metadata(tmp_path, monkeypatch):
@@ -448,11 +634,11 @@ def test_score_is_rescaled_so_top_composite_is_100(tmp_path):
 
     scores = {item["netuid"]: item for item in build_score_document(document, tmp_path)["scores"]}
 
-    assert scores[1]["composite_score"] == 73.0
+    assert scores[1]["composite_score"] == 70.0
     assert scores[1]["score"] == 100.0
     assert scores[1]["rank"] == 1
-    assert scores[2]["composite_score"] == 64.0
-    assert scores[2]["score"] == 87.67
+    assert scores[2]["composite_score"] == 53.5
+    assert scores[2]["score"] == 76.43
     assert scores[2]["rank"] == 2
 
 
