@@ -1,6 +1,6 @@
 {
   "schema_version": "tao-git-crawl-registry-v2",
-  "updated_at": "2026-05-26T00:00:00Z",
+  "updated_at": "2026-05-29T16:19:01Z",
   "overrides": {
     "4": {
       "replace": true,
@@ -37,6 +37,20 @@
         }
       ],
       "note": "Hone curated repo set; do not expand all manifold-inc repos"
+    },
+    "14": {
+      "replace": true,
+      "targets": [
+        {
+          "kind": "repository",
+          "url": "https://github.com/latent-to/cacheon"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/latent-to/cacheon-frontend"
+        }
+      ],
+      "note": "Cacheon curated repo set"
     },
     "23": {
       "replace": true,
