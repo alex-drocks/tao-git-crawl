@@ -10,11 +10,17 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 Use this section for changes that have merged but have not been released yet.
 Move entries into a dated version section when cutting the next tag.
 
+## [1.0.0] - TBD
+
 ### Added
+
+- Expose each subnet's 30-day momentum as top-level `score_momentum` in score outputs for frontend table columns.
 
 ### Changed
 
-### Fixed
+- Reweight subnet scoring to keep 365-day active days as a 35% sustained-activity anchor, increase credited file changes
+  to 30%, add a 15% nested 30-day momentum component, and reduce commits-per-active-day and distinct contributors to
+  5% supporting signals.
 
 ## [0.7.1] - 2026-05-26
 

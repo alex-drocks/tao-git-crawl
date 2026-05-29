@@ -51,7 +51,8 @@ def test_docker_api_service_serves_mounted_crawl_outputs(tmp_path):
         summary = _get_json(host_port, "/api/subnets/7/summary")
         assert summary["status"] == 200
         assert summary["payload"]["schema_version"] == "tao-git-crawl-subnet-summary-v2"
-        assert summary["payload"]["score"] == {"score": 91.25, "percentile": 97.0}
+        assert summary["payload"]["score"] == {"score": 91.25, "score_momentum": 42.5, "percentile": 97.0}
+        assert subnet["score"]["score_momentum"] == 42.5
         assert summary["payload"]["top_repositories"][0] == {
             "repo": "acme/api",
             "commits": 2,
@@ -59,6 +60,10 @@ def test_docker_api_service_serves_mounted_crawl_outputs(tmp_path):
             "lines_added": 13,
             "lines_deleted": 2,
         }
+
+        scores = _get_json(host_port, "/api/scores")
+        assert scores["status"] == 200
+        assert scores["payload"]["scores"][0]["score_momentum"] == 42.5
 
         commits = _get_json(host_port, "/api/subnets/7/commits?limit=1&offset=0")
         assert commits["status"] == 200
@@ -106,10 +111,10 @@ def _write_crawl_output_fixture(output_dir: Path) -> None:
         },
     )
     _write_json(subnet_dir / "unresolved.json", [])
-    _write_json(subnet_dir / "score.json", {"score": 91.25, "percentile": 97.0})
+    _write_json(subnet_dir / "score.json", {"score": 91.25, "score_momentum": 42.5, "percentile": 97.0})
     _write_json(
         output_dir / "subnet-scores.json",
-        {"scores": [{"netuid": 7, "score": 91.25, "percentile": 97.0}]},
+        {"scores": [{"netuid": 7, "score": 91.25, "score_momentum": 42.5, "percentile": 97.0}]},
     )
     _write_json(
         output_dir / "crawl-report.json",
