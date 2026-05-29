@@ -169,7 +169,9 @@ The weighted score is:
 | 365d Distinct contributors | `5%` |
 
 The 30d momentum component is a nested score over credited activity authored in the final 30 days of the crawl window,
-using a half-open `[score_until - 30 days, score_until)` day range:
+using a half-open `[score_until - 30 days, score_until)` day range when the crawl has an explicit `history_until`.
+Default scheduler crawls omit `history_until`, so the scorer uses tomorrow's UTC date as the exclusive bound and includes
+commits authored today.
 
 | Momentum metric | Momentum weight |
 | --------------- | --------------- |

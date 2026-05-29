@@ -623,7 +623,8 @@ def _momentum_date_window(
     until_text = _date_string(_activity_metadata(summary, upstream_activity, "history_until"))
     until_date = _date_from_day_string(until_text) if until_text is not None else None
     if until_date is None:
-        until_date = _today_utc()
+        # No explicit upper bound means the current UTC day is still in scope.
+        until_date = _today_utc() + timedelta(days=1)
     return until_date - timedelta(days=MOMENTUM_WINDOW_DAYS), until_date
 
 
