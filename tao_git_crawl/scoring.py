@@ -32,7 +32,7 @@ MOMENTUM_30D_WEIGHTS = {
 SCORE_METRIC_MAXIMA = tuple(metric for metric in SCORE_WEIGHTS if metric != "momentum_30d") + tuple(
     MOMENTUM_30D_WEIGHTS
 )
-RAW_METRICS = tuple(dict.fromkeys(tuple(SCORE_WEIGHTS) + tuple(MOMENTUM_30D_WEIGHTS) + ("repos_crawled",)))
+RAW_METRICS = SCORE_METRIC_MAXIMA + ("repos_crawled",)
 ZERO_METRICS = {metric: 0.0 for metric in RAW_METRICS}
 
 
@@ -427,9 +427,6 @@ def _credited_metrics_from_jsonl(crawl_dir: Path, summary: dict[str, object]) ->
 def _score_input(input_item: SubnetScoreInput, metric_maxima: dict[str, float]) -> dict[str, object]:
     raw_metrics = dict(input_item.raw_metrics)
     momentum_score = _momentum_30d_score(raw_metrics, metric_maxima)
-    # Store the nested momentum score as a 0-100 raw/display value. The weighted score uses the 0-1 nested
-    # momentum_score directly so the composite does not normalize momentum_30d a second time.
-    raw_metrics["momentum_30d"] = momentum_score * 100
     normalized_metrics = {}
     for metric in SCORE_WEIGHTS:
         if metric == "momentum_30d":

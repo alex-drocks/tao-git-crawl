@@ -279,7 +279,7 @@ def test_score_builds_30d_momentum_from_recent_credited_rows(tmp_path):
     assert score["raw_metrics"]["momentum_30d_credited_lines_added"] == 40.0
     assert score["raw_metrics"]["momentum_30d_active_days"] == 3.0
     assert score["raw_metrics"]["momentum_30d_avg_credited_commits_per_active_day"] == 1.0
-    assert score["raw_metrics"]["momentum_30d"] == 100.0
+    assert "momentum_30d" not in score["raw_metrics"]
     assert score["score_momentum"] == 100.0
     assert score["normalized_metrics"]["momentum_30d"] == 1.0
     assert score["weighted_components"]["momentum_30d"] == 15.0
@@ -315,7 +315,7 @@ def test_aggregate_score_fallback_zeroes_momentum_for_windows_over_30_days(tmp_p
     assert score["raw_metrics"]["momentum_30d_active_days"] == 0.0
     assert score["raw_metrics"]["momentum_30d_avg_credited_commits_per_active_day"] == 0.0
     assert score["raw_metrics"]["momentum_30d_credited_lines_added"] == 0.0
-    assert score["raw_metrics"]["momentum_30d"] == 0.0
+    assert "momentum_30d" not in score["raw_metrics"]
     assert score["score_momentum"] == 0.0
     assert score["weighted_components"]["momentum_30d"] == 0.0
 

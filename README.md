@@ -154,6 +154,8 @@ subnet score is `100.00`; the pre-rescale value is retained as `composite_score`
 includes `score_momentum`, a 0-100 frontend-friendly 30-day momentum score, plus `rank` and `rank_total` fields for
 frontend display, where rank `1` is the top subnet and equal scores share the same rank. Unresolved GitHub metadata,
 missing crawl output, failed crawls, and subnets with no crawlable repositories score `0`.
+`raw_metrics` contains source counts and 30-day momentum sub-metric counts; the derived 30-day display score is exposed
+only as top-level `score_momentum`.
 
 The weighted score is:
 
