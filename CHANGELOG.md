@@ -173,7 +173,8 @@ Move entries into a dated version section when cutting the next tag.
 
 - Keep local runtime state directories out of git and Docker build contexts.
 
-[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.7.1...v1.0.0
 [0.7.1]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.6.0...v0.6.1
