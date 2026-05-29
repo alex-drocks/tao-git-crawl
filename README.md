@@ -144,6 +144,7 @@ When detailed rows are available, `/api/subnets/<netuid>/file-changes` returns c
 ### Subnet Scores
 
 Each crawl writes `subnet-scores.json` plus `subnets/<netuid>/score.json`. The API also embeds the same score object in `/api/subnets`, `/api/subnets/<netuid>`, and `/api/subnets/<netuid>/summary`.
+Score outputs use schema version `tao-git-crawl-score-v3`.
 
 Scores first use raw global-max normalization per 365-day metric and per 30-day momentum sub-metric across the resolved
 subnet population for that crawl. For a full Finney crawl, that is the full regular subnet population. For `--netuid`,
@@ -165,7 +166,8 @@ The weighted score is:
 | 365d Credited lines added | `10%` |
 | 365d Distinct contributors | `5%` |
 
-The 30d momentum component is a nested score over credited activity authored in the final 30 days of the crawl window:
+The 30d momentum component is a nested score over credited activity authored in the final 30 days of the crawl window,
+using a half-open `[score_until - 30 days, score_until)` day range:
 
 | Momentum metric | Momentum weight |
 | --------------- | --------------- |

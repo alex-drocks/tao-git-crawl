@@ -427,6 +427,8 @@ def _credited_metrics_from_jsonl(crawl_dir: Path, summary: dict[str, object]) ->
 def _score_input(input_item: SubnetScoreInput, metric_maxima: dict[str, float]) -> dict[str, object]:
     raw_metrics = dict(input_item.raw_metrics)
     momentum_score = _momentum_30d_score(raw_metrics, metric_maxima)
+    # Store the nested momentum score as a 0-100 raw/display value. The weighted score uses the 0-1 nested
+    # momentum_score directly so the composite does not normalize momentum_30d a second time.
     raw_metrics["momentum_30d"] = momentum_score * 100
     normalized_metrics = {}
     for metric in SCORE_WEIGHTS:
@@ -630,7 +632,7 @@ def _momentum_date_window(
 
 def _is_day_in_range(day: str | None, since: date, until: date) -> bool:
     day_date = _date_from_day_string(day)
-    return day_date is not None and since <= day_date <= until
+    return day_date is not None and since <= day_date < until
 
 
 def _today_utc() -> date:
