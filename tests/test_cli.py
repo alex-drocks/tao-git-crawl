@@ -14,9 +14,9 @@ def test_resolve_cli_writes_resolution_manifest_owner_targets_and_unresolved(tmp
         json.dumps(
             {
                 "subnets": [
-                    {"netuid": 1, "subnet_identity": {"github_repo": "github.com/alice/api"}},
-                    {"netuid": 2, "subnet_identity": {"github_repo": "https://github.com/bob"}},
-                    {"netuid": 3, "subnet_identity": {"description": "no code here"}},
+                    {"netuid": 126, "subnet_identity": {"github_repo": "github.com/alice/api"}},
+                    {"netuid": 127, "subnet_identity": {"github_repo": "https://github.com/bob"}},
+                    {"netuid": 128, "subnet_identity": {"description": "no code here"}},
                 ]
             }
         ),
@@ -33,7 +33,7 @@ def test_resolve_cli_writes_resolution_manifest_owner_targets_and_unresolved(tmp
     assert manifest == {
         "target": "tao",
         "repositories": [
-            {"url": "https://github.com/alice/api", "netuids": [1], "source": "subnet_identity.github_repo"}
+            {"url": "https://github.com/alice/api", "netuids": [126], "source": "subnet_identity.github_repo"}
         ],
     }
     owner_targets = json.loads((output_dir / "owner-targets.json").read_text(encoding="utf-8"))
@@ -41,7 +41,7 @@ def test_resolve_cli_writes_resolution_manifest_owner_targets_and_unresolved(tmp
     unresolved = json.loads((output_dir / "unresolved.json").read_text(encoding="utf-8"))
     assert unresolved == [
         {
-            "netuid": 3,
+            "netuid": 128,
             "subnet_name": "",
             "reason": "no_github_link",
             "fields_checked": [

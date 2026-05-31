@@ -2,6 +2,28 @@
   "schema_version": "tao-git-crawl-registry-v2",
   "updated_at": "2026-05-29T16:19:01Z",
   "overrides": {
+    "2": {
+      "replace": true,
+      "targets": [
+        {
+          "kind": "repository",
+          "url": "https://github.com/inference-labs-inc/subnet-2"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/inference-labs-inc/dsperse"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/inference-labs-inc/btlightning"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/inference-labs-inc/JSTprove"
+        }
+      ],
+      "note": "curated repo set"
+    },
     "4": {
       "replace": true,
       "targets": [
@@ -51,6 +73,16 @@
         }
       ],
       "note": "Cacheon curated repo set"
+    },
+    "22":{
+      "replace": true,
+      "targets": [
+        {
+          "kind": "owner",
+          "url": "https://github.com/Desearch-ai"
+        }
+      ],
+      "note": "requires owner-level crawl to capture multi-repo activity"
     },
     "23": {
       "replace": true,
