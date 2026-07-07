@@ -110,6 +110,24 @@
       ],
       "note": "TrishoolAI curated repo set"
     },
+    "62": {
+      "replace": true,
+      "targets": [
+        {
+          "kind": "repository",
+          "url": "https://github.com/ridgesai/ridges"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/ridgesai/ridges-bench"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/ridgesai/sandbox-proxy"
+        }
+      ],
+      "note": "Ridges curated repo set"
+    },
     "64": {
       "replace": true,
       "targets": [
