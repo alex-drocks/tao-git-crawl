@@ -110,6 +110,16 @@
       ],
       "note": "TrishoolAI curated repo set"
     },
+    "61": {
+      "replace": true,
+      "targets": [
+        {
+          "kind": "owner",
+          "url": "https://github.com/RedTeamSubnet"
+        }
+      ],
+      "note": "RedTeamSubnet - requires owner-level crawl to capture multi-repo activity"
+    },
     "62": {
       "replace": true,
       "targets": [
