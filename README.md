@@ -38,14 +38,6 @@ By default, Compose publishes the API on `127.0.0.1:8080`, so it is reachable fr
 
 On hosts with legacy Compose, use `docker-compose build` and `docker-compose up -d`.
 
-Run the Docker API end-to-end test with:
-
-```bash
-TAO_GIT_CRAWL_DOCKER_E2E=1 python -m pytest tests/test_docker_e2e.py -q
-```
-
-The test builds the Docker image by default. Set `TAO_GIT_CRAWL_DOCKER_IMAGE=<image>` to test an existing image instead.
-
 Compose creates one named volume, `tao-data`, mounted at `/data`:
 
 - `/data/output`: resolver outputs and per-subnet crawl metrics.
@@ -63,8 +55,8 @@ Docker Compose environment:
 | `GITHUB_TOKEN` | required | GitHub personal access token |
 | `TAO_CRAWL_INTERVAL_SECONDS` | `86400` | Seconds between crawl runs |
 | `TAO_CRAWL_NETWORK` | `finney` | Bittensor network preset |
-| `TAO_CRAWL_OUTPUT_DIR` | `/data/output` | Output directory |
-| `TAO_CRAWL_CACHE_DIR` | `/data/cache` | Bare git mirror cache |
+| `TAO_CRAWL_OUTPUT_DIR` | `/data/output` | Fixed Compose container path for crawl output |
+| `TAO_CRAWL_CACHE_DIR` | `/data/cache` | Fixed Compose container path for the bare git mirror cache |
 | `TAO_CRAWL_INCREMENTAL` | `false` | Set `true` to use git-crawl incremental state instead of full-window outputs |
 | `TAO_CRAWL_STATE_DB` | `/data/state/db.sqlite` | SQLite state DB used only when `TAO_CRAWL_INCREMENTAL=true` |
 | `TAO_CRAWL_WORKERS` | `4` | Concurrent repo workers per subnet |
@@ -74,10 +66,10 @@ Docker Compose environment:
 | `TAO_CRAWL_REGISTRY_URL` | unset | Remote JSON override registry |
 | `TAO_CRAWL_REGISTRY` | unset | Local JSON override registry path in the container |
 | `TAO_CRAWL_CONFIG` | unset | Python config path in the container |
-| `TAO_CRAWL_LOG_DIR` | `/data/logs` | Per-run log directory |
+| `TAO_CRAWL_LOG_DIR` | `/data/logs` | Fixed Compose container path for per-run logs |
 | `TAO_CRAWL_RUN_ON_START` | `true` | Run immediately on container start |
-| `TAO_API_OUTPUT_DIR` | `/data/output` | Output directory served by the read-only API |
-| `TAO_API_HOST` | `0.0.0.0` | API bind host inside the container |
+| `TAO_API_OUTPUT_DIR` | `/data/output` | Fixed Compose container path served by the read-only API |
+| `TAO_API_HOST` | `0.0.0.0` | Fixed container bind host required for Docker port forwarding |
 | `TAO_API_BIND_HOST` | `127.0.0.1` | Host interface where Docker publishes the API |
 | `TAO_API_PORT` | `8080` | Host port for the API; container port stays `8080` |
 | `TAO_API_CORS_ORIGIN` | `*` | CORS origin for frontend requests |
@@ -85,6 +77,10 @@ Docker Compose environment:
 | `TAO_API_RATE_LIMIT_WINDOW_SECONDS` | `60` | API rate-limit window in seconds; set `0` to disable |
 
 For local registry or config files, mount the file into the container and set `TAO_CRAWL_REGISTRY` or `TAO_CRAWL_CONFIG` to that container path, for example `/data/registry.json`.
+
+Compose intentionally fixes its output, cache, log, and API input paths under the shared `/data` volume. Configure the
+host-facing API with `TAO_API_BIND_HOST` and `TAO_API_PORT`; do not change `TAO_API_HOST=0.0.0.0` inside the container,
+because Docker must be able to reach the API process before publishing it on the host's loopback interface.
 
 Docker scheduler runs use a trailing 365-day score/activity window by default: when `TAO_CRAWL_SINCE` is unset, each
 scheduled crawl computes `--since` from the current UTC date minus `TAO_CRAWL_WINDOW_DAYS`. Bare git mirrors still
@@ -146,12 +142,13 @@ When detailed rows are available, `/api/subnets/<netuid>/file-changes` returns c
 Each crawl writes `subnet-scores.json` plus `subnets/<netuid>/score.json`. The API also embeds the same score object in `/api/subnets`, `/api/subnets/<netuid>`, and `/api/subnets/<netuid>/summary`.
 Score outputs use schema version `tao-git-crawl-score-v3`.
 
-Scores first use raw global-max normalization per 365-day metric and per 30-day momentum sub-metric across the resolved
-subnet population for that crawl. For a full Finney crawl, that is the full regular subnet population. For `--netuid`,
-partial JSON exports, or otherwise filtered runs, `score`, `rank`, `rank_total`, and `percentile` are local to that
-subset and are not comparable to a full-network ranking. The weighted metric composite is then rescaled so the top
-subnet score is `100.00`; the pre-rescale value is retained as `composite_score` for inspection. Each score also
-includes `score_momentum`, a 0-100 frontend-friendly 30-day momentum score, plus `rank` and `rank_total` fields for
+Scores first use raw global-max normalization for metrics covering the selected crawl window and for 30-day momentum
+sub-metrics. Scheduled Docker crawls use a 365-day window by default, while manual `--since` and `--until` values can
+select a different period. For a full Finney crawl, the comparison population is the full regular subnet population.
+For `--netuid`, partial JSON exports, or otherwise filtered runs, `score`, `rank`, `rank_total`, and `percentile` are
+local to that subset and are not comparable to a full-network ranking. The weighted metric composite is then rescaled
+so the top subnet score is `100.00`; the pre-rescale value is retained as `composite_score` for inspection. Each score
+also includes `score_momentum`, a 0-100 frontend-friendly 30-day momentum score, plus `rank` and `rank_total` fields for
 frontend display, where rank `1` is the top subnet and equal scores share the same rank. Unresolved GitHub metadata,
 missing crawl output, failed crawls, and subnets with no crawlable repositories score `0`.
 `raw_metrics` contains source counts and 30-day momentum sub-metric counts; the derived 30-day display score is exposed
@@ -161,12 +158,12 @@ The weighted score is:
 
 | Metric | Weight |
 | ------ | ------ |
-| 365d Active days | `35%` |
-| 365d Credited file changes | `30%` |
+| Crawl-window active days | `35%` |
+| Crawl-window credited file changes | `30%` |
 | 30d Momentum | `15%` |
-| 365d Average credited commits per active day | `5%` |
-| 365d Credited lines added | `10%` |
-| 365d Distinct contributors | `5%` |
+| Crawl-window average credited commits per active day | `5%` |
+| Crawl-window credited lines added | `10%` |
+| Crawl-window distinct contributors | `5%` |
 
 The 30d momentum component is a nested score over credited activity authored in the final 30 days of the crawl window,
 using a half-open `[score_until - 30 days, score_until)` day range when the crawl has an explicit `history_until`.
@@ -203,6 +200,11 @@ The recommended default is same-server access:
 ```bash
 curl http://127.0.0.1:8080/api/subnets
 ```
+
+For a same-host consumer service, keep the Docker host binding on loopback and configure the consumer with the published
+API URL, such as `http://127.0.0.1:8080`. The stable aggregate integration endpoints are `/api/scores` and
+`/api/subnets`; the consumer does not need the crawler's `GITHUB_TOKEN`. If you set another `TAO_API_PORT`, use that
+host port in the consumer URL.
 
 To serve a public read-only API, keep Docker bound to `127.0.0.1` and put a reverse proxy such as Caddy, nginx, Traefik, or Cloudflare Tunnel in front of it. The API includes a generous in-memory guardrail of `1200` requests per `60` seconds per TCP peer and returns `429` with `Retry-After` when exceeded. This is enough to stop accidental or blunt direct abuse, but the proxy should still handle TLS, compression, caching, stricter public request limits, and any authentication or allowlists you want. Because Docker sees a reverse proxy as one peer, high-traffic public deployments should enforce request limits at the proxy and raise or disable the backend limit if needed. For browser frontends on another origin, set `TAO_API_CORS_ORIGIN` to that website origin, or leave the default `*` only when you intentionally want an open public API.
 
@@ -286,8 +288,41 @@ Use `--env-file path/to/.env` for another token file.
 Serve existing output locally:
 
 ```bash
-tao-git-crawl-api --output-dir out/tao-crawl --port 8080
+tao-git-crawl-api --host 127.0.0.1 --output-dir out/tao-crawl --port 8080
 ```
+
+The explicit loopback host keeps this unauthenticated development server off other network interfaces.
+
+## Development and Testing
+
+Install the development tools in an editable environment:
+
+```bash
+python3.12 -m pip install -e '.[dev]'
+```
+
+Add the `chain` extra as well when development or testing needs a live Bittensor endpoint:
+
+```bash
+python3.12 -m pip install -e '.[dev,chain]'
+```
+
+Run the regular verification checks with:
+
+```bash
+python -m pytest tests -q
+python -m ruff check tao_git_crawl tests
+python -m compileall -q tao_git_crawl
+python -m build
+```
+
+The Docker API end-to-end test is opt-in because it builds and starts a real container service:
+
+```bash
+TAO_GIT_CRAWL_DOCKER_E2E=1 python -m pytest tests/test_docker_e2e.py -q
+```
+
+The test builds the Docker image by default. Set `TAO_GIT_CRAWL_DOCKER_IMAGE=<image>` to test an existing image instead.
 
 ## Resolve Targets
 
