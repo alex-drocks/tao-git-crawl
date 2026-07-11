@@ -134,11 +134,14 @@ def test_docker_docs_and_compose_pass_documented_scheduler_environment():
     assert 'averages.per_active_day' in readme
     assert 'GET /api/subnets/<netuid>/score' in readme
     assert 'GET /api/scores' in readme
-    assert 'Average credited commits per active day' in readme
-    assert 'Credited file changes' in readme
+    assert 'Crawl-window average credited commits per active day' in readme
+    assert 'Crawl-window credited file changes' in readme
     assert 'trailing 365-day score/activity window by default' in readme
     assert 'rolling-window rankings' in readme
     assert 'TAO_CRAWL_INCREMENTAL=true' in readme
+    assert 'tao-git-crawl-api --host 127.0.0.1' in readme
+    assert 'do not change `TAO_API_HOST=0.0.0.0` inside the container' in readme
+    assert "python3.12 -m pip install -e '.[dev]'" in readme
 
 
 def test_docker_compose_uses_single_data_volume_for_persistent_paths():
