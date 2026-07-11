@@ -12,7 +12,7 @@ Move entries into a dated version section when cutting the next tag.
 
 ### Changed
 
-- Pin Docker and CI installs to the `git-crawl` `v0.3.1` release.
+- Require `git-crawl` 0.3.2 and pin Docker and CI installs to its `v0.3.2` release.
 
 ## [1.0.0] - 2026-05-29
 

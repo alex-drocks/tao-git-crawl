@@ -21,7 +21,7 @@ It is self-hosted. You provide the chain endpoint or JSON export, GitHub token, 
 
 Docker Compose is the main way to run `tao-git-crawl` as a scheduled crawler. The scheduler runs once on start, then repeats every 24 hours by default.
 
-Docker builds install `git-crawl` from `git+https://github.com/alex-drocks/git-crawl.git@v0.3.1` by default.
+Docker builds install `git-crawl` from `git+https://github.com/alex-drocks/git-crawl.git@v0.3.2` by default.
 
 ```bash
 cp .env.example .env
@@ -136,7 +136,7 @@ The normal API presents one canonical activity model: totals and averages are re
 `/api/subnets/<netuid>/summary` uses those same totals and exposes skipped noisy changes under `skipped`; raw crawl
 summary fields such as unfiltered churn totals remain implementation artifacts on disk. When `file_changes.jsonl` is
 available, the API recomputes activity from row-level changes so local artifact/data guardrails are applied consistently;
-otherwise it falls back to `git-crawl` v0.3.1 `activity.json` or filtered summary totals. These are git change metrics,
+otherwise it falls back to `git-crawl` v0.3.2 `activity.json` or filtered summary totals. These are git change metrics,
 not current source lines of code.
 
 When detailed rows are available, `/api/subnets/<netuid>/file-changes` returns code-change rows only and `/api/subnets/<netuid>/commits` returns only commits with credited code changes. Commit, file-change, repo-day, contributor-day, and org-day row payloads use the same public names as aggregate totals: `file_changes`, `lines_added`, and `lines_deleted`.

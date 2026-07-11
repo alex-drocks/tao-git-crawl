@@ -7,7 +7,7 @@ def test_runtime_dependencies_are_package_index_compatible_and_reference_git_cra
 
     dependencies = metadata['project']['dependencies']
 
-    assert 'git-crawl>=0.3.0' in dependencies
+    assert 'git-crawl>=0.3.2' in dependencies
     assert 'python-dotenv>=1.0,<2' in dependencies
     assert not any('git+' in dependency or ' @ http' in dependency for dependency in dependencies)
 
@@ -116,8 +116,8 @@ def test_docker_docs_and_compose_pass_documented_scheduler_environment():
         assert name in readme
         assert name in compose
 
-    assert 'git-crawl.git@v0.3.1' in dockerfile
-    assert 'git-crawl.git@v0.3.1' in compose
+    assert 'git-crawl.git@v0.3.2' in dockerfile
+    assert 'git-crawl.git@v0.3.2' in compose
     assert 'git-crawl.git@main' not in dockerfile
     assert 'git-crawl.git@main' not in compose
     assert 'COPY registry/ ./registry/' in dockerfile
@@ -127,7 +127,7 @@ def test_docker_docs_and_compose_pass_documented_scheduler_environment():
     assert '1200` requests per `60` seconds per TCP peer' in readme
     assert 'GET /api/subnets/<netuid>/activity' in readme
     assert 'one canonical activity model' in readme
-    assert 'falls back to `git-crawl` v0.3.1 `activity.json`' in readme
+    assert 'falls back to `git-crawl` v0.3.2 `activity.json`' in readme
     assert '`skipped`' in readme
     assert 'averages.per_active_day' in readme
     assert 'GET /api/subnets/<netuid>/score' in readme
