@@ -147,6 +147,28 @@
         }
       ],
       "note": "Chutes AI - requires owner-level crawl to capture multi-repo activity"
+    },
+    "100": {
+      "replace": true,
+      "targets": [
+        {
+          "kind": "repository",
+          "url": "https://github.com/BaseIntelligence/base"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/BaseIntelligence/prism"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/BaseIntelligence/relay"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/BaseIntelligence/agent-challenge"
+        }
+      ],
+      "note": "Base Intelligence curated repo set; activity spans multiple repos, not a single repo"
     }
   }
 }
