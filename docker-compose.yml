@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile
       args:
         # Pin git-crawl to a specific ref if desired.
-        GIT_CRAWL_URL: "git+https://github.com/alex-drocks/git-crawl.git@v0.3.0"
+        GIT_CRAWL_URL: "git+https://github.com/alex-drocks/git-crawl.git@v0.3.2"
     restart: unless-stopped
     environment:
       # Required — set in .env or inline.
@@ -50,7 +50,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        GIT_CRAWL_URL: "git+https://github.com/alex-drocks/git-crawl.git@v0.3.0"
+        GIT_CRAWL_URL: "git+https://github.com/alex-drocks/git-crawl.git@v0.3.2"
     restart: unless-stopped
     entrypoint: ["python", "-m", "tao_git_crawl.api"]
     environment:

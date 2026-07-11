@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from tao_git_crawl.providers import (
     JsonSubnetIdentityProvider,
     SubstrateSubnetIdentityProvider,
@@ -47,6 +49,15 @@ def test_json_provider_skips_root_network_netuid_zero(tmp_path):
     assert [(record.netuid, record.subnet_name) for record in records] == [(1, "Regular")]
     assert list(JsonSubnetIdentityProvider(path).fetch(netuids=[0])) == []
     assert list(JsonSubnetIdentityProvider(path).fetch(netuids=[129])) == []
+
+
+@pytest.mark.parametrize("netuid", [True, False, 1.5, "1.5", ""])
+def test_json_provider_rejects_non_integer_netuids(tmp_path, netuid):
+    path = tmp_path / "subnets.json"
+    path.write_text(json.dumps({"subnets": [{"netuid": netuid}]}), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="netuid must be an integer"):
+        list(JsonSubnetIdentityProvider(path).fetch())
 
 
 def test_decode_substrate_identity_decodes_scale_values_and_bytes():

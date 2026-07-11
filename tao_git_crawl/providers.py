@@ -103,12 +103,21 @@ def records_from_json_payload(payload: object) -> list[SubnetIdentityRecord]:
         if netuid is None:
             raise ValueError("Each subnet record must include netuid")
         identity = _identity_mapping_from_row(row)
-        records.append(SubnetIdentityRecord.from_mapping(int(netuid), identity))
+        records.append(SubnetIdentityRecord.from_mapping(_parse_json_netuid(netuid), identity))
     return records
 
 
 def is_regular_subnet_netuid(netuid: int) -> bool:
     return netuid != ROOT_NETUID and MIN_REGULAR_SUBNET_NETUID <= netuid <= MAX_REGULAR_SUBNET_NETUID
+
+
+def _parse_json_netuid(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int | str):
+        raise ValueError("Each subnet record netuid must be an integer")
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise ValueError("Each subnet record netuid must be an integer") from exc
 
 
 def _normalize_regular_subnet_netuid(netuid: object) -> int | None:

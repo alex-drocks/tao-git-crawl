@@ -166,6 +166,38 @@ def test_unsupported_github_subpath_is_not_truncated_to_repository_target():
     assert extract_github_targets(record) == []
 
 
+def test_percent_encoded_unsupported_github_subpath_is_not_truncated_to_repository_target():
+    record = SubnetIdentityRecord(
+        netuid=45,
+        description="Bug report lives at https://github.com/opentensor/subtensor/%69ssues/123",
+    )
+
+    assert extract_github_targets(record) == []
+
+
+def test_git_crawl_rejects_percent_encoded_unsupported_subpath_in_primary_field():
+    record = SubnetIdentityRecord(
+        netuid=45,
+        github_repo="https://github.com/opentensor/subtensor/%69ssues/123",
+    )
+
+    assert extract_github_targets(record) == []
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://[github.com/opentensor",
+        "https://github.com:notaport/opentensor",
+        "https://github.com:99999/opentensor",
+    ],
+)
+def test_malformed_github_owner_url_becomes_no_target(url):
+    record = SubnetIdentityRecord(netuid=45, github_repo=url)
+
+    assert extract_github_targets(record) == []
+
+
 def test_reserved_github_page_is_not_treated_as_owner_target():
     record = SubnetIdentityRecord(netuid=46, subnet_url="https://github.com/search?q=bittensor")
 

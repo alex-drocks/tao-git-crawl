@@ -24,6 +24,45 @@ from .registry import RegistryError, load_registry, resolver_config_from_registr
 from .resolver import resolve_subnets, write_resolution_outputs
 
 
+def _add_resolution_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--from-json", type=Path, help="read subnet identity records from a JSON fixture/export")
+    parser.add_argument(
+        "--network",
+        choices=sorted(DEFAULT_NETWORK_ENDPOINTS),
+        default=DEFAULT_NETWORK,
+        help="Bittensor network endpoint preset for live chain queries (default: finney)",
+    )
+    parser.add_argument("--endpoint", help=f"override live chain WebSocket endpoint (default: {DEFAULT_ENDPOINT})")
+    parser.add_argument(
+        "--netuid",
+        type=_regular_subnet_netuid,
+        action="append",
+        help=(
+            "limit resolution to one regular subnet netuid "
+            f"({MIN_REGULAR_SUBNET_NETUID}-{MAX_REGULAR_SUBNET_NETUID}); repeatable"
+        ),
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        help="user-owned Python config.py with DEFAULT_REPOSITORY_POLICY and SUBNET_OVERRIDES",
+    )
+    parser.add_argument(
+        "--registry",
+        type=Path,
+        help="local JSON registry file with subnet overrides (merged over built-in defaults)",
+    )
+    parser.add_argument(
+        "--registry-url",
+        help="remote URL of a JSON registry with subnet overrides (merged over built-in defaults)",
+    )
+    parser.add_argument(
+        "--repository-policy",
+        choices=["repository", "owner"],
+        help="how to treat exact repository links by default; 'owner' promotes repo links to owner crawls",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tao-git-crawl",
@@ -32,43 +71,8 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     resolve = subparsers.add_parser("resolve", help="resolve subnet GitHub links from JSON or live chain state")
-    resolve.add_argument("--from-json", type=Path, help="read subnet identity records from a JSON fixture/export")
-    resolve.add_argument(
-        "--network",
-        choices=sorted(DEFAULT_NETWORK_ENDPOINTS),
-        default=DEFAULT_NETWORK,
-        help="Bittensor network endpoint preset for live chain queries (default: finney)",
-    )
-    resolve.add_argument("--endpoint", help=f"override live chain WebSocket endpoint (default: {DEFAULT_ENDPOINT})")
-    resolve.add_argument(
-        "--netuid",
-        type=_regular_subnet_netuid,
-        action="append",
-        help=(
-            "limit resolution to one regular subnet netuid "
-            f"({MIN_REGULAR_SUBNET_NETUID}-{MAX_REGULAR_SUBNET_NETUID}); repeatable"
-        ),
-    )
+    _add_resolution_arguments(resolve)
     resolve.add_argument("--target", default="bittensor-subnets", help="target label for git-crawl manifest output")
-    resolve.add_argument(
-        "--config",
-        type=Path,
-        help="user-owned Python config.py with DEFAULT_REPOSITORY_POLICY and SUBNET_OVERRIDES",
-    )
-    resolve.add_argument(
-        "--registry",
-        type=Path,
-        help="local JSON registry file with subnet overrides (merged over built-in defaults)",
-    )
-    resolve.add_argument(
-        "--registry-url",
-        help="remote URL of a JSON registry with subnet overrides (merged over built-in defaults)",
-    )
-    resolve.add_argument(
-        "--repository-policy",
-        choices=["repository", "owner"],
-        help="how to treat exact repository links by default; 'owner' promotes repo links to owner crawls",
-    )
     resolve.add_argument(
         "--output-dir",
         type=Path,
@@ -77,43 +81,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     crawl = subparsers.add_parser("crawl", help="resolve and crawl subnet GitHub targets into per-subnet metrics")
-    crawl.add_argument("--from-json", type=Path, help="read subnet identity records from a JSON fixture/export")
-    crawl.add_argument(
-        "--network",
-        choices=sorted(DEFAULT_NETWORK_ENDPOINTS),
-        default=DEFAULT_NETWORK,
-        help="Bittensor network endpoint preset for live chain queries (default: finney)",
-    )
-    crawl.add_argument("--endpoint", help=f"override live chain WebSocket endpoint (default: {DEFAULT_ENDPOINT})")
-    crawl.add_argument(
-        "--netuid",
-        type=_regular_subnet_netuid,
-        action="append",
-        help=(
-            "limit resolution to one regular subnet netuid "
-            f"({MIN_REGULAR_SUBNET_NETUID}-{MAX_REGULAR_SUBNET_NETUID}); repeatable"
-        ),
-    )
+    _add_resolution_arguments(crawl)
     crawl.add_argument("--target", default="bittensor-subnets", help="target label for aggregate resolver output")
-    crawl.add_argument(
-        "--config",
-        type=Path,
-        help="user-owned Python config.py with DEFAULT_REPOSITORY_POLICY and SUBNET_OVERRIDES",
-    )
-    crawl.add_argument(
-        "--registry",
-        type=Path,
-        help="local JSON registry file with subnet overrides (merged over built-in defaults)",
-    )
-    crawl.add_argument(
-        "--registry-url",
-        help="remote URL of a JSON registry with subnet overrides (merged over built-in defaults)",
-    )
-    crawl.add_argument(
-        "--repository-policy",
-        choices=["repository", "owner"],
-        help="how to treat exact repository links by default; 'owner' promotes repo links to owner crawls",
-    )
     crawl.add_argument(
         "--output-dir",
         type=Path,

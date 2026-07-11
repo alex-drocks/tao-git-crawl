@@ -43,7 +43,7 @@ GITHUB_RESERVED_OWNER_PATHS = {
     "topics",
     "trending",
 }
-URL_LEFT_BOUNDARY = r"(?<![A-Za-z0-9._/@:-])"
+URL_LEFT_BOUNDARY = r"(?<![A-Za-z0-9._/@:%\[-])"
 OWNER_URL_RIGHT_BOUNDARY = r"(?![A-Za-z0-9_/-]|\.[A-Za-z0-9_/-])"
 REPOSITORY_URL_RE = re.compile(
     URL_LEFT_BOUNDARY +
@@ -55,7 +55,7 @@ REPOSITORY_URL_RE = re.compile(
     r"(?:(?:/(?:tree|blob|commit|releases)(?:/[^\s<>'\")]+)?)|/)?"
     r"(?:[?#][^\s<>'\")]+)?"
     r")"
-    r"(?![A-Za-z0-9._/-])"
+    r"(?![A-Za-z0-9._/%-])"
 )
 
 OWNER_URL_RE = re.compile(
@@ -240,7 +240,11 @@ def _parse_owner_root(candidate: str) -> str | None:
     candidate = candidate.strip().rstrip("/")
     if candidate.startswith("github.com/") or candidate.startswith("www.github.com/"):
         candidate = f"https://{candidate}"
-    parsed = urllib.parse.urlparse(candidate)
+    try:
+        parsed = urllib.parse.urlparse(candidate)
+        _ = parsed.port
+    except ValueError:
+        return None
     if (parsed.hostname or "").lower() != "github.com":
         return None
     path_parts = [part for part in parsed.path.strip("/").split("/") if part]

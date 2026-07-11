@@ -10,6 +10,18 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 Use this section for changes that have merged but have not been released yet.
 Move entries into a dated version section when cutting the next tag.
 
+## [1.0.1] - 2026-07-11
+
+### Changed
+
+- Require `git-crawl` 0.3.2 and pin Docker and CI installs to its `v0.3.2` release.
+
+### Fixed
+
+- Reject malformed GitHub owner URLs and percent-encoded unsupported repository routes instead of accepting truncated
+  targets or aborting subnet resolution.
+- Reject boolean and fractional JSON netuids instead of silently coercing them to the wrong subnet number.
+
 ## [1.0.0] - 2026-05-29
 
 ### Added
@@ -173,7 +185,8 @@ Move entries into a dated version section when cutting the next tag.
 
 - Keep local runtime state directories out of git and Docker build contexts.
 
-[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/alex-drocks/tao-git-crawl/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.7.1...v1.0.0
 [0.7.1]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.6.1...v0.7.0
