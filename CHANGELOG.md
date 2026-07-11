@@ -14,6 +14,12 @@ Move entries into a dated version section when cutting the next tag.
 
 - Require `git-crawl` 0.3.2 and pin Docker and CI installs to its `v0.3.2` release.
 
+### Fixed
+
+- Reject malformed GitHub owner URLs and percent-encoded unsupported repository routes instead of accepting truncated
+  targets or aborting subnet resolution.
+- Reject boolean and fractional JSON netuids instead of silently coercing them to the wrong subnet number.
+
 ## [1.0.0] - 2026-05-29
 
 ### Added
