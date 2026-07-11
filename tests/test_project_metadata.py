@@ -116,8 +116,8 @@ def test_docker_docs_and_compose_pass_documented_scheduler_environment():
         assert name in readme
         assert name in compose
 
-    assert 'git-crawl.git@v0.3.0' in dockerfile
-    assert 'git-crawl.git@v0.3.0' in compose
+    assert 'git-crawl.git@v0.3.1' in dockerfile
+    assert 'git-crawl.git@v0.3.1' in compose
     assert 'git-crawl.git@main' not in dockerfile
     assert 'git-crawl.git@main' not in compose
     assert 'COPY registry/ ./registry/' in dockerfile
@@ -127,7 +127,7 @@ def test_docker_docs_and_compose_pass_documented_scheduler_environment():
     assert '1200` requests per `60` seconds per TCP peer' in readme
     assert 'GET /api/subnets/<netuid>/activity' in readme
     assert 'one canonical activity model' in readme
-    assert 'falls back to `git-crawl` v0.3.0 `activity.json`' in readme
+    assert 'falls back to `git-crawl` v0.3.1 `activity.json`' in readme
     assert '`skipped`' in readme
     assert 'averages.per_active_day' in readme
     assert 'GET /api/subnets/<netuid>/score' in readme

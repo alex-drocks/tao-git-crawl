@@ -10,6 +10,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 Use this section for changes that have merged but have not been released yet.
 Move entries into a dated version section when cutting the next tag.
 
+### Changed
+
+- Pin Docker and CI installs to the `git-crawl` `v0.3.1` release.
+
 ## [1.0.0] - 2026-05-29
 
 ### Added
