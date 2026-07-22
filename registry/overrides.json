@@ -1,6 +1,6 @@
 {
   "schema_version": "tao-git-crawl-registry-v2",
-  "updated_at": "2026-05-29T16:19:01Z",
+  "updated_at": "2026-07-22T00:00:00Z",
   "overrides": {
     "2": {
       "replace": true,
@@ -59,6 +59,20 @@
         }
       ],
       "note": "Hone curated repo set; do not expand all manifold-inc repos"
+    },
+    "10": {
+      "replace": true,
+      "targets": [
+        {
+          "kind": "repository",
+          "url": "https://github.com/Pareton-ai/pareton"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/Pareton-ai/pareton-frontend"
+        }
+      ],
+      "note": "Cacheon curated repo set"
     },
     "14": {
       "replace": true,
