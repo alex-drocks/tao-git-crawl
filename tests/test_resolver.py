@@ -61,7 +61,6 @@ def test_subnet_override_can_replace_single_repo_identity_with_owner_crawl_targe
     config = ResolverConfig(
         subnet_overrides={
             64: SubnetOverride(
-                registered_at=4531295,
                 replace=True,
                 targets=(TargetOverride(kind="owner", url="https://github.com/chutesai"),),
             )
@@ -96,7 +95,6 @@ def test_replace_false_subnet_override_does_not_duplicate_identity_targets_as_fa
     config = ResolverConfig(
         subnet_overrides={
             64: SubnetOverride(
-                registered_at=4531295,
                 replace=False,
                 targets=(TargetOverride(kind="owner", url="https://github.com/chutesai"),),
             )
@@ -149,7 +147,6 @@ def test_resolution_outputs_include_per_subnet_manifests_for_company_scoped_craw
     config = ResolverConfig(
         subnet_overrides={
             64: SubnetOverride(
-                registered_at=4531295,
                 replace=True,
                 targets=(TargetOverride(kind="owner", url="https://github.com/chutesai"),),
             )
@@ -186,35 +183,3 @@ def test_resolution_outputs_include_per_subnet_manifests_for_company_scoped_craw
     assert fallback_rows == [
         ("repository", "chutesai/api", "github_repo")
     ]
-
-
-def test_recycled_subnet_ignores_override_bound_to_previous_registration():
-    record = SubnetIdentityRecord(
-        netuid=80,
-        registered_at=7000000,
-        subnet_name="OpenRoboto",
-        github_repo="https://github.com/openroboto-ai/openroboto-subnet",
-    )
-    config = ResolverConfig(
-        subnet_overrides={
-            80: SubnetOverride(
-                registered_at=6000000,
-                replace=True,
-                targets=(
-                    TargetOverride(
-                        kind="repository",
-                        url="https://github.com/previous-occupant/old-subnet",
-                    ),
-                ),
-            )
-        }
-    )
-
-    document = resolve_subnets([record], target_label="bittensor-subnets", config=config)
-
-    assert [target.repo_full_name for target in document.targets] == [
-        "openroboto-ai/openroboto-subnet"
-    ]
-    assert len(document.stale_overrides) == 1
-    assert document.stale_overrides[0].expected_registered_at == 6000000
-    assert document.stale_overrides[0].actual_registered_at == 7000000

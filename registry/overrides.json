@@ -1,9 +1,8 @@
 {
-  "schema_version": "tao-git-crawl-registry-v3",
+  "schema_version": "tao-git-crawl-registry-v2",
   "updated_at": "2026-07-29T00:00:00Z",
   "overrides": {
     "2": {
-      "registered_at": 2734060,
       "replace": true,
       "targets": [
         {
@@ -26,7 +25,6 @@
       "note": "curated repo set"
     },
     "4": {
-      "registered_at": 1411451,
       "replace": true,
       "targets": [
         {
@@ -45,7 +43,6 @@
       "note": "Targon curated repo set; do not expand all manifold-inc repos"
     },
     "5": {
-      "registered_at": 2491604,
       "replace": true,
       "targets": [
         {
@@ -64,7 +61,6 @@
       "note": "Hone curated repo set; do not expand all manifold-inc repos"
     },
     "10": {
-      "registered_at": 2869647,
       "replace": true,
       "targets": [
         {
@@ -79,7 +75,6 @@
       "note": "Pareton curated repo set"
     },
     "14": {
-      "registered_at": 4848444,
       "replace": true,
       "targets": [
         {
@@ -93,8 +88,7 @@
       ],
       "note": "Cacheon curated repo set"
     },
-    "22":{
-      "registered_at": 2009702,
+    "22": {
       "replace": true,
       "targets": [
         {
@@ -105,7 +99,6 @@
       "note": "requires owner-level crawl to capture multi-repo activity"
     },
     "23": {
-      "registered_at": 2063528,
       "replace": true,
       "targets": [
         {
@@ -132,7 +125,6 @@
       "note": "TrishoolAI curated repo set"
     },
     "61": {
-      "registered_at": 4457976,
       "replace": true,
       "targets": [
         {
@@ -143,7 +135,6 @@
       "note": "RedTeamSubnet - requires owner-level crawl to capture multi-repo activity"
     },
     "62": {
-      "registered_at": 4474225,
       "replace": true,
       "targets": [
         {
@@ -162,7 +153,6 @@
       "note": "Ridges curated repo set"
     },
     "64": {
-      "registered_at": 4531295,
       "replace": true,
       "targets": [
         {
@@ -173,7 +163,6 @@
       "note": "Chutes AI - requires owner-level crawl to capture multi-repo activity"
     },
     "100": {
-      "registered_at": 6693448,
       "replace": true,
       "targets": [
         {

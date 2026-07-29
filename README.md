@@ -385,9 +385,9 @@ tao-git-crawl resolve \
   --output-dir out/tao
 ```
 
-For authoritative lifecycle separation and registration-bound overrides, each JSON row passed to `crawl` must include
-the positive top-level `registered_at` block from `NetworkRegisteredAt`; crawling fails closed when it is absent.
-The read-only `resolve` command can still inspect rows without it, but registration-bound overrides are ignored.
+For authoritative crawl-history lifecycle separation, each JSON row passed to `crawl` must include the positive
+top-level `registered_at` block from `NetworkRegisteredAt`; crawling fails closed when it is absent. The read-only
+`resolve` command can still inspect rows without it.
 JSON inputs are not assumed to be a full active-network snapshot, so omitted netuids are not archived as deregistered.
 
 The default Finney endpoint is `wss://entrypoint-finney.opentensor.ai:443`. Use `--endpoint` for a self-hosted or archive node.
@@ -456,14 +456,17 @@ Use overrides when on-chain metadata points at the wrong GitHub scope.
 The built-in registry is tracked at `registry/overrides.json` so subnet teams can open PRs to update their own target
 scope. Prefer exact `repository` targets unless the whole GitHub account is intentionally dedicated to one subnet.
 
+Contributors only add or edit targets in `registry/overrides.json` and open a PR. No lifecycle block or helper command is
+required. Registry entries are maintained manually; if a netuid is recycled, its old override must be reviewed, updated,
+or removed.
+
 Registry JSON:
 
 ```json
 {
-  "schema_version": "tao-git-crawl-registry-v3",
+  "schema_version": "tao-git-crawl-registry-v2",
   "overrides": {
     "4": {
-      "registered_at": 1411451,
       "replace": true,
       "targets": [
         {"kind": "repository", "url": "https://github.com/manifold-inc/targon"},
@@ -483,7 +486,6 @@ DEFAULT_REPOSITORY_POLICY = "repository"
 
 SUBNET_OVERRIDES = {
     99: {
-        "registered_at": 1234567,
         "replace": True,
         "targets": [
             {"kind": "owner", "url": "https://github.com/RendixNetwork"},
@@ -503,10 +505,9 @@ tao-git-crawl crawl \
   --since 2026-01-01
 ```
 
-Every registry or Python-config override must include the current positive `NetworkRegisteredAt` block. The resolver
-ignores an override when its block does not equal the live subnet's block and records it under `stale_overrides` in
-`subnet-targets.json`. This deliberately makes every netuid-keyed override expire on recycle. Registry v2 files are
-rejected rather than silently applying unbound overrides.
+Override definitions do not support `registered_at`. They are intentionally simple, manually maintained target mappings
+keyed by netuid. The separate identity-epoch system still uses live `NetworkRegisteredAt` values to quarantine crawl
+history when a subnet is recycled, but it does not automatically rewrite or disable registry entries.
 
 Override order is built-in registry, optional `--registry-url`, optional `--registry`, then `--config`. Later sources win.
 

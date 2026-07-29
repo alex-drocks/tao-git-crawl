@@ -8,7 +8,7 @@ from typing import Any
 
 from .overrides import ResolverConfig, SubnetOverride, TargetOverride
 
-DEFAULT_REGISTRY_SCHEMA_VERSION = "tao-git-crawl-registry-v3"
+DEFAULT_REGISTRY_SCHEMA_VERSION = "tao-git-crawl-registry-v2"
 DEFAULT_REGISTRY_CACHE_TTL_SECONDS = 3600  # 1 hour
 DEFAULT_REGISTRY_REPO_PATH = Path(__file__).resolve().parents[1] / "registry" / "overrides.json"
 PACKAGED_DEFAULT_REGISTRY_PATH = Path(__file__).with_name("registry_overrides.json")
@@ -123,8 +123,9 @@ def parse_registry_json(text: str) -> Registry:
 def _parse_registry_subnet_override(netuid_key: str, value: Any) -> SubnetOverride:
     if not isinstance(value, dict):
         raise RegistryError(f"override for netuid {netuid_key} must be a JSON object")
+    if "registered_at" in value:
+        raise RegistryError(f"override for netuid {netuid_key}: 'registered_at' is not supported")
     replace = _parse_registry_replace(netuid_key, value.get("replace", True))
-    registered_at = _parse_registry_registered_at(netuid_key, value.get("registered_at"))
     raw_targets = value.get("targets", [])
     if not isinstance(raw_targets, list):
         raise RegistryError(f"override for netuid {netuid_key}: 'targets' must be a list")
@@ -136,7 +137,7 @@ def _parse_registry_subnet_override(netuid_key: str, value: Any) -> SubnetOverri
             raise
         except Exception as exc:
             raise RegistryError(f"override for netuid {netuid_key}: target at index {idx}: {exc}") from exc
-    return SubnetOverride(registered_at=registered_at, targets=tuple(targets), replace=replace)
+    return SubnetOverride(targets=tuple(targets), replace=replace)
 
 
 def _parse_registry_target_override(netuid_key: str, idx: int, item: Any) -> TargetOverride:
@@ -165,22 +166,6 @@ def _parse_registry_replace(netuid_key: str, value: Any) -> bool:
     raise RegistryError(f"override for netuid {netuid_key}: 'replace' must be a boolean")
 
 
-def _parse_registry_registered_at(netuid_key: str, value: Any) -> int:
-    if isinstance(value, int) and not isinstance(value, bool):
-        registered_at = value
-    elif isinstance(value, str) and value.strip().isdigit():
-        registered_at = int(value.strip())
-    else:
-        raise RegistryError(
-            f"override for netuid {netuid_key}: 'registered_at' must be a positive integer"
-        )
-    if registered_at <= 0:
-        raise RegistryError(
-            f"override for netuid {netuid_key}: 'registered_at' must be a positive integer"
-        )
-    return registered_at
-
-
 def _fetch_url_text(url: str) -> str:
     import urllib.request
 
@@ -198,9 +183,7 @@ def merge_registries(base: Registry, *others: Registry) -> Registry:
     for other in others:
         merged_overrides.update(other.overrides)
         if other.raw:
-            merged_raw.update(
-                {k: v for k, v in other.raw.items() if k != "overrides"}
-            )
+            merged_raw.update({k: v for k, v in other.raw.items() if k != "overrides"})
             merged_overrides_raw = dict(merged_raw.get("overrides", {}))
             merged_overrides_raw.update(other.raw.get("overrides", {}))
             merged_raw["overrides"] = merged_overrides_raw

@@ -32,17 +32,8 @@ class TargetOverride:
 
 @dataclass(frozen=True)
 class SubnetOverride:
-    registered_at: int
     targets: tuple[TargetOverride, ...] = ()
     replace: bool = True
-
-    def __post_init__(self) -> None:
-        if (
-            isinstance(self.registered_at, bool)
-            or not isinstance(self.registered_at, int)
-            or self.registered_at <= 0
-        ):
-            raise ResolverConfigError("subnet override registered_at must be a positive integer")
 
 
 @dataclass(frozen=True)
@@ -123,18 +114,16 @@ def _parse_subnet_override(value: object) -> SubnetOverride:
     if isinstance(value, SubnetOverride):
         return value
     if isinstance(value, list | tuple):
-        raise ResolverConfigError(
-            "subnet override list shorthand is unsafe; use a dict with registered_at and targets"
-        )
+        return SubnetOverride(targets=tuple(_parse_target_override(item) for item in value), replace=True)
     if not isinstance(value, dict):
         raise ResolverConfigError("each subnet override must be a dict, list of targets, or SubnetOverride")
+    if "registered_at" in value:
+        raise ResolverConfigError("subnet override 'registered_at' is not supported")
     replace = _parse_replace(value.get("replace", True))
-    registered_at = _parse_registered_at(value.get("registered_at"))
     raw_targets = value.get("targets", [])
     if not isinstance(raw_targets, list | tuple):
         raise ResolverConfigError("subnet override 'targets' must be a list")
     return SubnetOverride(
-        registered_at=registered_at,
         targets=tuple(_parse_target_override(item) for item in raw_targets),
         replace=replace,
     )
@@ -165,15 +154,3 @@ def _parse_replace(value: object) -> bool:
     if isinstance(value, bool):
         return value
     raise ResolverConfigError("subnet override 'replace' must be a boolean")
-
-
-def _parse_registered_at(value: object) -> int:
-    if isinstance(value, int) and not isinstance(value, bool):
-        parsed = value
-    elif isinstance(value, str) and value.strip().isdigit():
-        parsed = int(value.strip())
-    else:
-        raise ResolverConfigError("subnet override 'registered_at' must be a positive integer")
-    if parsed <= 0:
-        raise ResolverConfigError("subnet override 'registered_at' must be a positive integer")
-    return parsed

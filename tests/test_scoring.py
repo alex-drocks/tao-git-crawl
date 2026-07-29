@@ -235,6 +235,56 @@ def test_shared_upstream_target_cannot_receive_subnet_score(tmp_path):
     assert "blocked upstream GitHub owner RaoFoundation" in score["reason"]
 
 
+def test_valid_target_still_scores_when_blocked_target_was_skipped(tmp_path):
+    document = resolve_subnets(
+        [
+            SubnetIdentityRecord(
+                netuid=80,
+                registered_at=7000000,
+                github_repo=(
+                    "https://github.com/acme/current "
+                    "https://github.com/opentensor/subtensor"
+                ),
+            )
+        ],
+        target_label="bittensor-subnets",
+    )
+    crawl_dir = _write_summary(
+        tmp_path,
+        80,
+        repos_crawled=1,
+        file_changes=3,
+        lines_added=30,
+    )
+    _write_activity(
+        crawl_dir,
+        commits=2,
+        file_changes=3,
+        lines_added=30,
+        active_days=2,
+        distinct_contributors=1,
+    )
+    (tmp_path / "crawl-report.json").write_text(
+        json.dumps(
+            {
+                "succeeded": [{"netuid": 80}],
+                "failed": [],
+                "skipped_inaccessible": [],
+                "skipped_attribution": [
+                    {"netuid": 80, "reason": "blocked upstream target skipped"}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    [score] = build_score_document(document, tmp_path)["scores"]
+
+    assert score["status"] == "scored"
+    assert score["score"] == 100.0
+    assert score["raw_metrics"]["credited_file_changes"] == 3.0
+
+
 def test_score_builds_30d_momentum_from_recent_credited_rows(tmp_path):
     document = resolve_subnets(
         [SubnetIdentityRecord(netuid=1, subnet_name="Current", github_repo="https://github.com/acme/current")],

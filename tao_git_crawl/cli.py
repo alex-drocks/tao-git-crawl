@@ -21,7 +21,11 @@ from .providers import (
     JsonSubnetIdentityProvider,
     SubstrateSubnetIdentityProvider,
 )
-from .registry import RegistryError, load_registry, resolver_config_from_registry
+from .registry import (
+    RegistryError,
+    load_registry,
+    resolver_config_from_registry,
+)
 from .resolver import resolve_subnets, write_resolution_outputs
 
 
@@ -158,6 +162,7 @@ def build_parser() -> argparse.ArgumentParser:
             "'source_like' excludes generated/lockfile/spec/vendored files (default)"
         ),
     )
+
     return parser
 
 
@@ -188,8 +193,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"{len(document.owner_targets)} owner targets, "
             f"{len(document.unresolved)} unresolved subnet records."
         )
-        if document.stale_overrides:
-            print(f"Ignored {len(document.stale_overrides)} stale registration-bound overrides.")
         for path in written:
             print(path)
         return 0
@@ -252,8 +255,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         if identity_events:
             print(f"Archived {len(identity_events)} stale subnet identity histories.")
-        if document.stale_overrides:
-            print(f"Ignored {len(document.stale_overrides)} stale registration-bound overrides.")
         for path in written:
             print(path)
         report_path = getattr(report, "report_path", None)

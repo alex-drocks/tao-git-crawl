@@ -36,8 +36,9 @@ def test_changelog_is_ready_for_release_notes_and_packaged_in_sdist():
     metadata = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))
     changelog = Path('CHANGELOG.md').read_text(encoding='utf-8')
 
-    assert metadata['project']['version'] == '1.0.1'
+    assert metadata['project']['version'] == '2.0.0'
     assert '## [Unreleased]' in changelog
+    assert '## [2.0.0] - 2026-07-29' in changelog
     assert '## [1.0.1] - 2026-07-11' in changelog
     assert '## [1.0.0] - 2026-05-29' in changelog
     assert '## [0.7.1] - 2026-05-26' in changelog
@@ -50,7 +51,8 @@ def test_changelog_is_ready_for_release_notes_and_packaged_in_sdist():
     assert '## [0.2.0] - 2026-05-22' in changelog
     assert '## [0.1.1] - 2026-05-22' in changelog
     assert '## [0.1.0] - 2026-05-22' in changelog
-    assert '[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v1.0.1...HEAD' in changelog
+    assert '[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v2.0.0...HEAD' in changelog
+    assert '[2.0.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v1.0.1...v2.0.0' in changelog
     assert '[1.0.1]: https://github.com/alex-drocks/tao-git-crawl/compare/v1.0.0...v1.0.1' in changelog
     assert '[1.0.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.7.1...v1.0.0' in changelog
     assert '[0.7.1]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.7.0...v0.7.1' in changelog
@@ -86,6 +88,7 @@ def test_readme_manual_override_and_per_subnet_commands_match_cli_behavior():
     assert "SN64's `repository-manifest.json` is intentionally empty" in readme
     assert 'out/tao/subnets/99/repository-manifest.json' in readme
     assert 'https://github.com/RendixNetwork' in readme
+    assert 'No lifecycle block or helper command is' in readme
     assert 'https://github.com/opentensor"},' not in readme
     assert 'out/tao/subnets/64/repository-manifest.json' not in readme
 

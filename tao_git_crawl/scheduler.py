@@ -221,6 +221,14 @@ def _run_crawl_with_identity_guard(
     for attempt in range(1, MAX_IDENTITY_GUARD_RUNS + 1):
         exit_code = run_crawl(log_dir)
         observed_after = _fetch_live_identity_fingerprint_safely()
+        if exit_code != 0:
+            reason = (
+                f"guarded crawl exited with status {exit_code}; "
+                "score publication is disabled until a successful crawl completes"
+            )
+            logger.error(reason)
+            _write_identity_guard_failure(reason)
+            return exit_code, observed_after if observed_after is not None else before
         if observed_after is None or before is None or observed_after == before:
             return exit_code, observed_after if observed_after is not None else before
         after = observed_after

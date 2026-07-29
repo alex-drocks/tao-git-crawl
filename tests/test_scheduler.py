@@ -277,6 +277,30 @@ class TestIdentityChangeDetection:
         assert sentinel["status"] == "failed"
         assert "changed during every bounded reconciliation crawl" in sentinel["reason"]
 
+    def test_failed_guarded_crawl_fails_closed_when_identity_is_stable(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        fingerprint = ((80, 7000000, "Current", ("acme/current", "", "", "", "")),)
+        output_dir = tmp_path / "output"
+        monkeypatch.setenv("TAO_CRAWL_OUTPUT_DIR", str(output_dir))
+        monkeypatch.setattr("tao_git_crawl.scheduler.run_crawl", lambda log_dir: 1)
+        monkeypatch.setattr(
+            "tao_git_crawl.scheduler._fetch_live_identity_fingerprint_safely",
+            lambda: fingerprint,
+        )
+
+        exit_code, observed = _run_crawl_with_identity_guard(tmp_path, fingerprint)
+
+        assert exit_code == 1
+        assert observed == fingerprint
+        sentinel = json.loads(
+            (output_dir / "identity-reconciliation.json").read_text(encoding="utf-8")
+        )
+        assert sentinel["status"] == "failed"
+        assert "guarded crawl exited with status 1" in sentinel["reason"]
+
 
 class TestHealthcheck:
     def test_passes_when_writable(self, tmp_path, monkeypatch, capsys):

@@ -13,22 +13,6 @@ RESOLUTION_SCHEMA_VERSION = "tao-git-crawl-resolution-v3"
 
 
 @dataclass(frozen=True)
-class StaleSubnetOverride:
-    netuid: int
-    expected_registered_at: int
-    actual_registered_at: int | None
-    reason: str
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "netuid": self.netuid,
-            "expected_registered_at": self.expected_registered_at,
-            "actual_registered_at": self.actual_registered_at,
-            "reason": self.reason,
-        }
-
-
-@dataclass(frozen=True)
 class ResolutionDocument:
     target_label: str
     targets: list[GitHubTarget]
@@ -36,7 +20,6 @@ class ResolutionDocument:
     schema_version: str = RESOLUTION_SCHEMA_VERSION
     fallback_targets: list[GitHubTarget] = field(default_factory=list)
     identity_epochs: dict[int, str] = field(default_factory=dict)
-    stale_overrides: list[StaleSubnetOverride] = field(default_factory=list)
 
     @property
     def repository_targets(self) -> list[GitHubTarget]:
@@ -83,7 +66,6 @@ class ResolutionDocument:
             identity_epochs=(
                 {netuid: self.identity_epochs[netuid]} if netuid in self.identity_epochs else {}
             ),
-            stale_overrides=[item for item in self.stale_overrides if item.netuid == netuid],
         )
 
     def identity_epoch_for_netuid(self, netuid: int) -> str | None:
@@ -98,7 +80,6 @@ class ResolutionDocument:
             "identity_epochs": {
                 str(netuid): epoch_id for netuid, epoch_id in sorted(self.identity_epochs.items())
             },
-            "stale_overrides": [item.to_dict() for item in self.stale_overrides],
             "unresolved": [item.to_dict() for item in self.unresolved],
             "git_crawl_repository_manifest": self.git_crawl_repository_manifest,
         }
@@ -115,19 +96,16 @@ def resolve_subnets(
     fallback_targets: list[GitHubTarget] = []
     unresolved: list[UnresolvedSubnetRecord] = []
     identity_epochs: dict[int, str] = {}
-    stale_overrides: list[StaleSubnetOverride] = []
     for record in records:
         identity_epochs[record.netuid] = identity_epoch(record).epoch_id
         identity_targets = extract_github_targets(record)
         identity_targets = _apply_repository_policy(identity_targets, resolver_config.default_repository_policy)
         identity_targets = _dedupe_targets(identity_targets)
-        record_targets, record_fallback_targets, stale_override = _apply_manual_override(
+        record_targets, record_fallback_targets = _apply_manual_override(
             record,
             identity_targets,
             resolver_config,
         )
-        if stale_override is not None:
-            stale_overrides.append(stale_override)
         record_targets = _dedupe_targets(record_targets)
         record_fallback_targets = _dedupe_targets(record_fallback_targets)
         if record_targets:
@@ -151,7 +129,6 @@ def resolve_subnets(
         unresolved=unresolved,
         fallback_targets=fallback_targets,
         identity_epochs=identity_epochs,
-        stale_overrides=stale_overrides,
     )
 
 
@@ -212,24 +189,10 @@ def _apply_manual_override(
     record: SubnetIdentityRecord,
     targets: list[GitHubTarget],
     config: ResolverConfig,
-) -> tuple[list[GitHubTarget], list[GitHubTarget], StaleSubnetOverride | None]:
+) -> tuple[list[GitHubTarget], list[GitHubTarget]]:
     override = config.subnet_overrides.get(record.netuid)
     if override is None:
-        return targets, [], None
-    if override.registered_at != record.registered_at:
-        return (
-            targets,
-            [],
-            StaleSubnetOverride(
-                netuid=record.netuid,
-                expected_registered_at=override.registered_at,
-                actual_registered_at=record.registered_at,
-                reason=(
-                    "registry/config override registration does not match the current subnet lifecycle; "
-                    "override ignored"
-                ),
-            ),
-        )
+        return targets, []
     override_targets = [
         manual_github_target_from_url(
             record,
@@ -240,8 +203,8 @@ def _apply_manual_override(
     ]
     if override.replace:
         fallback_targets = targets if targets and override_targets else []
-        return override_targets, fallback_targets, None
-    return [*targets, *override_targets], [], None
+        return override_targets, fallback_targets
+    return [*targets, *override_targets], []
 
 
 def _dedupe_targets(targets: list[GitHubTarget]) -> list[GitHubTarget]:

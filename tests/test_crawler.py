@@ -307,7 +307,6 @@ def test_replace_override_primary_success_does_not_attempt_fallback(monkeypatch,
         config=ResolverConfig(
             subnet_overrides={
                 23: SubnetOverride(
-                    registered_at=2300,
                     replace=True,
                     targets=(TargetOverride(kind="repository", url="https://github.com/manual/repo"),),
                 )
@@ -355,7 +354,6 @@ def test_replace_override_404_primary_falls_back_to_identity_target(monkeypatch,
         config=ResolverConfig(
             subnet_overrides={
                 23: SubnetOverride(
-                    registered_at=2300,
                     replace=True,
                     targets=(TargetOverride(kind="repository", url="https://github.com/manual/missing"),),
                 )
@@ -412,7 +410,6 @@ def test_replace_override_404_primary_and_404_fallback_keep_inaccessible_skip(mo
         config=ResolverConfig(
             subnet_overrides={
                 23: SubnetOverride(
-                    registered_at=2300,
                     replace=True,
                     targets=(TargetOverride(kind="repository", url="https://github.com/manual/missing"),),
                 )
@@ -450,7 +447,6 @@ def test_replace_override_non_404_primary_error_does_not_attempt_fallback(monkey
         config=ResolverConfig(
             subnet_overrides={
                 23: SubnetOverride(
-                    registered_at=2300,
                     replace=True,
                     targets=(TargetOverride(kind="repository", url="https://github.com/manual/error"),),
                 )
@@ -487,7 +483,6 @@ def test_replace_override_mixed_primary_success_and_404_does_not_attempt_fallbac
         config=ResolverConfig(
             subnet_overrides={
                 23: SubnetOverride(
-                    registered_at=2300,
                     replace=True,
                     targets=(
                         TargetOverride(kind="repository", url="https://github.com/manual/good"),
@@ -623,7 +618,6 @@ def test_crawl_resolved_subnets_does_not_fetch_owner_targets_after_max_repos_is_
         config=ResolverConfig(
             subnet_overrides={
                 64: SubnetOverride(
-                    registered_at=6400,
                     replace=False,
                     targets=(TargetOverride(kind="owner", url="https://github.com/chutesai"),),
                 )
@@ -718,7 +712,6 @@ def test_owner_fetch_max_repos_counts_unique_repositories_after_explicit_repo_ov
         config=ResolverConfig(
             subnet_overrides={
                 64: SubnetOverride(
-                    registered_at=6400,
                     replace=False,
                     targets=(TargetOverride(kind="owner", url="https://github.com/chutesai"),),
                 )
@@ -816,7 +809,6 @@ def test_owner_fetch_still_runs_when_exact_repo_is_excluded_by_crawl_filters(mon
         config=ResolverConfig(
             subnet_overrides={
                 78: SubnetOverride(
-                    registered_at=7800,
                     replace=False,
                     targets=(TargetOverride(kind="owner", url="https://github.com/acme"),),
                 )

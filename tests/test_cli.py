@@ -80,7 +80,6 @@ def test_resolve_cli_applies_config_py_subnet_overrides_and_writes_split_subnet_
 DEFAULT_REPOSITORY_POLICY = "repository"
 SUBNET_OVERRIDES = {
     64: {
-        "registered_at": 4531295,
         "replace": True,
         "targets": [
             {"kind": "owner", "url": "https://github.com/chutesai"},

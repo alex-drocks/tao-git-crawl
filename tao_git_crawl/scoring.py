@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .activity_filter import is_noise_change
-from .attribution import targets_attribution_rejection
+from .attribution import target_attribution_rejection, targets_attribution_rejection
 from .resolver import ResolutionDocument
 
 SCORE_SCHEMA_VERSION = "tao-git-crawl-score-v3"
@@ -167,7 +167,13 @@ def _score_input_for_netuid(
 ) -> SubnetScoreInput:
     subnet_document = document.for_netuid(netuid)
     attribution_rejection = targets_attribution_rejection(subnet_document.targets)
-    if attribution_rejection is not None:
+    all_targets_rejected = bool(subnet_document.targets) and all(
+        target_attribution_rejection(target) is not None
+        for target in subnet_document.targets
+    )
+    if attribution_rejection is not None and (
+        all_targets_rejected or report_state is None
+    ):
         return SubnetScoreInput(
             netuid=netuid,
             status="attribution_rejected",
