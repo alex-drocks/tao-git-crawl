@@ -23,11 +23,13 @@ GOOD_REGISTRY = {
     "updated_at": "2026-05-17T00:00:00Z",
     "overrides": {
         "64": {
+            "registered_at": 4531295,
             "replace": True,
             "targets": [{"kind": "owner", "url": "https://github.com/chutesai"}],
             "note": "Chutes",
         },
         "1": {
+            "registered_at": 1001,
             "replace": False,
             "targets": [
                 {"kind": "repository", "url": "https://github.com/alice/api"},
@@ -44,12 +46,14 @@ def test_parse_registry_json_valid():
     assert 1 in registry.overrides
 
     override_64 = registry.overrides[64]
+    assert override_64.registered_at == 4531295
     assert override_64.replace is True
     assert override_64.targets == (
         TargetOverride(kind="owner", url="https://github.com/chutesai"),
     )
 
     override_1 = registry.overrides[1]
+    assert override_1.registered_at == 1001
     assert override_1.replace is False
     assert override_1.targets == (
         TargetOverride(kind="repository", url="https://github.com/alice/api"),
@@ -66,6 +70,46 @@ def test_parse_registry_json_bad_version():
         parse_registry_json(json.dumps({"schema_version": "v2", "overrides": {}}))
 
 
+def test_parse_registry_json_rejects_v2_and_unbound_overrides():
+    with pytest.raises(RegistryError, match="unsupported registry schema"):
+        parse_registry_json(
+            json.dumps({"schema_version": "tao-git-crawl-registry-v2", "overrides": {}})
+        )
+    with pytest.raises(RegistryError, match="registered_at"):
+        parse_registry_json(
+            json.dumps(
+                {
+                    "schema_version": DEFAULT_REGISTRY_SCHEMA_VERSION,
+                    "overrides": {
+                        "64": {
+                            "targets": [
+                                {"kind": "owner", "url": "https://github.com/chutesai"}
+                            ]
+                        }
+                    },
+                }
+            )
+        )
+
+
+@pytest.mark.parametrize("registered_at", [True, False, 0, -1, 1.5, "1.5", ""])
+def test_parse_registry_json_rejects_invalid_registration_binding(registered_at):
+    with pytest.raises(RegistryError, match="registered_at"):
+        parse_registry_json(
+            json.dumps(
+                {
+                    "schema_version": DEFAULT_REGISTRY_SCHEMA_VERSION,
+                    "overrides": {
+                        "64": {
+                            "registered_at": registered_at,
+                            "targets": [
+                                {"kind": "owner", "url": "https://github.com/chutesai"}
+                            ],
+                        }
+                    },
+                }
+            )
+        )
 def test_parse_registry_json_invalid_json():
     with pytest.raises(RegistryError, match="invalid JSON"):
         parse_registry_json("not json")
@@ -82,7 +126,7 @@ def test_parse_registry_json_bad_netuid_key():
             json.dumps(
                 {
                     "schema_version": DEFAULT_REGISTRY_SCHEMA_VERSION,
-                    "overrides": {"abc": {"targets": []}},
+                    "overrides": {"abc": {"registered_at": 1, "targets": []}},
                 }
             )
         )
@@ -95,7 +139,10 @@ def test_parse_registry_json_bad_target_kind():
                 {
                     "schema_version": DEFAULT_REGISTRY_SCHEMA_VERSION,
                     "overrides": {
-                        "64": {"targets": [{"kind": "other", "url": "https://github.com/x"}]}
+                        "64": {
+                            "registered_at": 4531295,
+                            "targets": [{"kind": "other", "url": "https://github.com/x"}],
+                        }
                     },
                 }
             )
@@ -109,7 +156,7 @@ def test_parse_registry_json_missing_url():
                 {
                     "schema_version": DEFAULT_REGISTRY_SCHEMA_VERSION,
                     "overrides": {
-                        "64": {"targets": [{"kind": "owner"}]}
+                        "64": {"registered_at": 4531295, "targets": [{"kind": "owner"}]}
                     },
                 }
             )
@@ -123,7 +170,12 @@ def test_parse_registry_json_rejects_confidence():
                 {
                     "schema_version": DEFAULT_REGISTRY_SCHEMA_VERSION,
                     "overrides": {
-                        "64": {"targets": [{"kind": "owner", "url": "https://github.com/x", "confidence": "mega"}]}
+                        "64": {
+                            "registered_at": 4531295,
+                            "targets": [
+                                {"kind": "owner", "url": "https://github.com/x", "confidence": "mega"}
+                            ],
+                        }
                     },
                 }
             )
@@ -143,6 +195,7 @@ def test_parse_registry_json_rejects_non_boolean_replace():
                     "schema_version": DEFAULT_REGISTRY_SCHEMA_VERSION,
                     "overrides": {
                         "64": {
+                            "registered_at": 4531295,
                             "replace": "false",
                             "targets": [{"kind": "owner", "url": "https://github.com/chutesai"}],
                         }
@@ -185,10 +238,12 @@ def test_merge_registries():
                 "schema_version": DEFAULT_REGISTRY_SCHEMA_VERSION,
                 "overrides": {
                     "64": {
+                        "registered_at": 4531295,
                         "replace": False,
                         "targets": [{"kind": "owner", "url": "https://github.com/chutesai-v2"}],
                     },
                     "99": {
+                        "registered_at": 9999,
                         "replace": True,
                         "targets": [{"kind": "owner", "url": "https://github.com/acme"}],
                     },
@@ -241,6 +296,8 @@ def test_built_in_registry_is_tracked_json_file():
     registry = load_built_in_registry()
 
     for raw_override in registry.raw["overrides"].values():
+        assert isinstance(raw_override["registered_at"], int)
+        assert raw_override["registered_at"] > 0
         for raw_target in raw_override["targets"]:
             assert "confidence" not in raw_target
 
@@ -261,7 +318,10 @@ def test_load_registry_local_override(tmp_path):
             {
                 "schema_version": DEFAULT_REGISTRY_SCHEMA_VERSION,
                 "overrides": {
-                    "99": {"targets": [{"kind": "owner", "url": "https://github.com/acme"}]}
+                    "99": {
+                        "registered_at": 9999,
+                        "targets": [{"kind": "owner", "url": "https://github.com/acme"}],
+                    }
                 },
             }
         ),
@@ -279,7 +339,10 @@ def test_load_registry_local_override_replaces_built_in(tmp_path):
             {
                 "schema_version": DEFAULT_REGISTRY_SCHEMA_VERSION,
                 "overrides": {
-                    "64": {"targets": [{"kind": "owner", "url": "https://github.com/chutesai-v2"}]}
+                    "64": {
+                        "registered_at": 4531295,
+                        "targets": [{"kind": "owner", "url": "https://github.com/chutesai-v2"}],
+                    }
                 },
             }
         ),

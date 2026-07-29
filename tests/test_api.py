@@ -132,6 +132,70 @@ def test_get_subnet_detail_lists_files_and_endpoints(tmp_path):
     assert detail["diagnostic_endpoints"]["failures"] == "/api/subnets/94/failures?limit=100&offset=0"
 
 
+def test_api_exposes_current_identity_epoch_and_archived_history_audit(tmp_path):
+    subnet_dir = tmp_path / "subnets" / "80"
+    subnet_dir.mkdir(parents=True)
+    marker = {
+        "schema_version": "tao-git-crawl-identity-epoch-v1",
+        "netuid": 80,
+        "epoch_id": "registration-7000000",
+        "registered_at": 7000000,
+    }
+    history = {
+        "schema_version": "tao-git-crawl-identity-history-v1",
+        "events": [{"netuid": 80, "previous_epoch_id": "registration-6000000"}],
+    }
+    (subnet_dir / "identity-epoch.json").write_text(json.dumps(marker), encoding="utf-8")
+    (tmp_path / "identity-history.json").write_text(json.dumps(history), encoding="utf-8")
+
+    detail = get_subnet_detail(tmp_path, 80)
+    epoch_response = handle_api_request(tmp_path, "/api/subnets/80/identity-epoch")
+    history_response = handle_api_request(tmp_path, "/api/identity-history")
+
+    assert detail["identity_epoch"] == marker
+    assert detail["endpoints"]["identity_epoch"] == "/api/subnets/80/identity-epoch"
+    assert epoch_response.status == HTTPStatus.OK
+    assert epoch_response.payload == marker
+    assert history_response.status == HTTPStatus.OK
+    assert history_response.payload == history
+
+
+def test_identity_history_endpoint_is_empty_before_first_recycle(tmp_path):
+    response = handle_api_request(tmp_path, "/api/identity-history")
+
+    assert response.status == HTTPStatus.OK
+    assert response.payload == {
+        "schema_version": "tao-git-crawl-identity-history-v1",
+        "events": [],
+    }
+
+
+def test_identity_reconciliation_sentinel_hides_all_previous_scores_and_crawl_rows(tmp_path):
+    subnet_dir = tmp_path / "subnets" / "80"
+    crawl_dir = subnet_dir / "crawl"
+    crawl_dir.mkdir(parents=True)
+    (subnet_dir / "score.json").write_text('{"score":100}\n', encoding="utf-8")
+    (crawl_dir / "commits.jsonl").write_text('{"sha":"old"}\n', encoding="utf-8")
+    (tmp_path / "subnet-scores.json").write_text('{"scores":[{"netuid":80,"score":100}]}\n', encoding="utf-8")
+    (tmp_path / "identity-reconciliation.json").write_text(
+        '{"status":"in_progress"}\n',
+        encoding="utf-8",
+    )
+
+    scores_response = handle_api_request(tmp_path, "/api/scores")
+    commits_response = handle_api_request(tmp_path, "/api/subnets/80/commits")
+    health_response = handle_api_request(tmp_path, "/health")
+    detail = get_subnet_detail(tmp_path, 80)
+
+    assert scores_response.status == HTTPStatus.SERVICE_UNAVAILABLE
+    assert commits_response.status == HTTPStatus.NOT_FOUND
+    assert health_response.status == HTTPStatus.SERVICE_UNAVAILABLE
+    assert health_response.payload["ok"] is False
+    assert health_response.payload["identity_reconciliation"] == {"status": "in_progress"}
+    assert detail["has_crawl"] is False
+    assert detail["score"] is None
+
+
 def test_get_subnet_detail_omits_crawl_directory_contents_for_performance(tmp_path):
     subnet_dir = tmp_path / "subnets" / "94"
     crawl_dir = subnet_dir / "crawl"
@@ -1008,6 +1072,60 @@ def test_api_ignores_stale_crawl_outputs_for_current_inaccessible_report_entry(t
     }
     assert commits_response.status == HTTPStatus.NOT_FOUND
     assert commits_response.payload["error"].startswith("current crawl did not produce subnet 2:")
+
+
+def test_api_ignores_stale_crawl_outputs_for_attribution_rejection(tmp_path):
+    subnet_dir = tmp_path / "subnets" / "80"
+    crawl_dir = subnet_dir / "crawl"
+    crawl_dir.mkdir(parents=True)
+    (crawl_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "status": "success",
+                "repositories": {"crawled": 1},
+                "source_like_totals": {"commits": 4388, "file_changes": 16744},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (subnet_dir / "score.json").write_text(
+        json.dumps(
+            {
+                "status": "attribution_rejected",
+                "score": 0.0,
+                "reason": "shared upstream GitHub target cannot be attributed",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "crawl-report.json").write_text(
+        json.dumps(
+            {
+                "succeeded": [],
+                "failed": [],
+                "skipped_unresolved_netuids": [],
+                "skipped_inaccessible": [],
+                "skipped_attribution": [
+                    {"netuid": 80, "reason": "shared upstream GitHub target cannot be attributed"}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    [subnet] = list_subnets(tmp_path)
+    activity_response = handle_api_request(tmp_path, "/api/subnets/80/activity")
+
+    assert subnet["has_crawl"] is False
+    assert subnet["activity"] is None
+    assert subnet["score"]["status"] == "attribution_rejected"
+    assert subnet["current_crawl"] == {
+        "status": "attribution_rejected",
+        "current": False,
+        "reason": "shared upstream GitHub target cannot be attributed",
+    }
+    assert activity_response.status == HTTPStatus.NOT_FOUND
+    assert "shared upstream GitHub target" in activity_response.payload["error"]
 
 
 def test_activity_endpoint_rejects_non_object_summary_json(tmp_path):

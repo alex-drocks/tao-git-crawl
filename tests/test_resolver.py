@@ -14,7 +14,7 @@ def test_resolve_subnets_emits_git_crawl_manifest_targets_and_unresolved_records
 
     document = resolve_subnets(records, target_label="bittensor-subnets")
 
-    assert document.schema_version == "tao-git-crawl-resolution-v2"
+    assert document.schema_version == "tao-git-crawl-resolution-v3"
     assert [target.netuid for target in document.repository_targets] == [1]
     assert [target.netuid for target in document.owner_targets] == [2]
     assert "confidence" not in document.repository_targets[0].to_dict()
@@ -51,11 +51,17 @@ def test_resolve_subnets_deduplicates_manifest_repositories_but_keeps_provenance
 
 def test_subnet_override_can_replace_single_repo_identity_with_owner_crawl_target():
     records = [
-        SubnetIdentityRecord(netuid=64, subnet_name="Chutes", github_repo="https://github.com/chutesai/api"),
+        SubnetIdentityRecord(
+            netuid=64,
+            registered_at=4531295,
+            subnet_name="Chutes",
+            github_repo="https://github.com/chutesai/api",
+        ),
     ]
     config = ResolverConfig(
         subnet_overrides={
             64: SubnetOverride(
+                registered_at=4531295,
                 replace=True,
                 targets=(TargetOverride(kind="owner", url="https://github.com/chutesai"),),
             )
@@ -80,11 +86,17 @@ def test_subnet_override_can_replace_single_repo_identity_with_owner_crawl_targe
 
 def test_replace_false_subnet_override_does_not_duplicate_identity_targets_as_fallback():
     records = [
-        SubnetIdentityRecord(netuid=64, subnet_name="Chutes", github_repo="https://github.com/chutesai/api"),
+        SubnetIdentityRecord(
+            netuid=64,
+            registered_at=4531295,
+            subnet_name="Chutes",
+            github_repo="https://github.com/chutesai/api",
+        ),
     ]
     config = ResolverConfig(
         subnet_overrides={
             64: SubnetOverride(
+                registered_at=4531295,
                 replace=False,
                 targets=(TargetOverride(kind="owner", url="https://github.com/chutesai"),),
             )
@@ -102,7 +114,12 @@ def test_replace_false_subnet_override_does_not_duplicate_identity_targets_as_fa
 
 def test_repository_policy_owner_promotes_repo_links_to_owner_targets_without_manual_netuid_override():
     records = [
-        SubnetIdentityRecord(netuid=64, subnet_name="Chutes", github_repo="https://github.com/chutesai/api"),
+        SubnetIdentityRecord(
+            netuid=64,
+            registered_at=4531295,
+            subnet_name="Chutes",
+            github_repo="https://github.com/chutesai/api",
+        ),
     ]
 
     document = resolve_subnets(
@@ -122,11 +139,17 @@ def test_repository_policy_owner_promotes_repo_links_to_owner_targets_without_ma
 def test_resolution_outputs_include_per_subnet_manifests_for_company_scoped_crawls(tmp_path):
     records = [
         SubnetIdentityRecord(netuid=1, subnet_name="Repo Co", github_repo="https://github.com/alice/api"),
-        SubnetIdentityRecord(netuid=64, subnet_name="Chutes", github_repo="https://github.com/chutesai/api"),
+        SubnetIdentityRecord(
+            netuid=64,
+            registered_at=4531295,
+            subnet_name="Chutes",
+            github_repo="https://github.com/chutesai/api",
+        ),
     ]
     config = ResolverConfig(
         subnet_overrides={
             64: SubnetOverride(
+                registered_at=4531295,
                 replace=True,
                 targets=(TargetOverride(kind="owner", url="https://github.com/chutesai"),),
             )
@@ -163,3 +186,35 @@ def test_resolution_outputs_include_per_subnet_manifests_for_company_scoped_craw
     assert fallback_rows == [
         ("repository", "chutesai/api", "github_repo")
     ]
+
+
+def test_recycled_subnet_ignores_override_bound_to_previous_registration():
+    record = SubnetIdentityRecord(
+        netuid=80,
+        registered_at=7000000,
+        subnet_name="OpenRoboto",
+        github_repo="https://github.com/openroboto-ai/openroboto-subnet",
+    )
+    config = ResolverConfig(
+        subnet_overrides={
+            80: SubnetOverride(
+                registered_at=6000000,
+                replace=True,
+                targets=(
+                    TargetOverride(
+                        kind="repository",
+                        url="https://github.com/previous-occupant/old-subnet",
+                    ),
+                ),
+            )
+        }
+    )
+
+    document = resolve_subnets([record], target_label="bittensor-subnets", config=config)
+
+    assert [target.repo_full_name for target in document.targets] == [
+        "openroboto-ai/openroboto-subnet"
+    ]
+    assert len(document.stale_overrides) == 1
+    assert document.stale_overrides[0].expected_registered_at == 6000000
+    assert document.stale_overrides[0].actual_registered_at == 7000000

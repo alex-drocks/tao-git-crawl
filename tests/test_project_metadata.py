@@ -98,6 +98,7 @@ def test_docker_docs_and_compose_pass_documented_scheduler_environment():
     for name in [
         'TAO_CRAWL_OUTPUT_DIR',
         'TAO_CRAWL_CACHE_DIR',
+        'TAO_CRAWL_IDENTITY_CHECK_SECONDS',
         'TAO_CRAWL_INCREMENTAL',
         'TAO_CRAWL_STATE_DB',
         'TAO_CRAWL_LOG_DIR',

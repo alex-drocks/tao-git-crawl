@@ -13,3 +13,9 @@ Prefer exact `repository` targets over broad `owner` targets. Owner targets expa
 that GitHub account and can inflate activity if the account contains unrelated work.
 
 Subnet teams can propose registry updates by opening a PR that edits `overrides.json`.
+
+Overrides use registry schema v3 and require both a reusable numeric netuid key and the subnet's current positive
+`SubtensorModule.NetworkRegisteredAt(netuid)` block in `registered_at`. The resolver ignores an override when that block
+does not match the live registration. A recycled slot therefore cannot inherit an old `replace: true` mapping, even if
+the registry has not yet been updated. Update `registered_at` only after reviewing the replacement subnet and its target
+scope; changing it opts the new lifecycle into the override.

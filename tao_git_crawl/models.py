@@ -21,6 +21,7 @@ TargetKind = Literal["repository", "owner"]
 @dataclass(frozen=True)
 class SubnetIdentityRecord:
     netuid: int
+    registered_at: int | None = None
     subnet_name: str = ""
     github_repo: str = ""
     subnet_url: str = ""
@@ -34,7 +35,10 @@ class SubnetIdentityRecord:
     def from_mapping(cls, netuid: int, mapping: dict[str, object] | None) -> SubnetIdentityRecord:
         payload = mapping or {}
         values = {field: _to_text(payload.get(field, "")) for field in IDENTITY_FIELDS}
-        return cls(netuid=int(netuid), **values)
+        registered_at = _to_positive_int(
+            payload.get("registered_at", payload.get("registration_block"))
+        )
+        return cls(netuid=int(netuid), registered_at=registered_at, **values)
 
     def discovery_fields(self) -> dict[str, str]:
         return {field: getattr(self, field) for field in GITHUB_DISCOVERY_FIELDS}
@@ -76,3 +80,15 @@ def _to_text(value: object) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace").strip()
     return str(value).strip()
+
+
+def _to_positive_int(value: object) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        parsed = value
+    elif isinstance(value, str) and value.strip().isdigit():
+        parsed = int(value.strip())
+    else:
+        return None
+    return parsed if parsed > 0 else None

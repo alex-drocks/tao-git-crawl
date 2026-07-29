@@ -17,6 +17,7 @@ from threading import Lock
 from urllib.parse import parse_qs, unquote, urlparse
 
 from .activity_filter import CODE_ACTIVITY_EXCLUDED_CHURN_CLASSES, is_noise_change, noise_change_class
+from .identity_epochs import IDENTITY_HISTORY_SCHEMA_VERSION, IDENTITY_RECONCILIATION_FILENAME
 
 DEFAULT_OUTPUT_DIR = Path("/data/output")
 DEFAULT_HOST = "0.0.0.0"
@@ -37,6 +38,7 @@ JSON_DATASETS = {
     "owner-targets": "owner-targets.json",
     "repository-manifest": "repository-manifest.json",
     "unresolved": "unresolved.json",
+    "identity-epoch": "identity-epoch.json",
 }
 
 PUBLIC_JSONL_DATASETS = {
@@ -77,6 +79,7 @@ class ApiCrawlReportState:
     succeeded: set[int]
     failed_reasons: dict[int, str]
     inaccessible_reasons: dict[int, list[str]]
+    attribution_reasons: dict[int, list[str]]
     skipped_unresolved: set[int]
 
 
@@ -136,11 +139,25 @@ def handle_api_request(output_dir: str | Path, raw_target: str) -> ApiResponse:
         if not parts or parts == ["api"]:
             return ApiResponse(HTTPStatus.OK, _routes_payload())
         if parts == ["health"]:
-            return ApiResponse(HTTPStatus.OK, _health_payload(output_path))
+            health = _health_payload(output_path)
+            return ApiResponse(
+                HTTPStatus.OK if health["ok"] is True else HTTPStatus.SERVICE_UNAVAILABLE,
+                health,
+            )
         if parts == ["api", "crawl-report"]:
+            _require_no_identity_reconciliation(output_path)
             return ApiResponse(HTTPStatus.OK, _read_json_required(output_path / "crawl-report.json"))
         if parts == ["api", "scores"]:
+            _require_no_identity_reconciliation(output_path)
             return ApiResponse(HTTPStatus.OK, _read_json_required(output_path / "subnet-scores.json"))
+        if parts == ["api", "identity-history"]:
+            history = _read_json_optional(output_path / "identity-history.json")
+            return ApiResponse(
+                HTTPStatus.OK,
+                history
+                if history is not None
+                else {"schema_version": IDENTITY_HISTORY_SCHEMA_VERSION, "events": []},
+            )
         if parts == ["api", "subnets"]:
             return ApiResponse(HTTPStatus.OK, {"data": list_subnets(output_path)})
         if len(parts) >= 3 and parts[:2] == ["api", "subnets"]:
@@ -216,6 +233,8 @@ def get_subnet_dataset(
             )
         if dataset == "manifest":
             _require_current_crawl_output(output_path, netuid)
+        if dataset == "score":
+            _require_no_identity_reconciliation(output_path)
         path = (
             (crawl_dir / JSON_DATASETS[dataset])
             if dataset in {"summary", "manifest"}
@@ -439,6 +458,7 @@ def _routes_payload() -> dict[str, object]:
             "/api/subnets/{netuid}/file-changes?limit=100&offset=0",
             "/api/crawl-report",
             "/api/scores",
+            "/api/identity-history",
         ],
         "diagnostic_routes": [
             "/api/subnets/{netuid}/failures?limit=100&offset=0",
@@ -449,11 +469,15 @@ def _routes_payload() -> dict[str, object]:
 
 
 def _health_payload(output_dir: Path) -> dict[str, object]:
-    return {
-        "ok": output_dir.exists(),
+    reconciliation = _read_json_optional(output_dir / IDENTITY_RECONCILIATION_FILENAME)
+    payload: dict[str, object] = {
+        "ok": output_dir.exists() and reconciliation is None,
         "output_dir": str(output_dir),
         "subnets": _count_subnet_dirs(output_dir),
     }
+    if reconciliation is not None:
+        payload["identity_reconciliation"] = reconciliation
+    return payload
 
 
 def _count_subnet_dirs(output_dir: Path) -> int:
@@ -478,7 +502,12 @@ def _subnet_overview(subnet_dir: Path, *, report_state: ApiCrawlReportState | No
     crawl_dir = subnet_dir / "crawl"
     use_crawl_output = _is_current_crawl_output(report_state, netuid)
     summary = _read_json_optional(crawl_dir / "summary.json") if use_crawl_output else None
-    score = _read_json_optional(subnet_dir / "score.json")
+    score = (
+        None
+        if (subnet_dir.parents[1] / IDENTITY_RECONCILIATION_FILENAME).exists()
+        else _read_json_optional(subnet_dir / "score.json")
+    )
+    identity_epoch = _read_json_optional(subnet_dir / "identity-epoch.json")
     activity = _activity_from_summary(summary, crawl_dir) if summary is not None else None
 
     payload: dict[str, object] = {
@@ -489,6 +518,7 @@ def _subnet_overview(subnet_dir: Path, *, report_state: ApiCrawlReportState | No
         "activity": activity,
         "summary": _summary_with_score(summary, score, activity=activity),
         "score": score,
+        "identity_epoch": identity_epoch,
         "target_count": len(targets),
         "repository_target_count": len(repository_targets),
         "owner_target_count": len(owner_targets),
@@ -539,6 +569,7 @@ def _subnet_endpoints(netuid: int) -> dict[str, str]:
         "owner_targets": f"{base}/owner-targets",
         "repository_manifest": f"{base}/repository-manifest",
         "unresolved": f"{base}/unresolved",
+        "identity_epoch": f"{base}/identity-epoch",
         "score": f"{base}/score",
     }
     endpoints.update(
@@ -580,6 +611,13 @@ def _current_crawl_payload(
         return None
     if netuid in report_state.succeeded:
         return {"status": "success", "current": True}
+    attribution_reasons = report_state.attribution_reasons.get(netuid)
+    if attribution_reasons:
+        return {
+            "status": "attribution_rejected",
+            "current": False,
+            "reason": "; ".join(attribution_reasons[:3]),
+        }
     failed_reason = report_state.failed_reasons.get(netuid)
     if failed_reason:
         return {"status": "crawl_failed", "current": False, "reason": failed_reason}
@@ -600,6 +638,14 @@ def _current_crawl_payload(
 
 
 def _crawl_report_state(output_dir: Path) -> ApiCrawlReportState | None:
+    if (output_dir / IDENTITY_RECONCILIATION_FILENAME).exists():
+        return ApiCrawlReportState(
+            succeeded=set(),
+            failed_reasons={},
+            inaccessible_reasons={},
+            attribution_reasons={},
+            skipped_unresolved=set(),
+        )
     report = _read_json_optional(output_dir / "crawl-report.json")
     if not isinstance(report, dict):
         return None
@@ -612,12 +658,31 @@ def _crawl_report_state(output_dir: Path) -> ApiCrawlReportState | None:
         reason = item.get("reason")
         inaccessible_reasons.setdefault(netuid, []).append(str(reason) if reason is not None else "inaccessible")
 
+    attribution_reasons: dict[int, list[str]] = {}
+    for item in _object_rows(report.get("skipped_attribution")):
+        netuid = _row_netuid(item)
+        if netuid is None:
+            continue
+        reason = item.get("reason")
+        attribution_reasons.setdefault(netuid, []).append(
+            str(reason) if reason is not None else "repository attribution rejected"
+        )
+
     return ApiCrawlReportState(
         succeeded=_netuid_set(report.get("succeeded")),
         failed_reasons=_netuid_reasons(report.get("failed")),
         inaccessible_reasons=inaccessible_reasons,
+        attribution_reasons=attribution_reasons,
         skipped_unresolved=_integer_set(report.get("skipped_unresolved_netuids")),
     )
+
+
+def _require_no_identity_reconciliation(output_dir: Path) -> None:
+    if (output_dir / IDENTITY_RECONCILIATION_FILENAME).exists():
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "subnet identity reconciliation is in progress or requires operator recovery",
+        )
 
 
 def _netuid_set(value: object) -> set[int]:

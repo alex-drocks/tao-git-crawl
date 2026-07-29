@@ -63,6 +63,7 @@ def test_resolve_cli_applies_config_py_subnet_overrides_and_writes_split_subnet_
                 "subnets": [
                     {
                         "netuid": 64,
+                        "registered_at": 4531295,
                         "subnet_identity": {
                             "subnet_name": "Chutes",
                             "github_repo": "github.com/chutesai/api",
@@ -79,6 +80,7 @@ def test_resolve_cli_applies_config_py_subnet_overrides_and_writes_split_subnet_
 DEFAULT_REPOSITORY_POLICY = "repository"
 SUBNET_OVERRIDES = {
     64: {
+        "registered_at": 4531295,
         "replace": True,
         "targets": [
             {"kind": "owner", "url": "https://github.com/chutesai"},
@@ -349,7 +351,10 @@ def test_crawl_cli_resolves_writes_manifests_and_crawls_each_subnet(monkeypatch,
     ]
     assert (output_dir / "subnets" / "64" / "owner-targets.json").exists()
     captured = capsys.readouterr()
-    assert "Crawled 1 subnets, 0 failed, 0 unresolved skipped, 0 inaccessible skipped." in captured.out
+    assert (
+        "Crawled 1 subnets, 0 failed, 0 unresolved skipped, "
+        "0 inaccessible skipped, 0 attribution rejected."
+    ) in captured.out
 
 
 def test_crawl_cli_rejects_removed_format_option():

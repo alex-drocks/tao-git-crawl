@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from git_crawl.github import token_from_env
 
 from .crawler import crawl_resolved_subnets
+from .identity_epochs import reconcile_identity_epochs
 from .overrides import ResolverConfig, ResolverConfigError, load_resolver_config
 from .providers import (
     DEFAULT_ENDPOINT,
@@ -187,6 +188,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"{len(document.owner_targets)} owner targets, "
             f"{len(document.unresolved)} unresolved subnet records."
         )
+        if document.stale_overrides:
+            print(f"Ignored {len(document.stale_overrides)} stale registration-bound overrides.")
         for path in written:
             print(path)
         return 0
@@ -202,6 +205,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             records = list(provider.fetch(netuids=args.netuid))
         except Exception as exc:  # noqa: BLE001 - CLI boundary reports provider failures
             print(f"failed to fetch subnet identity records: {exc}", file=sys.stderr)
+            return 1
+        try:
+            identity_events = reconcile_identity_epochs(
+                records,
+                args.output_dir,
+                full_snapshot=args.netuid is None and args.from_json is None,
+            )
+        except Exception as exc:  # noqa: BLE001 - stale live output must not be silently retained
+            print(f"failed to reconcile subnet identity epochs: {exc}", file=sys.stderr)
             return 1
         try:
             document = resolve_subnets(records, target_label=args.target, config=config)
@@ -230,12 +242,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             commit_changes_filtration_level=args.commit_changes_filtration_level,
         )
         skipped_inaccessible = getattr(report, "skipped_inaccessible", [])
+        skipped_attribution = getattr(report, "skipped_attribution", [])
         print(
             f"Crawled {len(report.succeeded_netuids)} subnets, "
             f"{len(report.failed)} failed, "
             f"{len(report.skipped_unresolved_netuids)} unresolved skipped, "
-            f"{len(skipped_inaccessible)} inaccessible skipped."
+            f"{len(skipped_inaccessible)} inaccessible skipped, "
+            f"{len(skipped_attribution)} attribution rejected."
         )
+        if identity_events:
+            print(f"Archived {len(identity_events)} stale subnet identity histories.")
+        if document.stale_overrides:
+            print(f"Ignored {len(document.stale_overrides)} stale registration-bound overrides.")
         for path in written:
             print(path)
         report_path = getattr(report, "report_path", None)

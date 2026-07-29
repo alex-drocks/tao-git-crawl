@@ -188,6 +188,8 @@ def test_build_score_document_uses_global_raw_max_and_full_population(tmp_path):
     assert "repos_crawled" not in score_document["weights"]
     assert "repos_crawled" not in scores[1]["normalized_metrics"]
     assert "repos_crawled" not in scores[1]["weighted_components"]
+
+
     assert scores[1]["score"] == 100.0
     assert scores[1]["score_momentum"] == 0.0
     assert scores[1]["composite_score"] == 85.0
@@ -208,6 +210,28 @@ def test_build_score_document_uses_global_raw_max_and_full_population(tmp_path):
     assert scores[3]["rank_total"] == 3
     assert scores[3]["status"] == "unresolved"
     assert scores[3]["percentile"] == 0.0
+
+
+def test_shared_upstream_target_cannot_receive_subnet_score(tmp_path):
+    document = resolve_subnets(
+        [
+            SubnetIdentityRecord(
+                netuid=80,
+                subnet_name="Old subnet occupant",
+                github_repo="https://github.com/RaoFoundation/subtensor",
+            )
+        ],
+        target_label="bittensor-subnets",
+    )
+    _write_summary(tmp_path, 80, repos_crawled=1, file_changes=16744, lines_added=783221)
+
+    [score] = build_score_document(document, tmp_path)["scores"]
+
+    assert score["status"] == "attribution_rejected"
+    assert score["score"] == 0.0
+    assert score["composite_score"] == 0.0
+    assert score["raw_metrics"]["credited_file_changes"] == 0.0
+    assert "blocked upstream GitHub owner RaoFoundation" in score["reason"]
 
 
 def test_score_builds_30d_momentum_from_recent_credited_rows(tmp_path):

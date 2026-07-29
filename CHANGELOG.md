@@ -10,6 +10,22 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 Use this section for changes that have merged but have not been released yet.
 Move entries into a dated version section when cutting the next tag.
 
+### Added
+
+- Poll live subnet identity fields every 15 minutes while the Docker scheduler is idle and trigger an early crawl when
+  a recycled netuid changes identity or GitHub metadata; repeat once when identity changes during a crawl.
+- Use the on-chain `NetworkRegisteredAt` block as an immutable subnet identity epoch, archive ended or legacy-unbound
+  live histories outside the API path, expose the current epoch and history audit, scope incremental state by epoch,
+  and fail closed at the API while reconciliation is in progress or failed.
+
+### Fixed
+
+- Reject every target owned by `opentensor` or `RaoFoundation` from regular-subnet scoring.
+- Reject exact repository redirects/transfers and owner-expansion rows whose canonical GitHub identity differs from the
+  explicit subnet target, report them as `attribution_rejected`, and hide any stale crawl datasets for those netuids.
+- Require registry/config overrides to bind to the current `NetworkRegisteredAt` block, bump the registry schema to v3,
+  and ignore mismatched overrides so recycled subnets cannot inherit curated targets from a previous occupant.
+
 ## [1.0.1] - 2026-07-11
 
 ### Changed

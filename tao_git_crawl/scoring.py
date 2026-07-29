@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .activity_filter import is_noise_change
+from .attribution import targets_attribution_rejection
 from .resolver import ResolutionDocument
 
 SCORE_SCHEMA_VERSION = "tao-git-crawl-score-v3"
@@ -49,6 +50,7 @@ class CrawlReportState:
     succeeded: set[int]
     failed_reasons: dict[int, str]
     inaccessible_reasons: dict[int, list[str]]
+    attribution_reasons: dict[int, list[str]]
 
 
 def write_score_outputs(document: ResolutionDocument, output_dir: str | Path) -> list[Path]:
@@ -164,6 +166,14 @@ def _score_input_for_netuid(
     report_state: CrawlReportState | None,
 ) -> SubnetScoreInput:
     subnet_document = document.for_netuid(netuid)
+    attribution_rejection = targets_attribution_rejection(subnet_document.targets)
+    if attribution_rejection is not None:
+        return SubnetScoreInput(
+            netuid=netuid,
+            status="attribution_rejected",
+            reason=attribution_rejection,
+            raw_metrics=dict(ZERO_METRICS),
+        )
     if subnet_document.unresolved and not subnet_document.targets:
         unresolved = subnet_document.unresolved[0]
         return SubnetScoreInput(
@@ -174,6 +184,14 @@ def _score_input_for_netuid(
         )
 
     if report_state is not None and netuid not in report_state.succeeded:
+        attribution_reasons = report_state.attribution_reasons.get(netuid)
+        if attribution_reasons:
+            return SubnetScoreInput(
+                netuid=netuid,
+                status="attribution_rejected",
+                reason="; ".join(attribution_reasons[:3]),
+                raw_metrics=dict(ZERO_METRICS),
+            )
         failed_reason = report_state.failed_reasons.get(netuid)
         if failed_reason:
             return SubnetScoreInput(
@@ -494,10 +512,21 @@ def _crawl_report_state(output_dir: Path) -> CrawlReportState | None:
         reason = item.get("reason")
         inaccessible_reasons.setdefault(netuid, []).append(str(reason) if reason is not None else "inaccessible")
 
+    attribution_reasons: dict[int, list[str]] = {}
+    for item in _object_rows(report.get("skipped_attribution")):
+        netuid = _row_netuid(item)
+        if netuid is None:
+            continue
+        reason = item.get("reason")
+        attribution_reasons.setdefault(netuid, []).append(
+            str(reason) if reason is not None else "repository attribution rejected"
+        )
+
     return CrawlReportState(
         succeeded=succeeded,
         failed_reasons=failed_reasons,
         inaccessible_reasons=inaccessible_reasons,
+        attribution_reasons=attribution_reasons,
     )
 
 
