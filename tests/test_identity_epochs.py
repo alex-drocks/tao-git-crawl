@@ -125,3 +125,33 @@ def test_failed_reconciliation_leaves_fail_closed_sentinel(tmp_path, monkeypatch
     )
     assert sentinel["status"] == "failed"
     assert sentinel["reason"] == "archive unavailable"
+
+
+@pytest.mark.parametrize("full_snapshot", [False, True])
+def test_any_snapshot_without_registration_epoch_fails_closed_before_touching_history(
+    tmp_path,
+    full_snapshot,
+):
+    output_dir = tmp_path / "output"
+    reconcile_identity_epochs([_record(registered_at=6000000)], output_dir, full_snapshot=True)
+    crawl_dir = output_dir / "subnets" / "80" / "crawl"
+    crawl_dir.mkdir()
+    (crawl_dir / "commits.jsonl").write_text('{"old":true}\n', encoding="utf-8")
+    unbound = SubnetIdentityRecord(
+        netuid=80,
+        subnet_name="Replacement with unavailable lifecycle",
+        github_repo="https://github.com/example/replacement",
+    )
+
+    with pytest.raises(ValueError, match="missing NetworkRegisteredAt.*80"):
+        reconcile_identity_epochs([unbound], output_dir, full_snapshot=full_snapshot)
+
+    assert (crawl_dir / "commits.jsonl").exists()
+    marker = json.loads(
+        (output_dir / "subnets" / "80" / "identity-epoch.json").read_text(encoding="utf-8")
+    )
+    assert marker["registered_at"] == 6000000
+    sentinel = json.loads(
+        (output_dir / "identity-reconciliation.json").read_text(encoding="utf-8")
+    )
+    assert sentinel["status"] == "failed"

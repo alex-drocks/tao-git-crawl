@@ -168,7 +168,17 @@ def test_resolve_cli_rejects_netuid_past_regular_subnet_slots():
 def test_crawl_cli_loads_github_token_from_default_dotenv(monkeypatch, tmp_path):
     input_path = tmp_path / "subnets.json"
     input_path.write_text(
-        json.dumps({"subnets": [{"netuid": 64, "subnet_identity": {"github_repo": "github.com/chutesai/api"}}]}),
+        json.dumps(
+            {
+                "subnets": [
+                    {
+                        "netuid": 64,
+                        "registered_at": 4531295,
+                        "subnet_identity": {"github_repo": "github.com/chutesai/api"},
+                    }
+                ]
+            }
+        ),
         encoding="utf-8",
     )
     (tmp_path / ".env").write_text("GITHUB_TOKEN=dotenv-token\n", encoding="utf-8")
@@ -206,7 +216,17 @@ def test_crawl_cli_loads_github_token_from_default_dotenv(monkeypatch, tmp_path)
 def test_crawl_cli_loads_github_token_from_repo_root_dotenv_when_run_from_subdir(monkeypatch, tmp_path):
     input_path = tmp_path / "subnets.json"
     input_path.write_text(
-        json.dumps({"subnets": [{"netuid": 64, "subnet_identity": {"github_repo": "github.com/chutesai/api"}}]}),
+        json.dumps(
+            {
+                "subnets": [
+                    {
+                        "netuid": 64,
+                        "registered_at": 4531295,
+                        "subnet_identity": {"github_repo": "github.com/chutesai/api"},
+                    }
+                ]
+            }
+        ),
         encoding="utf-8",
     )
     (tmp_path / "pyproject.toml").write_text('[project]\nname = "tao-git-crawl"\n', encoding="utf-8")
@@ -247,7 +267,17 @@ def test_crawl_cli_loads_github_token_from_repo_root_dotenv_when_run_from_subdir
 def test_crawl_cli_loads_github_token_from_custom_dotenv(monkeypatch, tmp_path):
     input_path = tmp_path / "subnets.json"
     input_path.write_text(
-        json.dumps({"subnets": [{"netuid": 64, "subnet_identity": {"github_repo": "github.com/chutesai/api"}}]}),
+        json.dumps(
+            {
+                "subnets": [
+                    {
+                        "netuid": 64,
+                        "registered_at": 4531295,
+                        "subnet_identity": {"github_repo": "github.com/chutesai/api"},
+                    }
+                ]
+            }
+        ),
         encoding="utf-8",
     )
     env_path = tmp_path / "config" / "github.env"
@@ -289,7 +319,17 @@ def test_crawl_cli_resolves_writes_manifests_and_crawls_each_subnet(monkeypatch,
     os.environ.pop("GITHUB_TOKEN", None)
     input_path = tmp_path / "subnets.json"
     input_path.write_text(
-        json.dumps({"subnets": [{"netuid": 64, "subnet_identity": {"github_repo": "github.com/chutesai/api"}}]}),
+        json.dumps(
+            {
+                "subnets": [
+                    {
+                        "netuid": 64,
+                        "registered_at": 4531295,
+                        "subnet_identity": {"github_repo": "github.com/chutesai/api"},
+                    }
+                ]
+            }
+        ),
         encoding="utf-8",
     )
     calls = []

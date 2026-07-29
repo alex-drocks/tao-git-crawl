@@ -228,3 +228,54 @@ def test_substrate_provider_fetches_active_subnets_with_registration_epochs_with
         (1, 5001, "owner/repo-1"),
         (2, 5002, ""),
     ]
+
+
+def test_substrate_provider_rejects_active_snapshot_with_missing_registration_epoch():
+    class FakeSubstrate:
+        def query_map(self, module, storage_function):
+            assert module == "SubtensorModule"
+            if storage_function == "NetworksAdded":
+                return [(ScaleValue(1), ScaleValue(True)), (ScaleValue(2), ScaleValue(True))]
+            if storage_function == "SubnetIdentitiesV3":
+                return []
+            if storage_function == "NetworkRegisteredAt":
+                return [(ScaleValue(1), ScaleValue(5001))]
+            raise AssertionError(f"unexpected query_map {module}.{storage_function}")
+
+    provider = SubstrateSubnetIdentityProvider(
+        endpoint="wss://example.invalid",
+        substrate=FakeSubstrate(),
+    )
+
+    with pytest.raises(RuntimeError, match=r"NetworkRegisteredAt.*subnet\(s\) 2"):
+        list(provider.fetch_active())
+
+
+def test_substrate_provider_does_not_turn_network_discovery_failure_into_empty_snapshot():
+    class FakeSubstrate:
+        def query_map(self, module, storage_function):
+            raise ConnectionError("RPC disconnected")
+
+    provider = SubstrateSubnetIdentityProvider(
+        endpoint="wss://example.invalid",
+        substrate=FakeSubstrate(),
+    )
+
+    with pytest.raises(ConnectionError, match="RPC disconnected"):
+        list(provider.fetch_active())
+
+
+def test_substrate_provider_rejects_requested_subnet_without_registration_epoch():
+    class FakeSubstrate:
+        def query(self, module, storage_function, params):
+            if storage_function == "NetworkRegisteredAt":
+                return ScaleValue(None)
+            return ScaleValue({"github_repo": b"owner/repo-1"})
+
+    provider = SubstrateSubnetIdentityProvider(
+        endpoint="wss://example.invalid",
+        substrate=FakeSubstrate(),
+    )
+
+    with pytest.raises(RuntimeError, match="active subnet 1"):
+        list(provider.fetch(netuids=[1]))

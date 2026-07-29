@@ -292,7 +292,14 @@ def test_commits_dataset_only_returns_commits_with_code_changes_when_file_change
     _write_jsonl(
         crawl_dir / "file_changes.jsonl",
         [
-            {"repo": "owner/code", "sha": "code-a", "path_class": "source", "additions": 4, "deletions": 2},
+            {
+                "repo": "owner/code",
+                "sha": "code-a",
+                "path": "src/code.py",
+                "path_class": "source",
+                "additions": 4,
+                "deletions": 2,
+            },
             {"repo": "owner/code", "sha": "lock-b", "path_class": "lockfile", "additions": 99, "deletions": 9},
             {"repo": "owner/code", "sha": "lock-c", "is_lockfile": True, "additions": 90, "deletions": 8},
         ],
@@ -333,8 +340,22 @@ def test_day_datasets_are_recomputed_from_code_changes_when_rows_exist(tmp_path)
     _write_jsonl(
         crawl_dir / "file_changes.jsonl",
         [
-            {"repo": "owner/code", "sha": "code-a", "path_class": "source", "additions": 4, "deletions": 1},
-            {"repo": "owner/code", "sha": "code-a", "path_class": "source", "additions": 6, "deletions": 2},
+            {
+                "repo": "owner/code",
+                "sha": "code-a",
+                "path": "src/a.py",
+                "path_class": "source",
+                "additions": 4,
+                "deletions": 1,
+            },
+            {
+                "repo": "owner/code",
+                "sha": "code-a",
+                "path": "src/b.py",
+                "path_class": "source",
+                "additions": 6,
+                "deletions": 2,
+            },
             {"repo": "owner/code", "sha": "lock-b", "path_class": "lockfile", "additions": 500, "deletions": 100},
         ],
     )
@@ -634,6 +655,7 @@ def test_activity_endpoint_returns_consistent_code_changes_activity_payload(tmp_
             {
                 "repo": "owner/code",
                 "sha": "code-a",
+                "path": "src/a.py",
                 "additions": 10,
                 "deletions": 1,
                 "path_class": "source",
@@ -642,6 +664,7 @@ def test_activity_endpoint_returns_consistent_code_changes_activity_payload(tmp_
             {
                 "repo": "owner/code",
                 "sha": "code-a",
+                "path": "src/b.py",
                 "additions": 5,
                 "deletions": 2,
                 "path_class": "source",
@@ -650,6 +673,7 @@ def test_activity_endpoint_returns_consistent_code_changes_activity_payload(tmp_
             {
                 "repo": "owner/code",
                 "sha": "code-b",
+                "path": "src/c.py",
                 "additions": 20,
                 "deletions": 3,
                 "path_class": "source",
@@ -658,6 +682,7 @@ def test_activity_endpoint_returns_consistent_code_changes_activity_payload(tmp_
             {
                 "repo": "owner/code",
                 "sha": "code-b",
+                "path": "src/d.py",
                 "additions": 0,
                 "lines_added": 999,
                 "deletions": 0,
@@ -772,8 +797,22 @@ def test_activity_counts_contributor_days_per_repo_day_when_recomputed_from_json
     _write_jsonl(
         crawl_dir / "file_changes.jsonl",
         [
-            {"repo": "owner/a", "sha": "sha-a", "path_class": "source", "additions": 1, "deletions": 0},
-            {"repo": "owner/b", "sha": "sha-b", "path_class": "source", "additions": 2, "deletions": 0},
+            {
+                "repo": "owner/a",
+                "sha": "sha-a",
+                "path": "src/a.py",
+                "path_class": "source",
+                "additions": 1,
+                "deletions": 0,
+            },
+            {
+                "repo": "owner/b",
+                "sha": "sha-b",
+                "path": "src/b.py",
+                "path_class": "source",
+                "additions": 2,
+                "deletions": 0,
+            },
         ],
     )
     _write_jsonl(
@@ -997,6 +1036,53 @@ def test_activity_endpoint_ignores_invalid_activity_json_when_jsonl_rows_exist(t
     assert payload["totals"]["lines_added"] == 3
 
 
+def test_activity_rejects_orphaned_malformed_and_out_of_window_change_rows(tmp_path):
+    crawl_dir = tmp_path / "subnets" / "94" / "crawl"
+    crawl_dir.mkdir(parents=True)
+    (crawl_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "status": "success",
+                "history_since": "2026-01-01",
+                "history_until": "2026-01-31",
+                "calendar_span": {"days": 30, "weeks": 5, "months": 1},
+                "repositories": {"crawled": 1},
+                "source_like_totals": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    _write_jsonl(
+        crawl_dir / "file_changes.jsonl",
+        [
+            {"repo": "owner/code", "sha": "valid", "path": "src/valid.py", "additions": 3},
+            {"repo": "owner/code", "sha": "valid", "path": "src/valid.py", "additions": 300},
+            {"repo": "owner/code", "sha": "valid", "path": "", "additions": 300},
+            {"repo": "owner/code", "sha": "valid", "path": "src/negative.py", "additions": -30},
+            {"repo": "owner/code", "sha": "before", "path": "src/before.py", "additions": 30},
+            {"repo": "owner/code", "sha": "after", "path": "src/after.py", "additions": 30},
+            {"repo": "owner/code", "sha": "bad-date", "path": "src/bad.py", "additions": 30},
+            {"repo": "owner/code", "sha": "orphan", "path": "src/orphan.py", "additions": 30},
+        ],
+    )
+    _write_jsonl(
+        crawl_dir / "commits.jsonl",
+        [
+            {"repo": "owner/code", "sha": "valid", "authored_at": "2026-01-15T00:00:00Z"},
+            {"repo": "owner/code", "sha": "before", "authored_at": "2025-12-31T23:59:59Z"},
+            {"repo": "owner/code", "sha": "after", "authored_at": "2026-02-01T00:00:00Z"},
+            {"repo": "owner/code", "sha": "bad-date", "authored_at": "not-a-date"},
+        ],
+    )
+
+    payload = get_subnet_dataset(tmp_path, 94, "activity")
+
+    assert payload["totals"]["commits"] == 1
+    assert payload["totals"]["file_changes"] == 2
+    assert payload["totals"]["lines_added"] == 3
+    assert payload["totals"]["active_days"] == 1
+
+
 def test_api_ignores_stale_crawl_outputs_for_current_inaccessible_report_entry(tmp_path):
     subnet_dir = tmp_path / "subnets" / "2"
     crawl_dir = subnet_dir / "crawl"
@@ -1160,6 +1246,7 @@ def test_summary_activity_matches_activity_endpoint_when_jsonl_rows_exist(tmp_pa
             {
                 "repo": "owner/code",
                 "sha": "code-a",
+                "path": "src/code.py",
                 "additions": 3,
                 "deletions": 1,
                 "path_class": "source",
@@ -1207,7 +1294,7 @@ def test_summary_activity_matches_activity_endpoint_when_jsonl_rows_exist(tmp_pa
     assert summary_payload["top_paths"] == [
         {
             "repo": "owner/code",
-            "path": "",
+            "path": "src/code.py",
             "path_class": "source",
             "file_changes": 1,
             "lines_added": 3,

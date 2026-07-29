@@ -135,6 +135,15 @@ def _reconcile_identity_epochs(
     mistaken for the currently registered subnet.
     """
     output_path = Path(output_dir)
+    missing_lifecycle_netuids = sorted(
+        record.netuid for record in records if record.registered_at is None
+    )
+    if missing_lifecycle_netuids:
+        missing = ", ".join(str(netuid) for netuid in missing_lifecycle_netuids)
+        raise ValueError(
+            "crawl identity snapshot is missing NetworkRegisteredAt for subnet(s) "
+            f"{missing}; refusing to reconcile lifecycle-unbound output"
+        )
     subnets_path = output_path / "subnets"
     current_epochs = {record.netuid: identity_epoch(record) for record in records}
     events: list[IdentityHistoryEvent] = []

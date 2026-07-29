@@ -28,6 +28,7 @@ Environment variables (all have defaults):
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import subprocess
@@ -36,12 +37,14 @@ import time
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
+from .identity_epochs import IDENTITY_RECONCILIATION_FILENAME
 from .models import GITHUB_DISCOVERY_FIELDS, SubnetIdentityRecord
 from .providers import DEFAULT_NETWORK_ENDPOINTS, SubstrateSubnetIdentityProvider
 
 logger = logging.getLogger("tao-git-crawl.scheduler")
 DEFAULT_CRAWL_WINDOW_DAYS = 365
 DEFAULT_IDENTITY_CHECK_SECONDS = 900
+MAX_IDENTITY_GUARD_RUNS = 3
 type IdentityFingerprint = tuple[tuple[int, int | None, str, tuple[str, ...]], ...]
 
 
@@ -211,17 +214,54 @@ def _run_crawl_with_identity_guard(
     log_dir: Path,
     baseline: IdentityFingerprint | None,
 ) -> tuple[int, IdentityFingerprint | None]:
-    """Run a crawl and repeat once if attribution changed while it was running."""
+    """Run until attribution is stable, then fail closed after a bounded number of attempts."""
     before = baseline if baseline is not None else _fetch_live_identity_fingerprint_safely()
-    exit_code = run_crawl(log_dir)
-    after = _fetch_live_identity_fingerprint_safely()
-    if before is not None and after is not None and after != before:
-        logger.warning("Subnet identity changed during crawl; starting one immediate reconciliation crawl")
+    exit_code = 1
+    after = before
+    for attempt in range(1, MAX_IDENTITY_GUARD_RUNS + 1):
         exit_code = run_crawl(log_dir)
-        reconciled = _fetch_live_identity_fingerprint_safely()
-        if reconciled is not None:
-            after = reconciled
-    return exit_code, after if after is not None else before
+        observed_after = _fetch_live_identity_fingerprint_safely()
+        if observed_after is None or before is None or observed_after == before:
+            return exit_code, observed_after if observed_after is not None else before
+        after = observed_after
+        if attempt < MAX_IDENTITY_GUARD_RUNS:
+            logger.warning(
+                "Subnet identity changed during crawl; starting immediate reconciliation crawl %d/%d",
+                attempt + 1,
+                MAX_IDENTITY_GUARD_RUNS,
+            )
+            before = observed_after
+            continue
+
+        reason = (
+            "subnet identity changed during every bounded reconciliation crawl; "
+            "score publication is disabled until a stable crawl succeeds"
+        )
+        logger.error(reason)
+        _write_identity_guard_failure(reason)
+        return 1, after
+    return exit_code, after
+
+
+def _write_identity_guard_failure(reason: str) -> None:
+    output_dir = Path(_env("TAO_CRAWL_OUTPUT_DIR", "/data/output"))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    sentinel = output_dir / IDENTITY_RECONCILIATION_FILENAME
+    temporary = sentinel.with_name(f".{sentinel.name}.tmp")
+    temporary.write_text(
+        json.dumps(
+            {
+                "status": "failed",
+                "detected_at": datetime.now(UTC).isoformat(),
+                "reason": reason,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(sentinel)
 
 
 # ---------------------------------------------------------------------------

@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 from datetime import date
@@ -242,6 +243,39 @@ class TestIdentityChangeDetection:
         assert exit_code == 0
         assert crawl_calls == [tmp_path, tmp_path]
         assert observed == replacement
+
+    def test_repeated_identity_churn_fails_closed_after_bounded_reconciliation(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        baseline = ((80, 6000000, "Old", ("old/repo", "", "", "", "")),)
+        replacement_1 = ((80, 7000000, "New 1", ("new/repo-1", "", "", "", "")),)
+        replacement_2 = ((80, 7000000, "New 2", ("new/repo-2", "", "", "", "")),)
+        replacement_3 = ((80, 7000000, "New 3", ("new/repo-3", "", "", "", "")),)
+        crawl_calls = []
+        fingerprints = iter([replacement_1, replacement_2, replacement_3])
+        output_dir = tmp_path / "output"
+        monkeypatch.setenv("TAO_CRAWL_OUTPUT_DIR", str(output_dir))
+        monkeypatch.setattr(
+            "tao_git_crawl.scheduler.run_crawl",
+            lambda log_dir: crawl_calls.append(log_dir) or 0,
+        )
+        monkeypatch.setattr(
+            "tao_git_crawl.scheduler._fetch_live_identity_fingerprint_safely",
+            lambda: next(fingerprints),
+        )
+
+        exit_code, observed = _run_crawl_with_identity_guard(tmp_path, baseline)
+
+        assert exit_code == 1
+        assert observed == replacement_3
+        assert crawl_calls == [tmp_path, tmp_path, tmp_path]
+        sentinel = json.loads(
+            (output_dir / "identity-reconciliation.json").read_text(encoding="utf-8")
+        )
+        assert sentinel["status"] == "failed"
+        assert "changed during every bounded reconciliation crawl" in sentinel["reason"]
 
 
 class TestHealthcheck:

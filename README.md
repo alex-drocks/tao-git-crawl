@@ -101,7 +101,8 @@ the repositories that changed since the previous scheduler run.
 
 The identity poll limits recycled-netuid drift: it reads every active slot and its `NetworkRegisteredAt` block in bulk.
 If a registration block, subnet name, or GitHub discovery field changes between daily runs, the scheduler starts a
-crawl early. If an identity changes while a crawl is running, it performs one immediate reconciliation crawl.
+crawl early. If an identity changes while a crawl is running, it retries up to two reconciliation crawls and leaves the
+API fail-closed if attribution still does not stabilize.
 
 `NetworkRegisteredAt` is the hard history boundary. Before crawling a changed registration, the crawler moves the
 entire prior `subnets/<netuid>` directory to `subnet-history/<netuid>/`, deletes reproducible live aggregate files, and
@@ -110,6 +111,10 @@ marker are also archived before being rebuilt. A full crawl similarly archives o
 trail is written to `identity-history.json`; archived rows are never read by live scoring or subnet API endpoints.
 Incremental git-crawl target labels contain the epoch ID, so SQLite heads from two registrations cannot merge. Set
 `TAO_CRAWL_IDENTITY_CHECK_SECONDS=0` only when another operator process already guarantees prompt reconciliation.
+
+This boundary separates subnet occupants and stored crawl state; it is not a commit-date cutoff. A repository named by
+the current on-chain identity can receive activity from before the subnet registration when that activity is inside the
+selected crawl window.
 
 While directories are being reconciled, `identity-reconciliation.json` acts as a fail-closed API sentinel: aggregate
 score and health requests return `503`, and per-subnet scores and crawl rows are hidden. The sentinel is removed only after a
@@ -171,16 +176,17 @@ When detailed rows are available, `/api/subnets/<netuid>/file-changes` returns c
 ### Subnet Scores
 
 Each crawl writes `subnet-scores.json` plus `subnets/<netuid>/score.json`. The API also embeds the same score object in `/api/subnets`, `/api/subnets/<netuid>`, and `/api/subnets/<netuid>/summary`.
-Score outputs use schema version `tao-git-crawl-score-v3`.
+Score outputs use schema version `tao-git-crawl-score-v4`.
 
 Scores first use raw global-max normalization for metrics covering the selected crawl window and for 30-day momentum
 sub-metrics. Scheduled Docker crawls use a 365-day window by default, while manual `--since` and `--until` values can
 select a different period. For a full Finney crawl, the comparison population is the full regular subnet population.
 For `--netuid`, partial JSON exports, or otherwise filtered runs, `score`, `rank`, `rank_total`, and `percentile` are
-local to that subset and are not comparable to a full-network ranking. The weighted metric composite is then rescaled
-so the top subnet score is `100.00`; the pre-rescale value is retained as `composite_score` for inspection. Each score
-also includes `score_momentum`, a 0-100 frontend-friendly 30-day momentum score, plus `rank` and `rank_total` fields for
-frontend display, where rank `1` is the top subnet and equal scores share the same rank. Unresolved GitHub metadata,
+local to that subset and are not comparable to a full-network ranking. `score` is the weighted metric composite on its
+natural 0-100 scale and is also retained as `composite_score` for compatibility; the leading subnet is not automatically
+rescaled to `100.00`. Each score also includes `score_momentum`, a 0-100 frontend-friendly 30-day momentum score, plus
+`rank` and `rank_total` fields for frontend display, where rank `1` is the top subnet and equal scores share the same
+rank. Unresolved GitHub metadata,
 missing crawl output, failed crawls, attribution-rejected targets, and subnets with no crawlable repositories score `0`.
 `raw_metrics` contains source counts and 30-day momentum sub-metric counts; the derived 30-day display score is exposed
 only as top-level `score_momentum`.
@@ -380,10 +386,10 @@ tao-git-crawl resolve \
   --output-dir out/tao
 ```
 
-For authoritative lifecycle separation and registration-bound overrides, each JSON row should include the positive
-top-level `registered_at` block from `NetworkRegisteredAt`. If it is absent, the crawler uses a conservative identity
-fingerprint epoch and ignores every registration-bound override for that row. JSON inputs are not assumed to be a full
-active-network snapshot, so omitted netuids are not archived as deregistered.
+For authoritative lifecycle separation and registration-bound overrides, each JSON row passed to `crawl` must include
+the positive top-level `registered_at` block from `NetworkRegisteredAt`; crawling fails closed when it is absent.
+The read-only `resolve` command can still inspect rows without it, but registration-bound overrides are ignored.
+JSON inputs are not assumed to be a full active-network snapshot, so omitted netuids are not archived as deregistered.
 
 The default Finney endpoint is `wss://entrypoint-finney.opentensor.ai:443`. Use `--endpoint` for a self-hosted or archive node.
 Live and JSON resolution only consider regular subnet slots, netuids `1` through `128`. Netuid `0` is the root network,

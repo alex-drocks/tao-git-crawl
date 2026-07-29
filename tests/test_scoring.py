@@ -162,8 +162,9 @@ def test_build_score_document_uses_global_raw_max_and_full_population(tmp_path):
     score_document = build_score_document(document, tmp_path)
 
     scores = {item["netuid"]: item for item in score_document["scores"]}
+    assert score_document["schema_version"] == "tao-git-crawl-score-v4"
     assert score_document["normalization"]["metric_method"] == "global_max"
-    assert score_document["normalization"]["score_method"] == "max_weighted_composite_to_100"
+    assert score_document["normalization"]["score_method"] == "weighted_composite_0_to_100"
     assert score_document["normalization"]["rank_method"] == "competition_score_desc"
     assert score_document["normalization"]["momentum_30d"] == {
         "window_days": 30,
@@ -190,7 +191,7 @@ def test_build_score_document_uses_global_raw_max_and_full_population(tmp_path):
     assert "repos_crawled" not in scores[1]["weighted_components"]
 
 
-    assert scores[1]["score"] == 100.0
+    assert scores[1]["score"] == 85.0
     assert scores[1]["score_momentum"] == 0.0
     assert scores[1]["composite_score"] == 85.0
     assert scores[1]["rank"] == 1
@@ -199,7 +200,7 @@ def test_build_score_document_uses_global_raw_max_and_full_population(tmp_path):
     assert scores[1]["raw_metrics"]["avg_credited_commits_per_active_day"] == 1.5
     assert scores[1]["raw_metrics"]["active_days"] == 2.0
     assert scores[1]["raw_metrics"]["distinct_contributors"] == 2.0
-    assert scores[2]["score"] == 50.98
+    assert scores[2]["score"] == 43.33
     assert scores[2]["composite_score"] == 43.33
     assert scores[2]["rank"] == 2
     assert scores[2]["rank_total"] == 3
@@ -364,11 +365,56 @@ def test_score_includes_today_in_implicit_30d_momentum_window(tmp_path, monkeypa
 
     score = build_score_document(document, tmp_path)["scores"][0]
 
+    assert score["raw_metrics"]["credited_file_changes"] == 3.0
     assert score["raw_metrics"]["momentum_30d_credited_file_changes"] == 2.0
     assert score["raw_metrics"]["momentum_30d_credited_lines_added"] == 20.0
     assert score["raw_metrics"]["momentum_30d_active_days"] == 2.0
     assert score["raw_metrics"]["momentum_30d_avg_credited_commits_per_active_day"] == 1.0
     assert score["score_momentum"] == 100.0
+
+
+def test_score_rejects_orphaned_malformed_out_of_window_and_duplicate_change_rows(tmp_path):
+    document = resolve_subnets(
+        [SubnetIdentityRecord(netuid=1, github_repo="https://github.com/acme/current")],
+        target_label="bittensor-subnets",
+    )
+    crawl_dir = _write_summary(
+        tmp_path,
+        1,
+        repos_crawled=1,
+        file_changes=7,
+        lines_added=700,
+        history_since="2026-01-01",
+        history_until="2026-01-31",
+    )
+    _write_commits(
+        crawl_dir,
+        [
+            {"sha": "valid", "authored_at": "2026-01-15T12:00:00Z", "author_login": "dev"},
+            {"sha": "before", "authored_at": "2025-12-31T23:59:59Z", "author_login": "dev"},
+            {"sha": "after", "authored_at": "2026-02-01T00:00:00Z", "author_login": "dev"},
+            {"sha": "malformed", "authored_at": "definitely-not-a-date", "author_login": "dev"},
+        ],
+    )
+    _write_file_changes(
+        crawl_dir,
+        [
+            {"repo": "acme/repo", "sha": "valid", "path": "src/valid.py", "additions": 10},
+            {"repo": "acme/repo", "sha": "valid", "path": "src/valid.py", "additions": 10},
+            {"repo": "acme/repo", "sha": "before", "path": "src/before.py", "additions": 100},
+            {"repo": "acme/repo", "sha": "after", "path": "src/after.py", "additions": 100},
+            {"repo": "acme/repo", "sha": "malformed", "path": "src/bad.py", "additions": 100},
+            {"repo": "acme/repo", "sha": "orphan", "path": "src/orphan.py", "additions": 100},
+            {"repo": "acme/repo", "sha": "valid", "path": "", "additions": 100},
+        ],
+    )
+
+    score = build_score_document(document, tmp_path)["scores"][0]
+
+    assert score["raw_metrics"]["credited_file_changes"] == 1.0
+    assert score["raw_metrics"]["credited_lines_added"] == 10.0
+    assert score["raw_metrics"]["active_days"] == 1.0
+    assert score["raw_metrics"]["distinct_contributors"] == 1.0
 
 
 def test_aggregate_score_fallback_zeroes_momentum_for_windows_over_30_days(tmp_path):
@@ -612,7 +658,7 @@ def test_score_document_ignores_stale_summaries_for_current_inaccessible_report_
     assert scores[2]["raw_metrics"]["credited_file_changes"] == 0.0
 
 
-def test_score_is_rescaled_so_top_composite_is_100(tmp_path):
+def test_score_uses_unscaled_weighted_composite(tmp_path):
     document = resolve_subnets(
         [
             SubnetIdentityRecord(netuid=1, subnet_name="Broad", github_repo="https://github.com/acme/broad"),
@@ -659,10 +705,10 @@ def test_score_is_rescaled_so_top_composite_is_100(tmp_path):
     scores = {item["netuid"]: item for item in build_score_document(document, tmp_path)["scores"]}
 
     assert scores[1]["composite_score"] == 70.0
-    assert scores[1]["score"] == 100.0
+    assert scores[1]["score"] == 70.0
     assert scores[1]["rank"] == 1
     assert scores[2]["composite_score"] == 53.5
-    assert scores[2]["score"] == 76.43
+    assert scores[2]["score"] == 53.5
     assert scores[2]["rank"] == 2
 
 
@@ -693,8 +739,8 @@ def test_equal_scores_share_the_same_rank(tmp_path):
 
     scores = {item["netuid"]: item for item in build_score_document(document, tmp_path)["scores"]}
 
-    assert scores[1]["score"] == 100.0
-    assert scores[2]["score"] == 100.0
+    assert scores[1]["score"] == 85.0
+    assert scores[2]["score"] == 85.0
     assert scores[1]["rank"] == 1
     assert scores[2]["rank"] == 1
     assert scores[3]["rank"] == 3
@@ -725,7 +771,7 @@ def test_write_score_outputs_writes_aggregate_and_per_subnet_files(tmp_path):
     assert tmp_path / "subnet-scores.json" in written
     assert tmp_path / "subnets" / "1" / "score.json" in written
     score = json.loads((tmp_path / "subnets" / "1" / "score.json").read_text(encoding="utf-8"))
-    assert score["score"] == 100.0
+    assert score["score"] == 85.0
     assert score["rank"] == 1
     assert score["rank_total"] == 1
 

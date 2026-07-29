@@ -56,10 +56,19 @@ class SubstrateSubnetIdentityProvider:
             regular_netuid = _normalize_regular_subnet_netuid(netuid)
             if regular_netuid is None:
                 continue
+            raw_identity = _query_subnet_identity(substrate, regular_netuid)
+            registered_at = _positive_int(
+                _query_network_registered_at(substrate, regular_netuid)
+            )
+            if registered_at is None:
+                raise RuntimeError(
+                    "NetworkRegisteredAt returned no lifecycle block for active subnet "
+                    f"{regular_netuid}; refusing an unbound identity snapshot"
+                )
             yield decode_substrate_identity(
                 regular_netuid,
-                _query_subnet_identity(substrate, regular_netuid),
-                registered_at=_query_network_registered_at(substrate, regular_netuid),
+                raw_identity,
+                registered_at=registered_at,
             )
 
     def fetch_populated(self) -> Iterable[SubnetIdentityRecord]:
@@ -79,6 +88,13 @@ class SubstrateSubnetIdentityProvider:
         active_netuids = _query_network_netuids(substrate)
         identities = _query_subnet_identity_map(substrate)
         registrations = _query_network_registration_map(substrate)
+        missing_registrations = sorted(set(active_netuids) - registrations.keys())
+        if missing_registrations:
+            missing = ", ".join(str(netuid) for netuid in missing_registrations)
+            raise RuntimeError(
+                "NetworkRegisteredAt omitted lifecycle blocks for active subnet(s) "
+                f"{missing}; refusing an unbound identity snapshot"
+            )
         for netuid in active_netuids:
             yield decode_substrate_identity(
                 netuid,
@@ -187,10 +203,7 @@ def _query_network_registered_at(substrate: object, netuid: int) -> object:
 
 
 def _query_network_netuids(substrate: object) -> list[int]:
-    try:
-        rows = substrate.query_map(module="SubtensorModule", storage_function="NetworksAdded")
-    except Exception:  # noqa: BLE001 - fallback to identity map for nodes/clients that do not expose query_map
-        return []
+    rows = substrate.query_map(module="SubtensorModule", storage_function="NetworksAdded")
     netuids: list[int] = []
     for key, value in rows:
         added = _unwrap_scale_value(value)

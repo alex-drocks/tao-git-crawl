@@ -8,7 +8,7 @@ import time
 from collections import deque
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from math import ceil
@@ -811,7 +811,7 @@ def _activity_from_summary(summary: object, crawl_dir: Path | None = None) -> di
     has_source_like_totals = isinstance(source_like_totals_value, dict)
     source_like_totals = _mapping(source_like_totals_value)
     calendar_span = _mapping(summary.get("calendar_span"))
-    jsonl_activity = _code_activity_from_jsonl(crawl_dir)
+    jsonl_activity = _code_activity_from_jsonl(crawl_dir, summary)
     upstream_activity = None if jsonl_activity is not None else _read_git_crawl_activity(crawl_dir)
     if jsonl_activity is not None:
         totals = _mapping(jsonl_activity.get("totals"))
@@ -931,7 +931,10 @@ def _empty_activity_totals() -> dict[str, int | float]:
     }
 
 
-def _code_activity_from_jsonl(crawl_dir: Path | None) -> dict[str, object] | None:
+def _code_activity_from_jsonl(
+    crawl_dir: Path | None,
+    summary: dict[str, object],
+) -> dict[str, object] | None:
     if crawl_dir is None:
         return None
     file_changes_path = crawl_dir / "file_changes.jsonl"
@@ -939,10 +942,8 @@ def _code_activity_from_jsonl(crawl_dir: Path | None) -> dict[str, object] | Non
     if not file_changes_path.exists() or not commits_path.exists():
         return None
 
-    credited_commit_keys: set[tuple[str, str]] = set()
-    file_changes = 0
-    lines_added: int | float = 0
-    lines_deleted: int | float = 0
+    credited_change_stats: dict[tuple[str, str], dict[str, int | float]] = {}
+    credited_paths_by_commit: dict[tuple[str, str], set[str]] = {}
     skipped = _empty_skipped_activity()
     for row in _iter_jsonl_objects(file_changes_path):
         if not isinstance(row, dict):
@@ -951,37 +952,72 @@ def _code_activity_from_jsonl(crawl_dir: Path | None) -> dict[str, object] | Non
         if skipped_class is not None:
             _add_skipped_change(skipped, row, skipped_class)
             continue
-        file_changes += 1
-        lines_added += _file_change_lines_added(row)
-        lines_deleted += _file_change_lines_deleted(row)
         commit_key = _commit_key(row)
-        if commit_key is not None:
-            credited_commit_keys.add(commit_key)
+        path = _file_change_path(row)
+        if commit_key is not None and path is not None:
+            seen_paths = credited_paths_by_commit.setdefault(commit_key, set())
+            if path in seen_paths:
+                continue
+            seen_paths.add(path)
+            stats = credited_change_stats.setdefault(
+                commit_key,
+                {"file_changes": 0, "lines_added": 0, "lines_deleted": 0},
+            )
+            stats["file_changes"] = _number(stats.get("file_changes")) + 1
+            stats["lines_added"] = _number(stats.get("lines_added")) + max(
+                _file_change_lines_added(row),
+                0,
+            )
+            stats["lines_deleted"] = _number(stats.get("lines_deleted")) + max(
+                _file_change_lines_deleted(row),
+                0,
+            )
 
     commits = 0
+    credited_commit_keys: set[tuple[str, str]] = set()
     active_days: set[str] = set()
     repo_days: set[tuple[str, str]] = set()
     contributor_days: set[tuple[str, str, str]] = set()
     contributors: set[str] = set()
     seen_commits: set[tuple[str, str]] = set()
+    history_since, history_until, history_until_inclusive = _history_timestamp_window(summary)
     for row in _iter_jsonl_objects(commits_path):
         if not isinstance(row, dict):
             continue
         commit_key = _commit_key(row)
-        if commit_key is None or commit_key not in credited_commit_keys or commit_key in seen_commits:
+        if commit_key is None or commit_key not in credited_change_stats or commit_key in seen_commits:
+            continue
+        authored_at = _authored_timestamp(row.get("authored_at"))
+        if authored_at is None or not _is_timestamp_in_history_range(
+            authored_at,
+            history_since,
+            history_until,
+            until_inclusive=history_until_inclusive,
+        ):
             continue
         seen_commits.add(commit_key)
+        credited_commit_keys.add(commit_key)
         commits += 1
         repo = commit_key[0]
         contributor = _contributor_key(row)
         contributors.add(contributor)
-        authored_day = _authored_day(row.get("authored_at"))
-        if not authored_day:
-            continue
+        authored_day = authored_at.date().isoformat()
         active_days.add(authored_day)
         repo_days.add((repo, authored_day))
         contributor_days.add((repo, authored_day, contributor))
 
+    file_changes = sum(
+        _number(credited_change_stats[commit_key].get("file_changes"))
+        for commit_key in credited_commit_keys
+    )
+    lines_added = sum(
+        _number(credited_change_stats[commit_key].get("lines_added"))
+        for commit_key in credited_commit_keys
+    )
+    lines_deleted = sum(
+        _number(credited_change_stats[commit_key].get("lines_deleted"))
+        for commit_key in credited_commit_keys
+    )
     return {
         "totals": {
             "commits": commits,
@@ -1084,18 +1120,30 @@ def _credited_commit_stats_from_file_changes(crawl_dir: Path) -> dict[tuple[str,
     if not file_changes_path.exists():
         return None
     credited_commit_stats: dict[tuple[str, str], dict[str, int | float]] = {}
+    credited_paths: dict[tuple[str, str], set[str]] = {}
     for row in _iter_jsonl_objects(file_changes_path):
         if not _is_code_change_row(row):
             continue
         commit_key = _commit_key(row)
-        if commit_key is not None:
+        path = _file_change_path(row)
+        if commit_key is not None and path is not None:
+            seen_paths = credited_paths.setdefault(commit_key, set())
+            if path in seen_paths:
+                continue
+            seen_paths.add(path)
             stats = credited_commit_stats.setdefault(
                 commit_key,
                 {"file_changes": 0, "lines_added": 0, "lines_deleted": 0},
             )
             stats["file_changes"] = _number(stats.get("file_changes")) + 1
-            stats["lines_added"] = _number(stats.get("lines_added")) + _file_change_lines_added(row)
-            stats["lines_deleted"] = _number(stats.get("lines_deleted")) + _file_change_lines_deleted(row)
+            stats["lines_added"] = _number(stats.get("lines_added")) + max(
+                _file_change_lines_added(row),
+                0,
+            )
+            stats["lines_deleted"] = _number(stats.get("lines_deleted")) + max(
+                _file_change_lines_deleted(row),
+                0,
+            )
     return credited_commit_stats
 
 
@@ -1107,6 +1155,13 @@ def _commit_key(row: dict[str, object]) -> tuple[str, str] | None:
     if not repo or not sha:
         return None
     return repo, sha
+
+
+def _file_change_path(row: dict[str, object]) -> str | None:
+    path = row.get("path")
+    if not isinstance(path, str) or not path:
+        path = row.get("filename")
+    return path if isinstance(path, str) and path else None
 
 
 def _commit_row_payload(
@@ -1382,15 +1437,57 @@ def _iter_jsonl_objects(path: Path) -> Iterator[object]:
 
 
 def _authored_day(value: object) -> str | None:
+    authored_at = _authored_timestamp(value)
+    return authored_at.date().isoformat() if authored_at is not None else None
+
+
+def _authored_timestamp(value: object) -> datetime | None:
     if not isinstance(value, str) or not value:
         return None
     try:
         authored_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
         if authored_at.tzinfo is None or authored_at.utcoffset() is None:
             authored_at = authored_at.replace(tzinfo=UTC)
-        return authored_at.astimezone(UTC).date().isoformat()
+        return authored_at.astimezone(UTC)
     except ValueError:
-        return value[:10] if len(value) >= 10 else None
+        return None
+
+
+def _history_timestamp_window(
+    summary: dict[str, object],
+) -> tuple[datetime | None, datetime, bool]:
+    since = _metadata_timestamp(summary.get("history_since"))
+    explicit_until = _metadata_timestamp(summary.get("history_until"))
+    if explicit_until is not None:
+        return since, explicit_until, True
+    now = datetime.now(UTC)
+    tomorrow = now.date() + timedelta(days=1)
+    implicit_until = datetime(tomorrow.year, tomorrow.month, tomorrow.day, tzinfo=UTC)
+    return since, implicit_until, False
+
+
+def _metadata_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        timestamp = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+        timestamp = timestamp.replace(tzinfo=UTC)
+    return timestamp.astimezone(UTC)
+
+
+def _is_timestamp_in_history_range(
+    authored_at: datetime,
+    since: datetime | None,
+    until: datetime,
+    *,
+    until_inclusive: bool,
+) -> bool:
+    if since is not None and authored_at < since:
+        return False
+    return authored_at <= until if until_inclusive else authored_at < until
 
 
 def _contributor_key(row: dict[str, object]) -> str:
