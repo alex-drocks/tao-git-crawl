@@ -21,9 +21,6 @@ Move entries into a dated version section when cutting the next tag.
 ### Fixed
 
 - Reject every target owned by `opentensor` or `RaoFoundation` from regular-subnet scoring.
-- Keep the published score on the weighted composite's natural 0-100 scale instead of automatically inflating the
-  leading subnet to 100, which previously overstated weak or incomplete comparison populations; publish this semantic
-  change as score schema v4.
 - Require each credited file-change row to join a valid, in-window commit; deduplicate repeated commit paths and reject
   orphan, malformed-date, out-of-window, or negative-addition rows from score and API totals.
 - Fail closed when any crawl snapshot lacks registration epochs, propagate live subnet-discovery failures instead of

@@ -176,17 +176,16 @@ When detailed rows are available, `/api/subnets/<netuid>/file-changes` returns c
 ### Subnet Scores
 
 Each crawl writes `subnet-scores.json` plus `subnets/<netuid>/score.json`. The API also embeds the same score object in `/api/subnets`, `/api/subnets/<netuid>`, and `/api/subnets/<netuid>/summary`.
-Score outputs use schema version `tao-git-crawl-score-v4`.
+Score outputs use schema version `tao-git-crawl-score-v3`.
 
 Scores first use raw global-max normalization for metrics covering the selected crawl window and for 30-day momentum
 sub-metrics. Scheduled Docker crawls use a 365-day window by default, while manual `--since` and `--until` values can
 select a different period. For a full Finney crawl, the comparison population is the full regular subnet population.
 For `--netuid`, partial JSON exports, or otherwise filtered runs, `score`, `rank`, `rank_total`, and `percentile` are
-local to that subset and are not comparable to a full-network ranking. `score` is the weighted metric composite on its
-natural 0-100 scale and is also retained as `composite_score` for compatibility; the leading subnet is not automatically
-rescaled to `100.00`. Each score also includes `score_momentum`, a 0-100 frontend-friendly 30-day momentum score, plus
-`rank` and `rank_total` fields for frontend display, where rank `1` is the top subnet and equal scores share the same
-rank. Unresolved GitHub metadata,
+local to that subset and are not comparable to a full-network ranking. The weighted metric composite is then rescaled
+so the top subnet score is `100.00`; the pre-rescale value is retained as `composite_score` for inspection. Each score
+also includes `score_momentum`, a 0-100 frontend-friendly 30-day momentum score, plus `rank` and `rank_total` fields for
+frontend display, where rank `1` is the top subnet and equal scores share the same rank. Unresolved GitHub metadata,
 missing crawl output, failed crawls, attribution-rejected targets, and subnets with no crawlable repositories score `0`.
 `raw_metrics` contains source counts and 30-day momentum sub-metric counts; the derived 30-day display score is exposed
 only as top-level `score_momentum`.

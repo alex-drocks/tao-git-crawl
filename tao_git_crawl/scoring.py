@@ -10,7 +10,7 @@ from .activity_filter import is_noise_change
 from .attribution import targets_attribution_rejection
 from .resolver import ResolutionDocument
 
-SCORE_SCHEMA_VERSION = "tao-git-crawl-score-v4"
+SCORE_SCHEMA_VERSION = "tao-git-crawl-score-v3"
 GIT_CRAWL_ACTIVITY_SCHEMA_VERSION = "git-crawl-activity-v1"
 MOMENTUM_WINDOW_DAYS = 30
 
@@ -97,7 +97,7 @@ def build_score_document(document: ResolutionDocument, output_dir: str | Path) -
         ),
         "normalization": {
             "metric_method": "global_max",
-            "score_method": "weighted_composite_0_to_100",
+            "score_method": "max_weighted_composite_to_100",
             "rank_method": "competition_score_desc",
             "metric_maxima": metric_maxima,
             "momentum_30d": {
@@ -499,8 +499,10 @@ def _score_input(input_item: SubnetScoreInput, metric_maxima: dict[str, float]) 
 
 
 def _with_final_scores_ranks_and_percentiles(scores: list[dict[str, object]]) -> list[dict[str, object]]:
+    max_composite = max((float(score["composite_score"]) for score in scores), default=0.0)
     for score in scores:
-        score["score"] = float(score["composite_score"])
+        composite_score = float(score["composite_score"])
+        score["score"] = round((100 * composite_score) / max_composite, 2) if max_composite > 0 else 0.0
 
     total = len(scores)
     _apply_ranks(scores)
