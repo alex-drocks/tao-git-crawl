@@ -2,6 +2,7 @@ import json
 from datetime import date
 
 from tao_git_crawl.models import SubnetIdentityRecord
+from tao_git_crawl.overrides import ResolverConfig, SubnetOverride, TargetOverride
 from tao_git_crawl.resolver import resolve_subnets
 from tao_git_crawl.scoring import build_score_document, write_score_outputs
 
@@ -456,6 +457,7 @@ def test_score_rejects_orphaned_malformed_out_of_window_and_duplicate_change_row
             {"repo": "acme/repo", "sha": "malformed", "path": "src/bad.py", "additions": 100},
             {"repo": "acme/repo", "sha": "orphan", "path": "src/orphan.py", "additions": 100},
             {"repo": "acme/repo", "sha": "valid", "path": "", "additions": 100},
+            {"repo": "acme/repo", "sha": "valid", "path": "src/negative.py", "additions": -100},
         ],
     )
 
@@ -465,6 +467,64 @@ def test_score_rejects_orphaned_malformed_out_of_window_and_duplicate_change_row
     assert score["raw_metrics"]["credited_lines_added"] == 10.0
     assert score["raw_metrics"]["active_days"] == 1.0
     assert score["raw_metrics"]["distinct_contributors"] == 1.0
+
+
+def test_successful_identity_fallback_can_score_when_blocked_override_was_rejected(tmp_path):
+    document = resolve_subnets(
+        [
+            SubnetIdentityRecord(
+                netuid=80,
+                registered_at=7000000,
+                github_repo="https://github.com/acme/current",
+            )
+        ],
+        target_label="bittensor-subnets",
+        config=ResolverConfig(
+            subnet_overrides={
+                80: SubnetOverride(
+                    replace=True,
+                    targets=(
+                        TargetOverride(
+                            kind="repository",
+                            url="https://github.com/opentensor/subtensor",
+                        ),
+                    ),
+                )
+            }
+        ),
+    )
+    crawl_dir = _write_summary(tmp_path, 80, repos_crawled=1, file_changes=3, lines_added=30)
+    _write_activity(
+        crawl_dir,
+        commits=2,
+        file_changes=3,
+        lines_added=30,
+        active_days=2,
+        distinct_contributors=1,
+    )
+    (tmp_path / "crawl-report.json").write_text(
+        json.dumps(
+            {
+                "succeeded": [{"netuid": 80}],
+                "failed": [],
+                "skipped_inaccessible": [],
+                "skipped_attribution": [],
+                "fallback_used": [
+                    {
+                        "netuid": 80,
+                        "fallback_targets": ["https://github.com/acme/current"],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    [score] = build_score_document(document, tmp_path)["scores"]
+
+    assert score["status"] == "scored"
+    assert score["score"] == 100.0
+    assert score["raw_metrics"]["credited_file_changes"] == 3.0
 
 
 def test_aggregate_score_fallback_zeroes_momentum_for_windows_over_30_days(tmp_path):

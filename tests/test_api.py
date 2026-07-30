@@ -1078,7 +1078,7 @@ def test_activity_rejects_orphaned_malformed_and_out_of_window_change_rows(tmp_p
     payload = get_subnet_dataset(tmp_path, 94, "activity")
 
     assert payload["totals"]["commits"] == 1
-    assert payload["totals"]["file_changes"] == 2
+    assert payload["totals"]["file_changes"] == 1
     assert payload["totals"]["lines_added"] == 3
     assert payload["totals"]["active_days"] == 1
 

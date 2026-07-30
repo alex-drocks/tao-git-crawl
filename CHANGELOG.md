@@ -34,6 +34,8 @@ Move entries into a dated version section when cutting the next tag.
 - Fail closed when any crawl snapshot lacks registration epochs or a guarded crawl exits unsuccessfully, propagate live
   subnet-discovery failures instead of treating the network as empty, and suppress scores if on-chain attribution does
   not stabilize after repeated crawl reconciliation.
+- Pin active-netuid, identity, and registration-map reads to one chain head so a rollover cannot create a mixed
+  attribution snapshot from multiple blocks.
 - Reject exact repository redirects/transfers and owner-expansion rows whose canonical GitHub identity differs from the
   explicit subnet target, report them as `attribution_rejected`, and hide any stale crawl datasets for those netuids.
 

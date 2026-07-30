@@ -197,8 +197,12 @@ def test_substrate_provider_fetches_populated_identity_map_without_per_netuid_qu
 
 def test_substrate_provider_fetches_active_subnets_with_registration_epochs_without_per_netuid_queries():
     class FakeSubstrate:
-        def query_map(self, module, storage_function):
+        def get_chain_head(self):
+            return "0xatomic-snapshot"
+
+        def query_map(self, module, storage_function, block_hash=None):
             assert module == "SubtensorModule"
+            assert block_hash == "0xatomic-snapshot"
             if storage_function == "NetworksAdded":
                 return [
                     (ScaleValue(0), ScaleValue(True)),

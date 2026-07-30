@@ -6,7 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from .activity_filter import is_noise_change
+from .activity_filter import is_credited_change
 from .attribution import target_attribution_rejection, targets_attribution_rejection
 from .resolver import ResolutionDocument
 
@@ -51,6 +51,7 @@ class CrawlReportState:
     failed_reasons: dict[int, str]
     inaccessible_reasons: dict[int, list[str]]
     attribution_reasons: dict[int, list[str]]
+    fallback_used: set[int]
 
 
 def write_score_outputs(document: ResolutionDocument, output_dir: str | Path) -> list[Path]:
@@ -171,8 +172,13 @@ def _score_input_for_netuid(
         target_attribution_rejection(target) is not None
         for target in subnet_document.targets
     )
+    verified_fallback = (
+        report_state is not None
+        and netuid in report_state.succeeded
+        and netuid in report_state.fallback_used
+    )
     if attribution_rejection is not None and (
-        all_targets_rejected or report_state is None
+        report_state is None or (all_targets_rejected and not verified_fallback)
     ):
         return SubnetScoreInput(
             netuid=netuid,
@@ -362,7 +368,7 @@ def _credited_metrics_from_jsonl(crawl_dir: Path, summary: dict[str, object]) ->
             if not line.strip():
                 continue
             row = json.loads(line)
-            if not isinstance(row, dict) or is_noise_change(row):
+            if not isinstance(row, dict) or not is_credited_change(row):
                 continue
             commit_key = _commit_key(row)
             path = _file_change_path(row)
@@ -555,6 +561,7 @@ def _crawl_report_state(output_dir: Path) -> CrawlReportState | None:
         failed_reasons=failed_reasons,
         inaccessible_reasons=inaccessible_reasons,
         attribution_reasons=attribution_reasons,
+        fallback_used=_netuid_set(report.get("fallback_used")),
     )
 
 
@@ -811,7 +818,7 @@ def _credited_repo_count_from_file_changes(crawl_dir: Path) -> float | None:
             if not line.strip():
                 continue
             row = json.loads(line)
-            if not isinstance(row, dict) or is_noise_change(row):
+            if not isinstance(row, dict) or not is_credited_change(row):
                 continue
             repo = _text_key(row.get("repo")).lower()
             if repo:

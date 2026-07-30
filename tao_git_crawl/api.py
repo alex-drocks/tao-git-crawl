@@ -16,7 +16,12 @@ from pathlib import Path
 from threading import Lock
 from urllib.parse import parse_qs, unquote, urlparse
 
-from .activity_filter import CODE_ACTIVITY_EXCLUDED_CHURN_CLASSES, is_noise_change, noise_change_class
+from .activity_filter import (
+    CODE_ACTIVITY_EXCLUDED_CHURN_CLASSES,
+    has_valid_churn_metrics,
+    is_credited_change,
+    noise_change_class,
+)
 from .identity_epochs import IDENTITY_HISTORY_SCHEMA_VERSION, IDENTITY_RECONCILIATION_FILENAME
 
 DEFAULT_OUTPUT_DIR = Path("/data/output")
@@ -948,6 +953,8 @@ def _code_activity_from_jsonl(
     for row in _iter_jsonl_objects(file_changes_path):
         if not isinstance(row, dict):
             continue
+        if not has_valid_churn_metrics(row):
+            continue
         skipped_class = noise_change_class(row)
         if skipped_class is not None:
             _add_skipped_change(skipped, row, skipped_class)
@@ -1112,7 +1119,7 @@ def _add_skipped_change(skipped: dict[str, object], row: dict[str, object], skip
 
 
 def _is_code_change_row(row: object) -> bool:
-    return isinstance(row, dict) and not is_noise_change(row)
+    return isinstance(row, dict) and is_credited_change(row)
 
 
 def _credited_commit_stats_from_file_changes(crawl_dir: Path) -> dict[tuple[str, str], dict[str, int | float]] | None:
