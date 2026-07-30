@@ -6,20 +6,28 @@ It is self-hosted. You provide the chain endpoint or JSON export, GitHub token, 
 
 ## What It Does
 
-- Reads `SubtensorModule.SubnetIdentitiesV3(netuid)` from a live chain endpoint, or reads the same fields from JSON.
+- Reads `SubtensorModule.SubnetIdentitiesV3(netuid)` and the authoritative
+  `SubtensorModule.NetworkRegisteredAt(netuid)` lifecycle block from a live chain endpoint, or reads equivalent fields
+  from JSON.
 - Restricts subnet resolution to regular subnet slots `1` through `128`, excluding netuid `0`, the Bittensor root
   network.
 - Extracts GitHub repository URLs, owner roots, and bare `owner/repo` values from subnet identity text.
 - Treats `github_repo` as the primary GitHub metadata field and scans `subnet_url`, `description`, `additional`, and `subnet_contact` as fallback fields.
 - Writes aggregate resolver outputs plus split outputs under `subnets/<netuid>/`.
 - Crawls each resolved subnet as its own `git-crawl` target.
+- Rejects every repository and owner target under `opentensor` or `RaoFoundation`, plus repository redirects/transfers
+  that no longer match the explicit subnet target, instead of crediting unrelated history.
+- Treats each `(netuid, NetworkRegisteredAt)` pair as an immutable identity epoch. A recycled slot archives the old
+  live output and starts with no inherited score, crawl rows, or incremental state.
 - Scores each subnet from credited git activity and writes score details into the API summaries.
 - Records missing or invalid GitHub metadata in `unresolved.json`.
 - Uses a built-in registry entry for subnet 64, Chutes AI, so SN64 resolves to the `https://github.com/chutesai` owner.
 
 ## Run With Docker
 
-Docker Compose is the main way to run `tao-git-crawl` as a scheduled crawler. The scheduler runs once on start, then repeats every 24 hours by default.
+Docker Compose is the main way to run `tao-git-crawl` as a scheduled crawler. The scheduler runs once on start, then
+repeats every 24 hours by default. While idle it checks live subnet identity fields every 15 minutes and starts an early
+reconciliation crawl when a netuid's identity or GitHub metadata changes.
 
 Docker builds install `git-crawl` from `git+https://github.com/alex-drocks/git-crawl.git@v0.3.2` by default.
 
@@ -41,6 +49,8 @@ On hosts with legacy Compose, use `docker-compose build` and `docker-compose up 
 Compose creates one named volume, `tao-data`, mounted at `/data`:
 
 - `/data/output`: resolver outputs and per-subnet crawl metrics.
+- `/data/output/subnet-history`: read-only audit archives for ended subnet identity epochs; these are outside the live
+  `subnets/<netuid>` API path.
 - `/data/cache`: bare git mirrors.
 - `/data/state`: optional SQLite state for explicit incremental crawls.
 - `/data/logs`: per-run crawl logs.
@@ -54,6 +64,7 @@ Docker Compose environment:
 | -------- | ------- | ----------- |
 | `GITHUB_TOKEN` | required | GitHub personal access token |
 | `TAO_CRAWL_INTERVAL_SECONDS` | `86400` | Seconds between crawl runs |
+| `TAO_CRAWL_IDENTITY_CHECK_SECONDS` | `900` | Poll interval for live identity changes; `0` disables early reconciliation |
 | `TAO_CRAWL_NETWORK` | `finney` | Bittensor network preset |
 | `TAO_CRAWL_OUTPUT_DIR` | `/data/output` | Fixed Compose container path for crawl output |
 | `TAO_CRAWL_CACHE_DIR` | `/data/cache` | Fixed Compose container path for the bare git mirror cache |
@@ -88,6 +99,28 @@ persist under `/data/cache`, so repeat runs reuse local clones and fetch current
 window. This default keeps investor-facing rankings focused on sustained recent shipping, not ancient history or only
 the repositories that changed since the previous scheduler run.
 
+The identity poll limits recycled-netuid drift: it reads every active slot and its `NetworkRegisteredAt` block in bulk.
+If a registration block, subnet name, or GitHub discovery field changes between daily runs, the scheduler starts a
+crawl early. If an identity changes while a crawl is running, it retries up to two reconciliation crawls and leaves the
+API fail-closed if attribution still does not stabilize.
+
+`NetworkRegisteredAt` is the hard history boundary. Before crawling a changed registration, the crawler moves the
+entire prior `subnets/<netuid>` directory to `subnet-history/<netuid>/`, deletes reproducible live aggregate files, and
+writes a new `identity-epoch.json` marker. On first deployment of this policy, legacy live directories without an epoch
+marker are also archived before being rebuilt. A full crawl similarly archives output for deregistered slots. The audit
+trail is written to `identity-history.json`; archived rows are never read by live scoring or subnet API endpoints.
+Incremental git-crawl target labels contain the epoch ID, so SQLite heads from two registrations cannot merge. Set
+`TAO_CRAWL_IDENTITY_CHECK_SECONDS=0` only when another operator process already guarantees prompt reconciliation.
+
+This boundary separates subnet occupants and stored crawl state; it is not a commit-date cutoff. A repository named by
+the current on-chain identity can receive activity from before the subnet registration when that activity is inside the
+selected crawl window.
+
+While directories are being reconciled, `identity-reconciliation.json` acts as a fail-closed API sentinel: aggregate
+score and health requests return `503`, and per-subnet scores and crawl rows are hidden. The sentinel is removed only after a
+successful reconciliation. If archival fails, it remains with `status: failed` so stale output cannot become live again
+without operator recovery or a successful subsequent crawl.
+
 Set `TAO_CRAWL_INCREMENTAL=true` only for operator diagnostics where latest-delta output is intentional. Incremental
 mode uses `TAO_CRAWL_STATE_DB` to crawl only changes since the previously stored default-branch head, so API activity
 and scores from that output are not comparable to rolling-window rankings.
@@ -100,6 +133,8 @@ The API service mounts the same `tao-data` volume read-only and exposes frontend
 - `GET /api/subnets/<netuid>/summary`
 - `GET /api/subnets/<netuid>/activity`
 - `GET /api/subnets/<netuid>/score`
+- `GET /api/subnets/<netuid>/identity-epoch`
+- `GET /api/identity-history`
 - `GET /api/subnets/<netuid>/repositories?limit=100&offset=0`
 - `GET /api/subnets/<netuid>/commits?limit=100&offset=0`
 - `GET /api/subnets/<netuid>/contributor-days?limit=100&offset=0`
@@ -112,8 +147,9 @@ The API service mounts the same `tao-data` volume read-only and exposes frontend
 Diagnostic crawl-file endpoints such as `/failures`, `/excluded`, and `/crawl-runs` remain available per subnet, but they are not part of the normal frontend activity contract.
 
 When `crawl-report.json` is present, the API treats it as the current-run source of truth. If the latest run marks a
-subnet as unresolved, failed, inaccessible, or not yet crawled, subnet detail payloads expose `current_crawl` plus the
-current score/target metadata, but crawl-derived summary, activity, and JSONL datasets are not served from stale files.
+subnet as unresolved, failed, inaccessible, attribution-rejected, or not yet crawled, subnet detail payloads expose
+`current_crawl` plus the current score/target metadata, but crawl-derived summary, activity, and JSONL datasets are not
+served from stale files.
 Those dataset endpoints return a JSON `404` instead of leaking activity from an older crawl.
 
 ### Subnet Activity
@@ -150,7 +186,7 @@ local to that subset and are not comparable to a full-network ranking. The weigh
 so the top subnet score is `100.00`; the pre-rescale value is retained as `composite_score` for inspection. Each score
 also includes `score_momentum`, a 0-100 frontend-friendly 30-day momentum score, plus `rank` and `rank_total` fields for
 frontend display, where rank `1` is the top subnet and equal scores share the same rank. Unresolved GitHub metadata,
-missing crawl output, failed crawls, and subnets with no crawlable repositories score `0`.
+missing crawl output, failed crawls, attribution-rejected targets, and subnets with no crawlable repositories score `0`.
 `raw_metrics` contains source counts and 30-day momentum sub-metric counts; the derived 30-day display score is exposed
 only as top-level `score_momentum`.
 
@@ -185,6 +221,13 @@ not fall back to raw churn totals. Aggregate fallbacks cannot reconstruct 30-day
 window itself is 30 days or shorter. Repository breadth is reported only for repositories with credited activity in the
 scoring window. The default `source_like` crawl filter reduces upstream noise before outputs are written;
 `tao-git-crawl` then rechecks detailed rows for investor-facing scoring and API activity.
+
+Regular subnets cannot receive credit for any repository or owner target under `opentensor` or `RaoFoundation`; the
+owner-wide deny rule applies regardless of repository name. Exact targets must also resolve through GitHub to the same canonical `owner/repo`, and
+owner expansion must return repositories under that same owner. A rename or transfer is rejected with status
+`attribution_rejected` until on-chain metadata or a reviewed override names the canonical target explicitly. Rejected
+targets are recorded under `skipped_attribution` in `crawl-report.json`, and stale crawl datasets for that netuid are
+not served by the API.
 
 `repos_crawled` remains in `raw_metrics` for context, but it is not a weighted score input. Repo count reflects project
 layout too much to be a reliable investor-facing activity signal.
@@ -342,6 +385,11 @@ tao-git-crawl resolve \
   --output-dir out/tao
 ```
 
+For authoritative crawl-history lifecycle separation, each JSON row passed to `crawl` must include the positive
+top-level `registered_at` block from `NetworkRegisteredAt`; crawling fails closed when it is absent. The read-only
+`resolve` command can still inspect rows without it.
+JSON inputs are not assumed to be a full active-network snapshot, so omitted netuids are not archived as deregistered.
+
 The default Finney endpoint is `wss://entrypoint-finney.opentensor.ai:443`. Use `--endpoint` for a self-hosted or archive node.
 Live and JSON resolution only consider regular subnet slots, netuids `1` through `128`. Netuid `0` is the root network,
 not a regular subnet.
@@ -353,6 +401,9 @@ Resolver outputs:
 - `owner-targets.json`: GitHub owners that need owner-level expansion.
 - `unresolved.json`: subnets with no usable GitHub target.
 - `subnets/<netuid>/...`: the same files scoped to one subnet.
+
+Crawler output additionally contains `subnets/<netuid>/identity-epoch.json`, with the current registration block and
+epoch ID, and `identity-history.json`, the audit index for any quarantined prior epochs.
 
 ## Crawl Subnets
 
@@ -405,6 +456,10 @@ Use overrides when on-chain metadata points at the wrong GitHub scope.
 The built-in registry is tracked at `registry/overrides.json` so subnet teams can open PRs to update their own target
 scope. Prefer exact `repository` targets unless the whole GitHub account is intentionally dedicated to one subnet.
 
+Contributors only add or edit targets in `registry/overrides.json` and open a PR. No lifecycle block or helper command is
+required. Registry entries are maintained manually; if a netuid is recycled, its old override must be reviewed, updated,
+or removed.
+
 Registry JSON:
 
 ```json
@@ -449,6 +504,10 @@ tao-git-crawl crawl \
   --cache-dir .cache/git-crawl \
   --since 2026-01-01
 ```
+
+Override definitions do not support `registered_at`. They are intentionally simple, manually maintained target mappings
+keyed by netuid. The separate identity-epoch system still uses live `NetworkRegisteredAt` values to quarantine crawl
+history when a subnet is recycled, but it does not automatically rewrite or disable registry entries.
 
 Override order is built-in registry, optional `--registry-url`, optional `--registry`, then `--config`. Later sources win.
 

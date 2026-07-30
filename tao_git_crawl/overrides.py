@@ -117,11 +117,16 @@ def _parse_subnet_override(value: object) -> SubnetOverride:
         return SubnetOverride(targets=tuple(_parse_target_override(item) for item in value), replace=True)
     if not isinstance(value, dict):
         raise ResolverConfigError("each subnet override must be a dict, list of targets, or SubnetOverride")
+    if "registered_at" in value:
+        raise ResolverConfigError("subnet override 'registered_at' is not supported")
     replace = _parse_replace(value.get("replace", True))
     raw_targets = value.get("targets", [])
     if not isinstance(raw_targets, list | tuple):
         raise ResolverConfigError("subnet override 'targets' must be a list")
-    return SubnetOverride(targets=tuple(_parse_target_override(item) for item in raw_targets), replace=replace)
+    return SubnetOverride(
+        targets=tuple(_parse_target_override(item) for item in raw_targets),
+        replace=replace,
+    )
 
 
 def _parse_target_override(value: object) -> TargetOverride:

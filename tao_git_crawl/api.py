@@ -8,7 +8,7 @@ import time
 from collections import deque
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from math import ceil
@@ -16,7 +16,13 @@ from pathlib import Path
 from threading import Lock
 from urllib.parse import parse_qs, unquote, urlparse
 
-from .activity_filter import CODE_ACTIVITY_EXCLUDED_CHURN_CLASSES, is_noise_change, noise_change_class
+from .activity_filter import (
+    CODE_ACTIVITY_EXCLUDED_CHURN_CLASSES,
+    has_valid_churn_metrics,
+    is_credited_change,
+    noise_change_class,
+)
+from .identity_epochs import IDENTITY_HISTORY_SCHEMA_VERSION, IDENTITY_RECONCILIATION_FILENAME
 
 DEFAULT_OUTPUT_DIR = Path("/data/output")
 DEFAULT_HOST = "0.0.0.0"
@@ -37,6 +43,7 @@ JSON_DATASETS = {
     "owner-targets": "owner-targets.json",
     "repository-manifest": "repository-manifest.json",
     "unresolved": "unresolved.json",
+    "identity-epoch": "identity-epoch.json",
 }
 
 PUBLIC_JSONL_DATASETS = {
@@ -77,6 +84,7 @@ class ApiCrawlReportState:
     succeeded: set[int]
     failed_reasons: dict[int, str]
     inaccessible_reasons: dict[int, list[str]]
+    attribution_reasons: dict[int, list[str]]
     skipped_unresolved: set[int]
 
 
@@ -136,11 +144,25 @@ def handle_api_request(output_dir: str | Path, raw_target: str) -> ApiResponse:
         if not parts or parts == ["api"]:
             return ApiResponse(HTTPStatus.OK, _routes_payload())
         if parts == ["health"]:
-            return ApiResponse(HTTPStatus.OK, _health_payload(output_path))
+            health = _health_payload(output_path)
+            return ApiResponse(
+                HTTPStatus.OK if health["ok"] is True else HTTPStatus.SERVICE_UNAVAILABLE,
+                health,
+            )
         if parts == ["api", "crawl-report"]:
+            _require_no_identity_reconciliation(output_path)
             return ApiResponse(HTTPStatus.OK, _read_json_required(output_path / "crawl-report.json"))
         if parts == ["api", "scores"]:
+            _require_no_identity_reconciliation(output_path)
             return ApiResponse(HTTPStatus.OK, _read_json_required(output_path / "subnet-scores.json"))
+        if parts == ["api", "identity-history"]:
+            history = _read_json_optional(output_path / "identity-history.json")
+            return ApiResponse(
+                HTTPStatus.OK,
+                history
+                if history is not None
+                else {"schema_version": IDENTITY_HISTORY_SCHEMA_VERSION, "events": []},
+            )
         if parts == ["api", "subnets"]:
             return ApiResponse(HTTPStatus.OK, {"data": list_subnets(output_path)})
         if len(parts) >= 3 and parts[:2] == ["api", "subnets"]:
@@ -216,6 +238,8 @@ def get_subnet_dataset(
             )
         if dataset == "manifest":
             _require_current_crawl_output(output_path, netuid)
+        if dataset == "score":
+            _require_no_identity_reconciliation(output_path)
         path = (
             (crawl_dir / JSON_DATASETS[dataset])
             if dataset in {"summary", "manifest"}
@@ -439,6 +463,7 @@ def _routes_payload() -> dict[str, object]:
             "/api/subnets/{netuid}/file-changes?limit=100&offset=0",
             "/api/crawl-report",
             "/api/scores",
+            "/api/identity-history",
         ],
         "diagnostic_routes": [
             "/api/subnets/{netuid}/failures?limit=100&offset=0",
@@ -449,11 +474,15 @@ def _routes_payload() -> dict[str, object]:
 
 
 def _health_payload(output_dir: Path) -> dict[str, object]:
-    return {
-        "ok": output_dir.exists(),
+    reconciliation = _read_json_optional(output_dir / IDENTITY_RECONCILIATION_FILENAME)
+    payload: dict[str, object] = {
+        "ok": output_dir.exists() and reconciliation is None,
         "output_dir": str(output_dir),
         "subnets": _count_subnet_dirs(output_dir),
     }
+    if reconciliation is not None:
+        payload["identity_reconciliation"] = reconciliation
+    return payload
 
 
 def _count_subnet_dirs(output_dir: Path) -> int:
@@ -478,7 +507,12 @@ def _subnet_overview(subnet_dir: Path, *, report_state: ApiCrawlReportState | No
     crawl_dir = subnet_dir / "crawl"
     use_crawl_output = _is_current_crawl_output(report_state, netuid)
     summary = _read_json_optional(crawl_dir / "summary.json") if use_crawl_output else None
-    score = _read_json_optional(subnet_dir / "score.json")
+    score = (
+        None
+        if (subnet_dir.parents[1] / IDENTITY_RECONCILIATION_FILENAME).exists()
+        else _read_json_optional(subnet_dir / "score.json")
+    )
+    identity_epoch = _read_json_optional(subnet_dir / "identity-epoch.json")
     activity = _activity_from_summary(summary, crawl_dir) if summary is not None else None
 
     payload: dict[str, object] = {
@@ -489,6 +523,7 @@ def _subnet_overview(subnet_dir: Path, *, report_state: ApiCrawlReportState | No
         "activity": activity,
         "summary": _summary_with_score(summary, score, activity=activity),
         "score": score,
+        "identity_epoch": identity_epoch,
         "target_count": len(targets),
         "repository_target_count": len(repository_targets),
         "owner_target_count": len(owner_targets),
@@ -539,6 +574,7 @@ def _subnet_endpoints(netuid: int) -> dict[str, str]:
         "owner_targets": f"{base}/owner-targets",
         "repository_manifest": f"{base}/repository-manifest",
         "unresolved": f"{base}/unresolved",
+        "identity_epoch": f"{base}/identity-epoch",
         "score": f"{base}/score",
     }
     endpoints.update(
@@ -580,6 +616,13 @@ def _current_crawl_payload(
         return None
     if netuid in report_state.succeeded:
         return {"status": "success", "current": True}
+    attribution_reasons = report_state.attribution_reasons.get(netuid)
+    if attribution_reasons:
+        return {
+            "status": "attribution_rejected",
+            "current": False,
+            "reason": "; ".join(attribution_reasons[:3]),
+        }
     failed_reason = report_state.failed_reasons.get(netuid)
     if failed_reason:
         return {"status": "crawl_failed", "current": False, "reason": failed_reason}
@@ -600,6 +643,14 @@ def _current_crawl_payload(
 
 
 def _crawl_report_state(output_dir: Path) -> ApiCrawlReportState | None:
+    if (output_dir / IDENTITY_RECONCILIATION_FILENAME).exists():
+        return ApiCrawlReportState(
+            succeeded=set(),
+            failed_reasons={},
+            inaccessible_reasons={},
+            attribution_reasons={},
+            skipped_unresolved=set(),
+        )
     report = _read_json_optional(output_dir / "crawl-report.json")
     if not isinstance(report, dict):
         return None
@@ -612,12 +663,31 @@ def _crawl_report_state(output_dir: Path) -> ApiCrawlReportState | None:
         reason = item.get("reason")
         inaccessible_reasons.setdefault(netuid, []).append(str(reason) if reason is not None else "inaccessible")
 
+    attribution_reasons: dict[int, list[str]] = {}
+    for item in _object_rows(report.get("skipped_attribution")):
+        netuid = _row_netuid(item)
+        if netuid is None:
+            continue
+        reason = item.get("reason")
+        attribution_reasons.setdefault(netuid, []).append(
+            str(reason) if reason is not None else "repository attribution rejected"
+        )
+
     return ApiCrawlReportState(
         succeeded=_netuid_set(report.get("succeeded")),
         failed_reasons=_netuid_reasons(report.get("failed")),
         inaccessible_reasons=inaccessible_reasons,
+        attribution_reasons=attribution_reasons,
         skipped_unresolved=_integer_set(report.get("skipped_unresolved_netuids")),
     )
+
+
+def _require_no_identity_reconciliation(output_dir: Path) -> None:
+    if (output_dir / IDENTITY_RECONCILIATION_FILENAME).exists():
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "subnet identity reconciliation is in progress or requires operator recovery",
+        )
 
 
 def _netuid_set(value: object) -> set[int]:
@@ -746,7 +816,7 @@ def _activity_from_summary(summary: object, crawl_dir: Path | None = None) -> di
     has_source_like_totals = isinstance(source_like_totals_value, dict)
     source_like_totals = _mapping(source_like_totals_value)
     calendar_span = _mapping(summary.get("calendar_span"))
-    jsonl_activity = _code_activity_from_jsonl(crawl_dir)
+    jsonl_activity = _code_activity_from_jsonl(crawl_dir, summary)
     upstream_activity = None if jsonl_activity is not None else _read_git_crawl_activity(crawl_dir)
     if jsonl_activity is not None:
         totals = _mapping(jsonl_activity.get("totals"))
@@ -866,7 +936,10 @@ def _empty_activity_totals() -> dict[str, int | float]:
     }
 
 
-def _code_activity_from_jsonl(crawl_dir: Path | None) -> dict[str, object] | None:
+def _code_activity_from_jsonl(
+    crawl_dir: Path | None,
+    summary: dict[str, object],
+) -> dict[str, object] | None:
     if crawl_dir is None:
         return None
     file_changes_path = crawl_dir / "file_changes.jsonl"
@@ -874,49 +947,84 @@ def _code_activity_from_jsonl(crawl_dir: Path | None) -> dict[str, object] | Non
     if not file_changes_path.exists() or not commits_path.exists():
         return None
 
-    credited_commit_keys: set[tuple[str, str]] = set()
-    file_changes = 0
-    lines_added: int | float = 0
-    lines_deleted: int | float = 0
+    credited_change_stats: dict[tuple[str, str], dict[str, int | float]] = {}
+    credited_paths_by_commit: dict[tuple[str, str], set[str]] = {}
     skipped = _empty_skipped_activity()
     for row in _iter_jsonl_objects(file_changes_path):
         if not isinstance(row, dict):
+            continue
+        if not has_valid_churn_metrics(row):
             continue
         skipped_class = noise_change_class(row)
         if skipped_class is not None:
             _add_skipped_change(skipped, row, skipped_class)
             continue
-        file_changes += 1
-        lines_added += _file_change_lines_added(row)
-        lines_deleted += _file_change_lines_deleted(row)
         commit_key = _commit_key(row)
-        if commit_key is not None:
-            credited_commit_keys.add(commit_key)
+        path = _file_change_path(row)
+        if commit_key is not None and path is not None:
+            seen_paths = credited_paths_by_commit.setdefault(commit_key, set())
+            if path in seen_paths:
+                continue
+            seen_paths.add(path)
+            stats = credited_change_stats.setdefault(
+                commit_key,
+                {"file_changes": 0, "lines_added": 0, "lines_deleted": 0},
+            )
+            stats["file_changes"] = _number(stats.get("file_changes")) + 1
+            stats["lines_added"] = _number(stats.get("lines_added")) + max(
+                _file_change_lines_added(row),
+                0,
+            )
+            stats["lines_deleted"] = _number(stats.get("lines_deleted")) + max(
+                _file_change_lines_deleted(row),
+                0,
+            )
 
     commits = 0
+    credited_commit_keys: set[tuple[str, str]] = set()
     active_days: set[str] = set()
     repo_days: set[tuple[str, str]] = set()
     contributor_days: set[tuple[str, str, str]] = set()
     contributors: set[str] = set()
     seen_commits: set[tuple[str, str]] = set()
+    history_since, history_until, history_until_inclusive = _history_timestamp_window(summary)
     for row in _iter_jsonl_objects(commits_path):
         if not isinstance(row, dict):
             continue
         commit_key = _commit_key(row)
-        if commit_key is None or commit_key not in credited_commit_keys or commit_key in seen_commits:
+        if commit_key is None or commit_key not in credited_change_stats or commit_key in seen_commits:
+            continue
+        authored_at = _authored_timestamp(row.get("authored_at"))
+        if authored_at is None or not _is_timestamp_in_history_range(
+            authored_at,
+            history_since,
+            history_until,
+            until_inclusive=history_until_inclusive,
+        ):
             continue
         seen_commits.add(commit_key)
+        credited_commit_keys.add(commit_key)
         commits += 1
         repo = commit_key[0]
         contributor = _contributor_key(row)
         contributors.add(contributor)
-        authored_day = _authored_day(row.get("authored_at"))
-        if not authored_day:
-            continue
+        authored_day = authored_at.date().isoformat()
         active_days.add(authored_day)
         repo_days.add((repo, authored_day))
         contributor_days.add((repo, authored_day, contributor))
 
+    file_changes = sum(
+        _number(credited_change_stats[commit_key].get("file_changes"))
+        for commit_key in credited_commit_keys
+    )
+    lines_added = sum(
+        _number(credited_change_stats[commit_key].get("lines_added"))
+        for commit_key in credited_commit_keys
+    )
+    lines_deleted = sum(
+        _number(credited_change_stats[commit_key].get("lines_deleted"))
+        for commit_key in credited_commit_keys
+    )
     return {
         "totals": {
             "commits": commits,
@@ -1011,7 +1119,7 @@ def _add_skipped_change(skipped: dict[str, object], row: dict[str, object], skip
 
 
 def _is_code_change_row(row: object) -> bool:
-    return isinstance(row, dict) and not is_noise_change(row)
+    return isinstance(row, dict) and is_credited_change(row)
 
 
 def _credited_commit_stats_from_file_changes(crawl_dir: Path) -> dict[tuple[str, str], dict[str, int | float]] | None:
@@ -1019,18 +1127,30 @@ def _credited_commit_stats_from_file_changes(crawl_dir: Path) -> dict[tuple[str,
     if not file_changes_path.exists():
         return None
     credited_commit_stats: dict[tuple[str, str], dict[str, int | float]] = {}
+    credited_paths: dict[tuple[str, str], set[str]] = {}
     for row in _iter_jsonl_objects(file_changes_path):
         if not _is_code_change_row(row):
             continue
         commit_key = _commit_key(row)
-        if commit_key is not None:
+        path = _file_change_path(row)
+        if commit_key is not None and path is not None:
+            seen_paths = credited_paths.setdefault(commit_key, set())
+            if path in seen_paths:
+                continue
+            seen_paths.add(path)
             stats = credited_commit_stats.setdefault(
                 commit_key,
                 {"file_changes": 0, "lines_added": 0, "lines_deleted": 0},
             )
             stats["file_changes"] = _number(stats.get("file_changes")) + 1
-            stats["lines_added"] = _number(stats.get("lines_added")) + _file_change_lines_added(row)
-            stats["lines_deleted"] = _number(stats.get("lines_deleted")) + _file_change_lines_deleted(row)
+            stats["lines_added"] = _number(stats.get("lines_added")) + max(
+                _file_change_lines_added(row),
+                0,
+            )
+            stats["lines_deleted"] = _number(stats.get("lines_deleted")) + max(
+                _file_change_lines_deleted(row),
+                0,
+            )
     return credited_commit_stats
 
 
@@ -1042,6 +1162,13 @@ def _commit_key(row: dict[str, object]) -> tuple[str, str] | None:
     if not repo or not sha:
         return None
     return repo, sha
+
+
+def _file_change_path(row: dict[str, object]) -> str | None:
+    path = row.get("path")
+    if not isinstance(path, str) or not path:
+        path = row.get("filename")
+    return path if isinstance(path, str) and path else None
 
 
 def _commit_row_payload(
@@ -1317,15 +1444,57 @@ def _iter_jsonl_objects(path: Path) -> Iterator[object]:
 
 
 def _authored_day(value: object) -> str | None:
+    authored_at = _authored_timestamp(value)
+    return authored_at.date().isoformat() if authored_at is not None else None
+
+
+def _authored_timestamp(value: object) -> datetime | None:
     if not isinstance(value, str) or not value:
         return None
     try:
         authored_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
         if authored_at.tzinfo is None or authored_at.utcoffset() is None:
             authored_at = authored_at.replace(tzinfo=UTC)
-        return authored_at.astimezone(UTC).date().isoformat()
+        return authored_at.astimezone(UTC)
     except ValueError:
-        return value[:10] if len(value) >= 10 else None
+        return None
+
+
+def _history_timestamp_window(
+    summary: dict[str, object],
+) -> tuple[datetime | None, datetime, bool]:
+    since = _metadata_timestamp(summary.get("history_since"))
+    explicit_until = _metadata_timestamp(summary.get("history_until"))
+    if explicit_until is not None:
+        return since, explicit_until, True
+    now = datetime.now(UTC)
+    tomorrow = now.date() + timedelta(days=1)
+    implicit_until = datetime(tomorrow.year, tomorrow.month, tomorrow.day, tzinfo=UTC)
+    return since, implicit_until, False
+
+
+def _metadata_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        timestamp = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+        timestamp = timestamp.replace(tzinfo=UTC)
+    return timestamp.astimezone(UTC)
+
+
+def _is_timestamp_in_history_range(
+    authored_at: datetime,
+    since: datetime | None,
+    until: datetime,
+    *,
+    until_inclusive: bool,
+) -> bool:
+    if since is not None and authored_at < since:
+        return False
+    return authored_at <= until if until_inclusive else authored_at < until
 
 
 def _contributor_key(row: dict[str, object]) -> str:

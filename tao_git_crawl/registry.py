@@ -123,6 +123,8 @@ def parse_registry_json(text: str) -> Registry:
 def _parse_registry_subnet_override(netuid_key: str, value: Any) -> SubnetOverride:
     if not isinstance(value, dict):
         raise RegistryError(f"override for netuid {netuid_key} must be a JSON object")
+    if "registered_at" in value:
+        raise RegistryError(f"override for netuid {netuid_key}: 'registered_at' is not supported")
     replace = _parse_registry_replace(netuid_key, value.get("replace", True))
     raw_targets = value.get("targets", [])
     if not isinstance(raw_targets, list):
@@ -181,9 +183,7 @@ def merge_registries(base: Registry, *others: Registry) -> Registry:
     for other in others:
         merged_overrides.update(other.overrides)
         if other.raw:
-            merged_raw.update(
-                {k: v for k, v in other.raw.items() if k != "overrides"}
-            )
+            merged_raw.update({k: v for k, v in other.raw.items() if k != "overrides"})
             merged_overrides_raw = dict(merged_raw.get("overrides", {}))
             merged_overrides_raw.update(other.raw.get("overrides", {}))
             merged_raw["overrides"] = merged_overrides_raw

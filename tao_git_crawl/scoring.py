@@ -6,7 +6,8 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from .activity_filter import is_noise_change
+from .activity_filter import is_credited_change
+from .attribution import target_attribution_rejection, targets_attribution_rejection
 from .resolver import ResolutionDocument
 
 SCORE_SCHEMA_VERSION = "tao-git-crawl-score-v3"
@@ -49,6 +50,8 @@ class CrawlReportState:
     succeeded: set[int]
     failed_reasons: dict[int, str]
     inaccessible_reasons: dict[int, list[str]]
+    attribution_reasons: dict[int, list[str]]
+    fallback_used: set[int]
 
 
 def write_score_outputs(document: ResolutionDocument, output_dir: str | Path) -> list[Path]:
@@ -164,6 +167,25 @@ def _score_input_for_netuid(
     report_state: CrawlReportState | None,
 ) -> SubnetScoreInput:
     subnet_document = document.for_netuid(netuid)
+    attribution_rejection = targets_attribution_rejection(subnet_document.targets)
+    all_targets_rejected = bool(subnet_document.targets) and all(
+        target_attribution_rejection(target) is not None
+        for target in subnet_document.targets
+    )
+    verified_fallback = (
+        report_state is not None
+        and netuid in report_state.succeeded
+        and netuid in report_state.fallback_used
+    )
+    if attribution_rejection is not None and (
+        report_state is None or (all_targets_rejected and not verified_fallback)
+    ):
+        return SubnetScoreInput(
+            netuid=netuid,
+            status="attribution_rejected",
+            reason=attribution_rejection,
+            raw_metrics=dict(ZERO_METRICS),
+        )
     if subnet_document.unresolved and not subnet_document.targets:
         unresolved = subnet_document.unresolved[0]
         return SubnetScoreInput(
@@ -174,6 +196,14 @@ def _score_input_for_netuid(
         )
 
     if report_state is not None and netuid not in report_state.succeeded:
+        attribution_reasons = report_state.attribution_reasons.get(netuid)
+        if attribution_reasons:
+            return SubnetScoreInput(
+                netuid=netuid,
+                status="attribution_rejected",
+                reason="; ".join(attribution_reasons[:3]),
+                raw_metrics=dict(ZERO_METRICS),
+            )
         failed_reason = report_state.failed_reasons.get(netuid)
         if failed_reason:
             return SubnetScoreInput(
@@ -330,38 +360,40 @@ def _credited_metrics_from_jsonl(crawl_dir: Path, summary: dict[str, object]) ->
     if not commits_path.exists() or not file_changes_path.exists():
         return None
 
-    credited_commit_keys: set[tuple[str, str]] = set()
-    credited_repos: set[str] = set()
     credited_change_stats_by_commit: dict[tuple[str, str], dict[str, float]] = {}
-    credited_file_changes = 0
-    credited_lines_added = 0.0
+    credited_paths_by_commit: dict[tuple[str, str], set[str]] = {}
 
     with file_changes_path.open(encoding="utf-8") as handle:
         for line in handle:
             if not line.strip():
                 continue
             row = json.loads(line)
-            if not isinstance(row, dict) or is_noise_change(row):
+            if not isinstance(row, dict) or not is_credited_change(row):
                 continue
-            credited_file_changes += 1
-            credited_lines_added += _number_from_keys(row, "additions", "lines_added")
-            repo = _text_key(row.get("repo")).lower()
-            if repo:
-                credited_repos.add(repo)
             commit_key = _commit_key(row)
-            if commit_key is not None:
-                credited_commit_keys.add(commit_key)
-                commit_stats = credited_change_stats_by_commit.setdefault(
-                    commit_key,
-                    {"file_changes": 0.0, "lines_added": 0.0},
-                )
-                commit_stats["file_changes"] += 1.0
-                commit_stats["lines_added"] += _number_from_keys(row, "additions", "lines_added")
+            path = _file_change_path(row)
+            if commit_key is None or path is None:
+                continue
+            seen_paths = credited_paths_by_commit.setdefault(commit_key, set())
+            if path in seen_paths:
+                continue
+            seen_paths.add(path)
+            commit_stats = credited_change_stats_by_commit.setdefault(
+                commit_key,
+                {"file_changes": 0.0, "lines_added": 0.0},
+            )
+            commit_stats["file_changes"] += 1.0
+            commit_stats["lines_added"] += max(
+                _number_from_keys(row, "additions", "lines_added"),
+                0.0,
+            )
 
     credited_commits = 0
+    credited_commit_keys: set[tuple[str, str]] = set()
     active_days: set[str] = set()
     contributors: set[str] = set()
     momentum_since, momentum_until = _momentum_date_window(summary, None)
+    history_since, history_until, history_until_inclusive = _history_timestamp_window(summary, None)
     momentum_commit_keys: set[tuple[str, str]] = set()
     momentum_active_days: set[str] = set()
     seen_commits: set[tuple[str, str]] = set()
@@ -373,19 +405,39 @@ def _credited_metrics_from_jsonl(crawl_dir: Path, summary: dict[str, object]) ->
             if not isinstance(row, dict):
                 continue
             commit_key = _commit_key(row)
-            if commit_key is None or commit_key not in credited_commit_keys or commit_key in seen_commits:
+            if (
+                commit_key is None
+                or commit_key not in credited_change_stats_by_commit
+                or commit_key in seen_commits
+            ):
+                continue
+            authored_at = _authored_timestamp(row.get("authored_at"))
+            if authored_at is None or not _is_timestamp_in_history_range(
+                authored_at,
+                history_since,
+                history_until,
+                until_inclusive=history_until_inclusive,
+            ):
                 continue
             seen_commits.add(commit_key)
+            credited_commit_keys.add(commit_key)
             credited_commits += 1
-            authored_day = _authored_day(row.get("authored_at"))
-            if authored_day:
-                active_days.add(authored_day)
+            authored_day = authored_at.date().isoformat()
+            active_days.add(authored_day)
             contributors.add(_contributor_key(row))
             if _is_day_in_range(authored_day, momentum_since, momentum_until):
                 momentum_commit_keys.add(commit_key)
-                if authored_day:
-                    momentum_active_days.add(authored_day)
+                momentum_active_days.add(authored_day)
 
+    credited_file_changes = sum(
+        credited_change_stats_by_commit[commit_key]["file_changes"]
+        for commit_key in credited_commit_keys
+    )
+    credited_lines_added = sum(
+        credited_change_stats_by_commit[commit_key]["lines_added"]
+        for commit_key in credited_commit_keys
+    )
+    credited_repos = {commit_key[0].lower() for commit_key in credited_commit_keys}
     active_day_count = float(len(active_days))
     has_credited_activity = credited_file_changes > 0 or credited_commits > 0 or credited_lines_added > 0
     momentum_commits = float(len(momentum_commit_keys))
@@ -406,7 +458,7 @@ def _credited_metrics_from_jsonl(crawl_dir: Path, summary: dict[str, object]) ->
     )
     return {
         "avg_credited_commits_per_active_day": credited_commits / active_day_count if active_day_count > 0 else 0.0,
-        "credited_file_changes": float(credited_file_changes),
+        "credited_file_changes": credited_file_changes,
         "active_days": active_day_count,
         "credited_lines_added": credited_lines_added,
         "repos_crawled": _repo_count_with_credited_activity(
@@ -494,10 +546,22 @@ def _crawl_report_state(output_dir: Path) -> CrawlReportState | None:
         reason = item.get("reason")
         inaccessible_reasons.setdefault(netuid, []).append(str(reason) if reason is not None else "inaccessible")
 
+    attribution_reasons: dict[int, list[str]] = {}
+    for item in _object_rows(report.get("skipped_attribution")):
+        netuid = _row_netuid(item)
+        if netuid is None:
+            continue
+        reason = item.get("reason")
+        attribution_reasons.setdefault(netuid, []).append(
+            str(reason) if reason is not None else "repository attribution rejected"
+        )
+
     return CrawlReportState(
         succeeded=succeeded,
         failed_reasons=failed_reasons,
         inaccessible_reasons=inaccessible_reasons,
+        attribution_reasons=attribution_reasons,
+        fallback_used=_netuid_set(report.get("fallback_used")),
     )
 
 
@@ -633,6 +697,33 @@ def _is_day_in_range(day: str | None, since: date, until: date) -> bool:
     return day_date is not None and since <= day_date < until
 
 
+def _history_timestamp_window(
+    summary: dict[str, object],
+    upstream_activity: dict[str, object] | None,
+) -> tuple[datetime | None, datetime, bool]:
+    since = _metadata_timestamp(_activity_metadata(summary, upstream_activity, "history_since"))
+    explicit_until = _metadata_timestamp(
+        _activity_metadata(summary, upstream_activity, "history_until")
+    )
+    if explicit_until is not None:
+        return since, explicit_until, True
+    tomorrow = _today_utc() + timedelta(days=1)
+    implicit_until = datetime(tomorrow.year, tomorrow.month, tomorrow.day, tzinfo=UTC)
+    return since, implicit_until, False
+
+
+def _is_timestamp_in_history_range(
+    authored_at: datetime,
+    since: datetime | None,
+    until: datetime,
+    *,
+    until_inclusive: bool,
+) -> bool:
+    if since is not None and authored_at < since:
+        return False
+    return authored_at <= until if until_inclusive else authored_at < until
+
+
 def _today_utc() -> date:
     return datetime.now(UTC).date()
 
@@ -685,6 +776,18 @@ def _date_string(value: object) -> str | None:
     return timestamp.date().isoformat()
 
 
+def _metadata_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        timestamp = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+        timestamp = timestamp.replace(tzinfo=UTC)
+    return timestamp.astimezone(UTC)
+
+
 def _date_from_day_string(value: str | None) -> date | None:
     if value is None:
         return None
@@ -715,7 +818,7 @@ def _credited_repo_count_from_file_changes(crawl_dir: Path) -> float | None:
             if not line.strip():
                 continue
             row = json.loads(line)
-            if not isinstance(row, dict) or is_noise_change(row):
+            if not isinstance(row, dict) or not is_credited_change(row):
                 continue
             repo = _text_key(row.get("repo")).lower()
             if repo:
@@ -804,16 +907,23 @@ def _text_key(value: object) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
-def _authored_day(value: object) -> str | None:
+def _file_change_path(row: dict[str, object]) -> str | None:
+    path = row.get("path")
+    if not isinstance(path, str) or not path:
+        path = row.get("filename")
+    return path if isinstance(path, str) and path else None
+
+
+def _authored_timestamp(value: object) -> datetime | None:
     if not isinstance(value, str) or not value:
         return None
     try:
         authored_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
         if authored_at.tzinfo is None or authored_at.utcoffset() is None:
             authored_at = authored_at.replace(tzinfo=UTC)
-        return authored_at.astimezone(UTC).date().isoformat()
+        return authored_at.astimezone(UTC)
     except ValueError:
-        return value[:10] if len(value) >= 10 else None
+        return None
 
 
 def _contributor_key(row: dict[str, object]) -> str:

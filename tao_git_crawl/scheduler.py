@@ -7,6 +7,8 @@ Usage::
 Environment variables (all have defaults):
     GITHUB_TOKEN                    GitHub personal access token (required)
     TAO_CRAWL_INTERVAL_SECONDS      Seconds between crawl runs (default: 86400)
+    TAO_CRAWL_IDENTITY_CHECK_SECONDS
+                                    Poll live subnet identities while idle (default: 900; 0 disables)
     TAO_CRAWL_NETWORK               Bittensor network preset (default: finney)
     TAO_CRAWL_OUTPUT_DIR            Output directory (default: /data/output)
     TAO_CRAWL_CACHE_DIR             Git mirror cache (default: /data/cache)
@@ -26,6 +28,7 @@ Environment variables (all have defaults):
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import subprocess
@@ -34,8 +37,15 @@ import time
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
+from .identity_epochs import IDENTITY_RECONCILIATION_FILENAME
+from .models import GITHUB_DISCOVERY_FIELDS, SubnetIdentityRecord
+from .providers import DEFAULT_NETWORK_ENDPOINTS, SubstrateSubnetIdentityProvider
+
 logger = logging.getLogger("tao-git-crawl.scheduler")
 DEFAULT_CRAWL_WINDOW_DAYS = 365
+DEFAULT_IDENTITY_CHECK_SECONDS = 900
+MAX_IDENTITY_GUARD_RUNS = 3
+type IdentityFingerprint = tuple[tuple[int, int | None, str, tuple[str, ...]], ...]
 
 
 # ---------------------------------------------------------------------------
@@ -136,11 +146,142 @@ def run_crawl(log_dir: Path) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Live identity change detection
+# ---------------------------------------------------------------------------
+
+def _identity_fingerprint(records: list[SubnetIdentityRecord]) -> IdentityFingerprint:
+    """Capture the on-chain identity fields that can change subnet attribution."""
+    return tuple(
+        sorted(
+            (
+                record.netuid,
+                record.registered_at,
+                record.subnet_name,
+                tuple(getattr(record, field) for field in GITHUB_DISCOVERY_FIELDS),
+            )
+            for record in records
+        )
+    )
+
+
+def _fetch_live_identity_fingerprint() -> IdentityFingerprint:
+    network = _env("TAO_CRAWL_NETWORK", "finney")
+    try:
+        endpoint = DEFAULT_NETWORK_ENDPOINTS[network]
+    except KeyError as exc:
+        raise ValueError(f"unsupported TAO_CRAWL_NETWORK {network!r}") from exc
+    records = list(SubstrateSubnetIdentityProvider(endpoint=endpoint).fetch_active())
+    return _identity_fingerprint(records)
+
+
+def _fetch_live_identity_fingerprint_safely() -> IdentityFingerprint | None:
+    try:
+        return _fetch_live_identity_fingerprint()
+    except Exception as exc:  # noqa: BLE001 - a transient RPC failure must not stop scheduled crawls
+        logger.warning("Could not check live subnet identities: %s", exc)
+        return None
+
+
+def _wait_for_crawl_trigger(
+    interval: int,
+    identity_check_interval: int,
+    baseline: IdentityFingerprint | None,
+) -> tuple[bool, IdentityFingerprint | None]:
+    """Wait for the normal deadline or return early when subnet identity changes."""
+    deadline = time.monotonic() + interval
+    latest = baseline
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False, latest
+
+        wait_seconds = remaining
+        if identity_check_interval > 0:
+            wait_seconds = min(wait_seconds, identity_check_interval)
+        time.sleep(wait_seconds)
+
+        if identity_check_interval <= 0:
+            continue
+        current = _fetch_live_identity_fingerprint_safely()
+        if current is None:
+            continue
+        if latest is not None and current != latest:
+            return True, current
+        latest = current
+
+
+def _run_crawl_with_identity_guard(
+    log_dir: Path,
+    baseline: IdentityFingerprint | None,
+) -> tuple[int, IdentityFingerprint | None]:
+    """Run until attribution is stable, then fail closed after a bounded number of attempts."""
+    before = baseline if baseline is not None else _fetch_live_identity_fingerprint_safely()
+    exit_code = 1
+    after = before
+    for attempt in range(1, MAX_IDENTITY_GUARD_RUNS + 1):
+        exit_code = run_crawl(log_dir)
+        observed_after = _fetch_live_identity_fingerprint_safely()
+        if exit_code != 0:
+            reason = (
+                f"guarded crawl exited with status {exit_code}; "
+                "score publication is disabled until a successful crawl completes"
+            )
+            logger.error(reason)
+            _write_identity_guard_failure(reason)
+            return exit_code, observed_after if observed_after is not None else before
+        if observed_after is None or before is None or observed_after == before:
+            return exit_code, observed_after if observed_after is not None else before
+        after = observed_after
+        if attempt < MAX_IDENTITY_GUARD_RUNS:
+            logger.warning(
+                "Subnet identity changed during crawl; starting immediate reconciliation crawl %d/%d",
+                attempt + 1,
+                MAX_IDENTITY_GUARD_RUNS,
+            )
+            before = observed_after
+            continue
+
+        reason = (
+            "subnet identity changed during every bounded reconciliation crawl; "
+            "score publication is disabled until a stable crawl succeeds"
+        )
+        logger.error(reason)
+        _write_identity_guard_failure(reason)
+        return 1, after
+    return exit_code, after
+
+
+def _write_identity_guard_failure(reason: str) -> None:
+    output_dir = Path(_env("TAO_CRAWL_OUTPUT_DIR", "/data/output"))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    sentinel = output_dir / IDENTITY_RECONCILIATION_FILENAME
+    temporary = sentinel.with_name(f".{sentinel.name}.tmp")
+    temporary.write_text(
+        json.dumps(
+            {
+                "status": "failed",
+                "detected_at": datetime.now(UTC).isoformat(),
+                "reason": reason,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(sentinel)
+
+
+# ---------------------------------------------------------------------------
 # Scheduler loop
 # ---------------------------------------------------------------------------
 
 def main() -> int:  # noqa: D401
     interval = _env_int("TAO_CRAWL_INTERVAL_SECONDS", 86400)
+    identity_check_interval = _env_int(
+        "TAO_CRAWL_IDENTITY_CHECK_SECONDS",
+        DEFAULT_IDENTITY_CHECK_SECONDS,
+    )
     log_dir = Path(_env("TAO_CRAWL_LOG_DIR", "/data/logs"))
     run_on_start = _env_bool("TAO_CRAWL_RUN_ON_START", True)
 
@@ -154,23 +295,44 @@ def main() -> int:  # noqa: D401
         logger.error("GITHUB_TOKEN environment variable is required")
         return 1
 
-    logger.info("tao-git-crawl scheduler starting — interval=%ds, run_on_start=%s", interval, run_on_start)
+    if interval <= 0:
+        logger.error("TAO_CRAWL_INTERVAL_SECONDS must be greater than 0")
+        return 1
+    if identity_check_interval < 0:
+        logger.error("TAO_CRAWL_IDENTITY_CHECK_SECONDS must be 0 or greater")
+        return 1
+
+    logger.info(
+        "tao-git-crawl scheduler starting — interval=%ds, identity_check_interval=%ds, run_on_start=%s",
+        interval,
+        identity_check_interval,
+        run_on_start,
+    )
+
+    identity_fingerprint = (
+        _fetch_live_identity_fingerprint_safely() if identity_check_interval > 0 else None
+    )
 
     if run_on_start:
-        run_crawl(log_dir)
+        if identity_check_interval > 0:
+            _, identity_fingerprint = _run_crawl_with_identity_guard(log_dir, identity_fingerprint)
+        else:
+            run_crawl(log_dir)
 
     while True:
         next_run = datetime.now(UTC).timestamp() + interval
-        logger.info("Next crawl scheduled at %s", datetime.fromtimestamp(next_run, tz=UTC).isoformat())
-        time.sleep(interval)
-
-        # Sleep can wake up early on signals; realign to interval boundary.
-        now = datetime.now(UTC).timestamp()
-        remaining = next_run - now
-        if remaining > 0:
-            time.sleep(max(0, remaining))
-
-        run_crawl(log_dir)
+        logger.info("Next crawl scheduled by %s", datetime.fromtimestamp(next_run, tz=UTC).isoformat())
+        identity_changed, observed_fingerprint = _wait_for_crawl_trigger(
+            interval,
+            identity_check_interval,
+            identity_fingerprint,
+        )
+        if identity_changed:
+            logger.warning("Live subnet identity changed; starting crawl before the normal interval")
+        if identity_check_interval > 0:
+            _, identity_fingerprint = _run_crawl_with_identity_guard(log_dir, observed_fingerprint)
+        else:
+            run_crawl(log_dir)
 
 
 # ---------------------------------------------------------------------------

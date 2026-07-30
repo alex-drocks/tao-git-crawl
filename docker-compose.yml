@@ -13,6 +13,7 @@ services:
 
       # Scheduler timing.
       TAO_CRAWL_INTERVAL_SECONDS: "${TAO_CRAWL_INTERVAL_SECONDS:-86400}"
+      TAO_CRAWL_IDENTITY_CHECK_SECONDS: "${TAO_CRAWL_IDENTITY_CHECK_SECONDS:-900}"
 
       # Crawl settings.
       TAO_CRAWL_NETWORK: "${TAO_CRAWL_NETWORK:-finney}"

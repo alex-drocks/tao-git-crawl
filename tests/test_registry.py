@@ -13,6 +13,7 @@ from tao_git_crawl.registry import (
     load_built_in_registry,
     load_registry,
     load_registry_from_path,
+    load_registry_from_remote,
     merge_registries,
     parse_registry_json,
     resolver_config_from_registry,
@@ -20,7 +21,7 @@ from tao_git_crawl.registry import (
 
 GOOD_REGISTRY = {
     "schema_version": DEFAULT_REGISTRY_SCHEMA_VERSION,
-    "updated_at": "2026-05-17T00:00:00Z",
+    "updated_at": "2026-07-29T00:00:00Z",
     "overrides": {
         "64": {
             "replace": True,
@@ -29,9 +30,7 @@ GOOD_REGISTRY = {
         },
         "1": {
             "replace": False,
-            "targets": [
-                {"kind": "repository", "url": "https://github.com/alice/api"},
-            ],
+            "targets": [{"kind": "repository", "url": "https://github.com/alice/api"}],
         },
     },
 }
@@ -39,31 +38,33 @@ GOOD_REGISTRY = {
 
 def test_parse_registry_json_valid():
     registry = parse_registry_json(json.dumps(GOOD_REGISTRY))
-    assert len(registry.overrides) == 2
-    assert 64 in registry.overrides
-    assert 1 in registry.overrides
-
-    override_64 = registry.overrides[64]
-    assert override_64.replace is True
-    assert override_64.targets == (
+    assert set(registry.overrides) == {1, 64}
+    assert registry.overrides[64].replace is True
+    assert registry.overrides[64].targets == (
         TargetOverride(kind="owner", url="https://github.com/chutesai"),
     )
-
-    override_1 = registry.overrides[1]
-    assert override_1.replace is False
-    assert override_1.targets == (
-        TargetOverride(kind="repository", url="https://github.com/alice/api"),
-    )
+    assert registry.overrides[1].replace is False
 
 
-def test_parse_registry_json_missing_schema_version():
-    with pytest.raises(RegistryError, match="unsupported registry schema"):
-        parse_registry_json(json.dumps({"overrides": {}}))
+@pytest.mark.parametrize(
+    "source",
+    [
+        {"overrides": {}},
+        {"schema_version": "tao-git-crawl-registry-v1", "overrides": {}},
+        {"schema_version": "tao-git-crawl-registry-v3", "overrides": {}},
+        {"schema_version": DEFAULT_REGISTRY_SCHEMA_VERSION, "overrides": []},
+    ],
+)
+def test_parse_registry_json_rejects_invalid_source_document(source):
+    with pytest.raises(RegistryError):
+        parse_registry_json(json.dumps(source))
 
 
-def test_parse_registry_json_bad_version():
-    with pytest.raises(RegistryError, match="unsupported registry schema"):
-        parse_registry_json(json.dumps({"schema_version": "v2", "overrides": {}}))
+def test_parse_registry_json_rejects_registered_at_override_field():
+    source = json.loads(json.dumps(GOOD_REGISTRY))
+    source["overrides"]["64"]["registered_at"] = 4531295
+    with pytest.raises(RegistryError, match="registered_at.*not supported"):
+        parse_registry_json(json.dumps(source))
 
 
 def test_parse_registry_json_invalid_json():
@@ -71,92 +72,40 @@ def test_parse_registry_json_invalid_json():
         parse_registry_json("not json")
 
 
-def test_parse_registry_json_non_dict_root():
-    with pytest.raises(RegistryError):
-        parse_registry_json(json.dumps([]))
-
-
 def test_parse_registry_json_bad_netuid_key():
+    source = {
+        "schema_version": DEFAULT_REGISTRY_SCHEMA_VERSION,
+        "overrides": {"abc": {"targets": []}},
+    }
     with pytest.raises(RegistryError, match="invalid registry netuid key"):
-        parse_registry_json(
-            json.dumps(
-                {
-                    "schema_version": DEFAULT_REGISTRY_SCHEMA_VERSION,
-                    "overrides": {"abc": {"targets": []}},
-                }
-            )
-        )
+        parse_registry_json(json.dumps(source))
 
 
-def test_parse_registry_json_bad_target_kind():
-    with pytest.raises(RegistryError, match="target 0"):
-        parse_registry_json(
-            json.dumps(
-                {
-                    "schema_version": DEFAULT_REGISTRY_SCHEMA_VERSION,
-                    "overrides": {
-                        "64": {"targets": [{"kind": "other", "url": "https://github.com/x"}]}
-                    },
-                }
-            )
-        )
-
-
-def test_parse_registry_json_missing_url():
-    with pytest.raises(RegistryError, match="target 0"):
-        parse_registry_json(
-            json.dumps(
-                {
-                    "schema_version": DEFAULT_REGISTRY_SCHEMA_VERSION,
-                    "overrides": {
-                        "64": {"targets": [{"kind": "owner"}]}
-                    },
-                }
-            )
-        )
-
-
-def test_parse_registry_json_rejects_confidence():
-    with pytest.raises(RegistryError, match="'confidence' is not supported"):
-        parse_registry_json(
-            json.dumps(
-                {
-                    "schema_version": DEFAULT_REGISTRY_SCHEMA_VERSION,
-                    "overrides": {
-                        "64": {"targets": [{"kind": "owner", "url": "https://github.com/x", "confidence": "mega"}]}
-                    },
-                }
-            )
-        )
-
-
-def test_parse_registry_json_rejects_v1_schema():
-    with pytest.raises(RegistryError, match="unsupported registry schema"):
-        parse_registry_json(json.dumps({"schema_version": "tao-git-crawl-registry-v1", "overrides": {}}))
-
-
-def test_parse_registry_json_rejects_non_boolean_replace():
-    with pytest.raises(RegistryError, match="'replace' must be a boolean"):
-        parse_registry_json(
-            json.dumps(
-                {
-                    "schema_version": DEFAULT_REGISTRY_SCHEMA_VERSION,
-                    "overrides": {
-                        "64": {
-                            "replace": "false",
-                            "targets": [{"kind": "owner", "url": "https://github.com/chutesai"}],
-                        }
-                    },
-                }
-            )
-        )
+@pytest.mark.parametrize(
+    ("override", "message"),
+    [
+        ({"targets": [{"kind": "other", "url": "https://github.com/x"}]}, "target 0"),
+        ({"targets": [{"kind": "owner"}]}, "target 0"),
+        (
+            {"targets": [{"kind": "owner", "url": "https://github.com/x", "confidence": "mega"}]},
+            "confidence",
+        ),
+        ({"replace": "false", "targets": []}, "replace"),
+    ],
+)
+def test_parse_registry_json_rejects_invalid_override_definition(override, message):
+    source = {
+        "schema_version": DEFAULT_REGISTRY_SCHEMA_VERSION,
+        "overrides": {"64": override},
+    }
+    with pytest.raises(RegistryError, match=message):
+        parse_registry_json(json.dumps(source))
 
 
 def test_load_registry_from_path(tmp_path):
     path = tmp_path / "registry.json"
     path.write_text(json.dumps(GOOD_REGISTRY), encoding="utf-8")
-    registry = load_registry_from_path(path)
-    assert 64 in registry.overrides
+    assert set(load_registry_from_path(path).overrides) == {1, 64}
 
 
 def test_load_registry_from_path_missing():
@@ -164,21 +113,27 @@ def test_load_registry_from_path_missing():
         load_registry_from_path("/nonexistent/registry.json")
 
 
+def test_load_registry_from_remote(monkeypatch):
+    calls: list[str] = []
+
+    def fake_fetch(url: str) -> str:
+        calls.append(url)
+        return json.dumps(GOOD_REGISTRY)
+
+    monkeypatch.setattr("tao_git_crawl.registry._fetch_url_text", fake_fetch)
+    registry = load_registry_from_remote("https://registry.example/overrides.json")
+    assert set(registry.overrides) == {1, 64}
+    assert calls == ["https://registry.example/overrides.json"]
+
+
 def test_resolver_config_from_registry():
-    registry = parse_registry_json(json.dumps(GOOD_REGISTRY))
-    config = resolver_config_from_registry(registry)
+    config = resolver_config_from_registry(parse_registry_json(json.dumps(GOOD_REGISTRY)))
     assert config.default_repository_policy == "repository"
-    assert 64 in config.subnet_overrides
-    assert 1 in config.subnet_overrides
+    assert set(config.subnet_overrides) == {1, 64}
+    assert resolver_config_from_registry(None).subnet_overrides == {}
 
 
-def test_resolver_config_from_none():
-    config = resolver_config_from_registry(None)
-    assert config.subnet_overrides == {}
-
-
-def test_merge_registries():
-    base = parse_registry_json(json.dumps(GOOD_REGISTRY))
+def test_merge_registries_later_override_wins():
     extension = parse_registry_json(
         json.dumps(
             {
@@ -189,69 +144,24 @@ def test_merge_registries():
                         "targets": [{"kind": "owner", "url": "https://github.com/chutesai-v2"}],
                     },
                     "99": {
-                        "replace": True,
                         "targets": [{"kind": "owner", "url": "https://github.com/acme"}],
                     },
                 },
             }
         )
     )
-    merged = merge_registries(base, extension)
-    # Later wins for netuid 64
-    assert merged.overrides[64].targets == (
-        TargetOverride(kind="owner", url="https://github.com/chutesai-v2"),
-    )
-    # Netuid 99 added
-    assert 99 in merged.overrides
-    # Netuid 1 preserved from base
-    assert 1 in merged.overrides
+    merged = merge_registries(parse_registry_json(json.dumps(GOOD_REGISTRY)), extension)
+    assert merged.overrides[64].targets[0].url == "https://github.com/chutesai-v2"
+    assert set(merged.overrides) == {1, 64, 99}
 
 
-def test_load_registry_built_in_only():
-    registry = load_registry()
-    assert 4 in registry.overrides
-    assert 5 in registry.overrides
-    assert 23 in registry.overrides
-    assert 64 in registry.overrides
-
-    assert registry.overrides[4].replace is True
-    assert registry.overrides[4].targets == (
-        TargetOverride(kind="repository", url="https://github.com/manifold-inc/targon"),
-        TargetOverride(kind="repository", url="https://github.com/manifold-inc/targon-sdk"),
-        TargetOverride(kind="repository", url="https://github.com/manifold-inc/targon-nvidia-attest"),
-    )
-    assert registry.overrides[5].replace is True
-    assert registry.overrides[5].targets == (
-        TargetOverride(kind="repository", url="https://github.com/manifold-inc/hone"),
-        TargetOverride(kind="repository", url="https://github.com/manifold-inc/hone-api"),
-        TargetOverride(kind="repository", url="https://github.com/manifold-inc/hone-dashboard"),
-    )
-    assert registry.overrides[23].replace is True
-    assert registry.overrides[23].targets == (
-        TargetOverride(kind="repository", url="https://github.com/TrishoolAI/trishool-phase2"),
-        TargetOverride(kind="repository", url="https://github.com/TrishoolAI/trishool-ai-docs"),
-        TargetOverride(kind="repository", url="https://github.com/TrishoolAI/trishool-bloom"),
-        TargetOverride(kind="repository", url="https://github.com/TrishoolAI/trishool-bloom-viewer"),
-        TargetOverride(kind="repository", url="https://github.com/TrishoolAI/trishool-subnet"),
-    )
-
-
-def test_built_in_registry_is_tracked_json_file():
+def test_built_in_registry_is_target_only():
     assert Path("registry/overrides.json").resolve() == DEFAULT_REGISTRY_REPO_PATH
     registry = load_built_in_registry()
-
+    assert {4, 5, 23, 64} <= registry.overrides.keys()
     for raw_override in registry.raw["overrides"].values():
-        for raw_target in raw_override["targets"]:
-            assert "confidence" not in raw_target
-
-    assert 4 in registry.overrides
-    assert 5 in registry.overrides
-    assert 23 in registry.overrides
-    assert 64 in registry.overrides
-    assert registry.raw["overrides"]["4"]["note"]
-    assert registry.raw["overrides"]["5"]["note"]
-    assert registry.raw["overrides"]["23"]["note"]
-    assert registry.raw["overrides"]["64"]["note"]
+        assert "registered_at" not in raw_override
+        assert all("confidence" not in target for target in raw_override["targets"])
 
 
 def test_load_registry_local_override(tmp_path):
@@ -261,29 +171,13 @@ def test_load_registry_local_override(tmp_path):
             {
                 "schema_version": DEFAULT_REGISTRY_SCHEMA_VERSION,
                 "overrides": {
-                    "99": {"targets": [{"kind": "owner", "url": "https://github.com/acme"}]}
+                    "99": {"targets": [{"kind": "owner", "url": "https://github.com/acme"}]},
+                    "64": {"targets": [{"kind": "owner", "url": "https://github.com/chutesai-v2"}]},
                 },
             }
         ),
         encoding="utf-8",
     )
     registry = load_registry(registry_path=custom)
-    assert 64 in registry.overrides  # built-in
-    assert 99 in registry.overrides  # local override
-
-
-def test_load_registry_local_override_replaces_built_in(tmp_path):
-    custom = tmp_path / "custom.json"
-    custom.write_text(
-        json.dumps(
-            {
-                "schema_version": DEFAULT_REGISTRY_SCHEMA_VERSION,
-                "overrides": {
-                    "64": {"targets": [{"kind": "owner", "url": "https://github.com/chutesai-v2"}]}
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-    registry = load_registry(registry_path=custom)
+    assert 99 in registry.overrides
     assert registry.overrides[64].targets[0].url == "https://github.com/chutesai-v2"

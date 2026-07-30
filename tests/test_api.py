@@ -132,6 +132,70 @@ def test_get_subnet_detail_lists_files_and_endpoints(tmp_path):
     assert detail["diagnostic_endpoints"]["failures"] == "/api/subnets/94/failures?limit=100&offset=0"
 
 
+def test_api_exposes_current_identity_epoch_and_archived_history_audit(tmp_path):
+    subnet_dir = tmp_path / "subnets" / "80"
+    subnet_dir.mkdir(parents=True)
+    marker = {
+        "schema_version": "tao-git-crawl-identity-epoch-v1",
+        "netuid": 80,
+        "epoch_id": "registration-7000000",
+        "registered_at": 7000000,
+    }
+    history = {
+        "schema_version": "tao-git-crawl-identity-history-v1",
+        "events": [{"netuid": 80, "previous_epoch_id": "registration-6000000"}],
+    }
+    (subnet_dir / "identity-epoch.json").write_text(json.dumps(marker), encoding="utf-8")
+    (tmp_path / "identity-history.json").write_text(json.dumps(history), encoding="utf-8")
+
+    detail = get_subnet_detail(tmp_path, 80)
+    epoch_response = handle_api_request(tmp_path, "/api/subnets/80/identity-epoch")
+    history_response = handle_api_request(tmp_path, "/api/identity-history")
+
+    assert detail["identity_epoch"] == marker
+    assert detail["endpoints"]["identity_epoch"] == "/api/subnets/80/identity-epoch"
+    assert epoch_response.status == HTTPStatus.OK
+    assert epoch_response.payload == marker
+    assert history_response.status == HTTPStatus.OK
+    assert history_response.payload == history
+
+
+def test_identity_history_endpoint_is_empty_before_first_recycle(tmp_path):
+    response = handle_api_request(tmp_path, "/api/identity-history")
+
+    assert response.status == HTTPStatus.OK
+    assert response.payload == {
+        "schema_version": "tao-git-crawl-identity-history-v1",
+        "events": [],
+    }
+
+
+def test_identity_reconciliation_sentinel_hides_all_previous_scores_and_crawl_rows(tmp_path):
+    subnet_dir = tmp_path / "subnets" / "80"
+    crawl_dir = subnet_dir / "crawl"
+    crawl_dir.mkdir(parents=True)
+    (subnet_dir / "score.json").write_text('{"score":100}\n', encoding="utf-8")
+    (crawl_dir / "commits.jsonl").write_text('{"sha":"old"}\n', encoding="utf-8")
+    (tmp_path / "subnet-scores.json").write_text('{"scores":[{"netuid":80,"score":100}]}\n', encoding="utf-8")
+    (tmp_path / "identity-reconciliation.json").write_text(
+        '{"status":"in_progress"}\n',
+        encoding="utf-8",
+    )
+
+    scores_response = handle_api_request(tmp_path, "/api/scores")
+    commits_response = handle_api_request(tmp_path, "/api/subnets/80/commits")
+    health_response = handle_api_request(tmp_path, "/health")
+    detail = get_subnet_detail(tmp_path, 80)
+
+    assert scores_response.status == HTTPStatus.SERVICE_UNAVAILABLE
+    assert commits_response.status == HTTPStatus.NOT_FOUND
+    assert health_response.status == HTTPStatus.SERVICE_UNAVAILABLE
+    assert health_response.payload["ok"] is False
+    assert health_response.payload["identity_reconciliation"] == {"status": "in_progress"}
+    assert detail["has_crawl"] is False
+    assert detail["score"] is None
+
+
 def test_get_subnet_detail_omits_crawl_directory_contents_for_performance(tmp_path):
     subnet_dir = tmp_path / "subnets" / "94"
     crawl_dir = subnet_dir / "crawl"
@@ -228,7 +292,14 @@ def test_commits_dataset_only_returns_commits_with_code_changes_when_file_change
     _write_jsonl(
         crawl_dir / "file_changes.jsonl",
         [
-            {"repo": "owner/code", "sha": "code-a", "path_class": "source", "additions": 4, "deletions": 2},
+            {
+                "repo": "owner/code",
+                "sha": "code-a",
+                "path": "src/code.py",
+                "path_class": "source",
+                "additions": 4,
+                "deletions": 2,
+            },
             {"repo": "owner/code", "sha": "lock-b", "path_class": "lockfile", "additions": 99, "deletions": 9},
             {"repo": "owner/code", "sha": "lock-c", "is_lockfile": True, "additions": 90, "deletions": 8},
         ],
@@ -269,8 +340,22 @@ def test_day_datasets_are_recomputed_from_code_changes_when_rows_exist(tmp_path)
     _write_jsonl(
         crawl_dir / "file_changes.jsonl",
         [
-            {"repo": "owner/code", "sha": "code-a", "path_class": "source", "additions": 4, "deletions": 1},
-            {"repo": "owner/code", "sha": "code-a", "path_class": "source", "additions": 6, "deletions": 2},
+            {
+                "repo": "owner/code",
+                "sha": "code-a",
+                "path": "src/a.py",
+                "path_class": "source",
+                "additions": 4,
+                "deletions": 1,
+            },
+            {
+                "repo": "owner/code",
+                "sha": "code-a",
+                "path": "src/b.py",
+                "path_class": "source",
+                "additions": 6,
+                "deletions": 2,
+            },
             {"repo": "owner/code", "sha": "lock-b", "path_class": "lockfile", "additions": 500, "deletions": 100},
         ],
     )
@@ -570,6 +655,7 @@ def test_activity_endpoint_returns_consistent_code_changes_activity_payload(tmp_
             {
                 "repo": "owner/code",
                 "sha": "code-a",
+                "path": "src/a.py",
                 "additions": 10,
                 "deletions": 1,
                 "path_class": "source",
@@ -578,6 +664,7 @@ def test_activity_endpoint_returns_consistent_code_changes_activity_payload(tmp_
             {
                 "repo": "owner/code",
                 "sha": "code-a",
+                "path": "src/b.py",
                 "additions": 5,
                 "deletions": 2,
                 "path_class": "source",
@@ -586,6 +673,7 @@ def test_activity_endpoint_returns_consistent_code_changes_activity_payload(tmp_
             {
                 "repo": "owner/code",
                 "sha": "code-b",
+                "path": "src/c.py",
                 "additions": 20,
                 "deletions": 3,
                 "path_class": "source",
@@ -594,6 +682,7 @@ def test_activity_endpoint_returns_consistent_code_changes_activity_payload(tmp_
             {
                 "repo": "owner/code",
                 "sha": "code-b",
+                "path": "src/d.py",
                 "additions": 0,
                 "lines_added": 999,
                 "deletions": 0,
@@ -708,8 +797,22 @@ def test_activity_counts_contributor_days_per_repo_day_when_recomputed_from_json
     _write_jsonl(
         crawl_dir / "file_changes.jsonl",
         [
-            {"repo": "owner/a", "sha": "sha-a", "path_class": "source", "additions": 1, "deletions": 0},
-            {"repo": "owner/b", "sha": "sha-b", "path_class": "source", "additions": 2, "deletions": 0},
+            {
+                "repo": "owner/a",
+                "sha": "sha-a",
+                "path": "src/a.py",
+                "path_class": "source",
+                "additions": 1,
+                "deletions": 0,
+            },
+            {
+                "repo": "owner/b",
+                "sha": "sha-b",
+                "path": "src/b.py",
+                "path_class": "source",
+                "additions": 2,
+                "deletions": 0,
+            },
         ],
     )
     _write_jsonl(
@@ -933,6 +1036,53 @@ def test_activity_endpoint_ignores_invalid_activity_json_when_jsonl_rows_exist(t
     assert payload["totals"]["lines_added"] == 3
 
 
+def test_activity_rejects_orphaned_malformed_and_out_of_window_change_rows(tmp_path):
+    crawl_dir = tmp_path / "subnets" / "94" / "crawl"
+    crawl_dir.mkdir(parents=True)
+    (crawl_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "status": "success",
+                "history_since": "2026-01-01",
+                "history_until": "2026-01-31",
+                "calendar_span": {"days": 30, "weeks": 5, "months": 1},
+                "repositories": {"crawled": 1},
+                "source_like_totals": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    _write_jsonl(
+        crawl_dir / "file_changes.jsonl",
+        [
+            {"repo": "owner/code", "sha": "valid", "path": "src/valid.py", "additions": 3},
+            {"repo": "owner/code", "sha": "valid", "path": "src/valid.py", "additions": 300},
+            {"repo": "owner/code", "sha": "valid", "path": "", "additions": 300},
+            {"repo": "owner/code", "sha": "valid", "path": "src/negative.py", "additions": -30},
+            {"repo": "owner/code", "sha": "before", "path": "src/before.py", "additions": 30},
+            {"repo": "owner/code", "sha": "after", "path": "src/after.py", "additions": 30},
+            {"repo": "owner/code", "sha": "bad-date", "path": "src/bad.py", "additions": 30},
+            {"repo": "owner/code", "sha": "orphan", "path": "src/orphan.py", "additions": 30},
+        ],
+    )
+    _write_jsonl(
+        crawl_dir / "commits.jsonl",
+        [
+            {"repo": "owner/code", "sha": "valid", "authored_at": "2026-01-15T00:00:00Z"},
+            {"repo": "owner/code", "sha": "before", "authored_at": "2025-12-31T23:59:59Z"},
+            {"repo": "owner/code", "sha": "after", "authored_at": "2026-02-01T00:00:00Z"},
+            {"repo": "owner/code", "sha": "bad-date", "authored_at": "not-a-date"},
+        ],
+    )
+
+    payload = get_subnet_dataset(tmp_path, 94, "activity")
+
+    assert payload["totals"]["commits"] == 1
+    assert payload["totals"]["file_changes"] == 1
+    assert payload["totals"]["lines_added"] == 3
+    assert payload["totals"]["active_days"] == 1
+
+
 def test_api_ignores_stale_crawl_outputs_for_current_inaccessible_report_entry(tmp_path):
     subnet_dir = tmp_path / "subnets" / "2"
     crawl_dir = subnet_dir / "crawl"
@@ -1010,6 +1160,60 @@ def test_api_ignores_stale_crawl_outputs_for_current_inaccessible_report_entry(t
     assert commits_response.payload["error"].startswith("current crawl did not produce subnet 2:")
 
 
+def test_api_ignores_stale_crawl_outputs_for_attribution_rejection(tmp_path):
+    subnet_dir = tmp_path / "subnets" / "80"
+    crawl_dir = subnet_dir / "crawl"
+    crawl_dir.mkdir(parents=True)
+    (crawl_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "status": "success",
+                "repositories": {"crawled": 1},
+                "source_like_totals": {"commits": 4388, "file_changes": 16744},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (subnet_dir / "score.json").write_text(
+        json.dumps(
+            {
+                "status": "attribution_rejected",
+                "score": 0.0,
+                "reason": "shared upstream GitHub target cannot be attributed",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "crawl-report.json").write_text(
+        json.dumps(
+            {
+                "succeeded": [],
+                "failed": [],
+                "skipped_unresolved_netuids": [],
+                "skipped_inaccessible": [],
+                "skipped_attribution": [
+                    {"netuid": 80, "reason": "shared upstream GitHub target cannot be attributed"}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    [subnet] = list_subnets(tmp_path)
+    activity_response = handle_api_request(tmp_path, "/api/subnets/80/activity")
+
+    assert subnet["has_crawl"] is False
+    assert subnet["activity"] is None
+    assert subnet["score"]["status"] == "attribution_rejected"
+    assert subnet["current_crawl"] == {
+        "status": "attribution_rejected",
+        "current": False,
+        "reason": "shared upstream GitHub target cannot be attributed",
+    }
+    assert activity_response.status == HTTPStatus.NOT_FOUND
+    assert "shared upstream GitHub target" in activity_response.payload["error"]
+
+
 def test_activity_endpoint_rejects_non_object_summary_json(tmp_path):
     crawl_dir = tmp_path / "subnets" / "94" / "crawl"
     crawl_dir.mkdir(parents=True)
@@ -1042,6 +1246,7 @@ def test_summary_activity_matches_activity_endpoint_when_jsonl_rows_exist(tmp_pa
             {
                 "repo": "owner/code",
                 "sha": "code-a",
+                "path": "src/code.py",
                 "additions": 3,
                 "deletions": 1,
                 "path_class": "source",
@@ -1089,7 +1294,7 @@ def test_summary_activity_matches_activity_endpoint_when_jsonl_rows_exist(tmp_pa
     assert summary_payload["top_paths"] == [
         {
             "repo": "owner/code",
-            "path": "",
+            "path": "src/code.py",
             "path_class": "source",
             "file_changes": 1,
             "lines_added": 3,

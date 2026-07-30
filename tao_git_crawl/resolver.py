@@ -5,10 +5,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .github_links import extract_github_targets, manual_github_target_from_url
+from .identity_epochs import identity_epoch
 from .models import GITHUB_DISCOVERY_FIELDS, GitHubTarget, SubnetIdentityRecord, UnresolvedSubnetRecord
 from .overrides import EMPTY_RESOLVER_CONFIG, ResolverConfig
 
-RESOLUTION_SCHEMA_VERSION = "tao-git-crawl-resolution-v2"
+RESOLUTION_SCHEMA_VERSION = "tao-git-crawl-resolution-v3"
 
 
 @dataclass(frozen=True)
@@ -18,6 +19,7 @@ class ResolutionDocument:
     unresolved: list[UnresolvedSubnetRecord]
     schema_version: str = RESOLUTION_SCHEMA_VERSION
     fallback_targets: list[GitHubTarget] = field(default_factory=list)
+    identity_epochs: dict[int, str] = field(default_factory=dict)
 
     @property
     def repository_targets(self) -> list[GitHubTarget]:
@@ -61,7 +63,13 @@ class ResolutionDocument:
             unresolved=[item for item in self.unresolved if item.netuid == netuid],
             schema_version=self.schema_version,
             fallback_targets=[target for target in self.fallback_targets if target.netuid == netuid],
+            identity_epochs=(
+                {netuid: self.identity_epochs[netuid]} if netuid in self.identity_epochs else {}
+            ),
         )
+
+    def identity_epoch_for_netuid(self, netuid: int) -> str | None:
+        return self.identity_epochs.get(netuid)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -69,6 +77,9 @@ class ResolutionDocument:
             "target": self.target_label,
             "targets": [target.to_dict() for target in self.targets],
             "fallback_targets": [target.to_dict() for target in self.fallback_targets],
+            "identity_epochs": {
+                str(netuid): epoch_id for netuid, epoch_id in sorted(self.identity_epochs.items())
+            },
             "unresolved": [item.to_dict() for item in self.unresolved],
             "git_crawl_repository_manifest": self.git_crawl_repository_manifest,
         }
@@ -84,11 +95,17 @@ def resolve_subnets(
     targets: list[GitHubTarget] = []
     fallback_targets: list[GitHubTarget] = []
     unresolved: list[UnresolvedSubnetRecord] = []
+    identity_epochs: dict[int, str] = {}
     for record in records:
+        identity_epochs[record.netuid] = identity_epoch(record).epoch_id
         identity_targets = extract_github_targets(record)
         identity_targets = _apply_repository_policy(identity_targets, resolver_config.default_repository_policy)
         identity_targets = _dedupe_targets(identity_targets)
-        record_targets, record_fallback_targets = _apply_manual_override(record, identity_targets, resolver_config)
+        record_targets, record_fallback_targets = _apply_manual_override(
+            record,
+            identity_targets,
+            resolver_config,
+        )
         record_targets = _dedupe_targets(record_targets)
         record_fallback_targets = _dedupe_targets(record_fallback_targets)
         if record_targets:
@@ -111,6 +128,7 @@ def resolve_subnets(
         targets=targets,
         unresolved=unresolved,
         fallback_targets=fallback_targets,
+        identity_epochs=identity_epochs,
     )
 
 

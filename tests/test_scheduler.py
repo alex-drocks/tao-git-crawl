@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 from datetime import date
@@ -5,7 +6,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from tao_git_crawl.scheduler import build_crawl_command, healthcheck, run_crawl
+from tao_git_crawl.models import SubnetIdentityRecord
+from tao_git_crawl.scheduler import (
+    _identity_fingerprint,
+    _run_crawl_with_identity_guard,
+    _wait_for_crawl_trigger,
+    build_crawl_command,
+    healthcheck,
+    run_crawl,
+)
 
 
 class TestBuildCrawlCommand:
@@ -158,6 +167,141 @@ class TestRunCrawl:
         assert exit_code == 1
 
 
+class TestIdentityChangeDetection:
+    def test_identity_fingerprint_tracks_name_and_github_discovery_fields(self):
+        baseline = _identity_fingerprint(
+            [
+                SubnetIdentityRecord(
+                    netuid=80,
+                    registered_at=6000000,
+                    subnet_name="Old",
+                    github_repo="opentensor/subtensor",
+                )
+            ]
+        )
+        replacement = _identity_fingerprint(
+            [
+                SubnetIdentityRecord(
+                    netuid=80,
+                    registered_at=7000000,
+                    subnet_name="OpenRoboto",
+                    github_repo="openroboto-ai/openroboto-subnet",
+                )
+            ]
+        )
+
+        assert baseline != replacement
+
+    def test_identity_fingerprint_tracks_registration_epoch_even_when_metadata_is_reused(self):
+        baseline = _identity_fingerprint(
+            [SubnetIdentityRecord(netuid=80, registered_at=6000000, subnet_name="Same")]
+        )
+        replacement = _identity_fingerprint(
+            [SubnetIdentityRecord(netuid=80, registered_at=7000000, subnet_name="Same")]
+        )
+
+        assert baseline != replacement
+
+    def test_wait_returns_early_when_live_identity_changes(self, monkeypatch):
+        baseline = ((80, 6000000, "Old", ("opentensor/subtensor", "", "", "", "")),)
+        replacement = ((80, 7000000, "OpenRoboto", ("openroboto-ai/openroboto-subnet", "", "", "", "")),)
+        clock = {"value": 0.0}
+
+        monkeypatch.setattr("tao_git_crawl.scheduler.time.monotonic", lambda: clock["value"])
+        monkeypatch.setattr(
+            "tao_git_crawl.scheduler.time.sleep",
+            lambda seconds: clock.__setitem__("value", clock["value"] + seconds),
+        )
+        monkeypatch.setattr(
+            "tao_git_crawl.scheduler._fetch_live_identity_fingerprint_safely",
+            lambda: replacement,
+        )
+
+        changed, observed = _wait_for_crawl_trigger(86400, 900, baseline)
+
+        assert changed is True
+        assert observed == replacement
+        assert clock["value"] == 900
+
+    def test_crawl_repeats_once_when_identity_changes_during_run(self, monkeypatch, tmp_path):
+        baseline = ((80, 6000000, "Old", ("opentensor/subtensor", "", "", "", "")),)
+        replacement = ((80, 7000000, "OpenRoboto", ("openroboto-ai/openroboto-subnet", "", "", "", "")),)
+        crawl_calls = []
+        fingerprints = iter([replacement, replacement])
+
+        monkeypatch.setattr(
+            "tao_git_crawl.scheduler.run_crawl",
+            lambda log_dir: crawl_calls.append(log_dir) or 0,
+        )
+        monkeypatch.setattr(
+            "tao_git_crawl.scheduler._fetch_live_identity_fingerprint_safely",
+            lambda: next(fingerprints),
+        )
+
+        exit_code, observed = _run_crawl_with_identity_guard(tmp_path, baseline)
+
+        assert exit_code == 0
+        assert crawl_calls == [tmp_path, tmp_path]
+        assert observed == replacement
+
+    def test_repeated_identity_churn_fails_closed_after_bounded_reconciliation(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        baseline = ((80, 6000000, "Old", ("old/repo", "", "", "", "")),)
+        replacement_1 = ((80, 7000000, "New 1", ("new/repo-1", "", "", "", "")),)
+        replacement_2 = ((80, 7000000, "New 2", ("new/repo-2", "", "", "", "")),)
+        replacement_3 = ((80, 7000000, "New 3", ("new/repo-3", "", "", "", "")),)
+        crawl_calls = []
+        fingerprints = iter([replacement_1, replacement_2, replacement_3])
+        output_dir = tmp_path / "output"
+        monkeypatch.setenv("TAO_CRAWL_OUTPUT_DIR", str(output_dir))
+        monkeypatch.setattr(
+            "tao_git_crawl.scheduler.run_crawl",
+            lambda log_dir: crawl_calls.append(log_dir) or 0,
+        )
+        monkeypatch.setattr(
+            "tao_git_crawl.scheduler._fetch_live_identity_fingerprint_safely",
+            lambda: next(fingerprints),
+        )
+
+        exit_code, observed = _run_crawl_with_identity_guard(tmp_path, baseline)
+
+        assert exit_code == 1
+        assert observed == replacement_3
+        assert crawl_calls == [tmp_path, tmp_path, tmp_path]
+        sentinel = json.loads(
+            (output_dir / "identity-reconciliation.json").read_text(encoding="utf-8")
+        )
+        assert sentinel["status"] == "failed"
+        assert "changed during every bounded reconciliation crawl" in sentinel["reason"]
+
+    def test_failed_guarded_crawl_fails_closed_when_identity_is_stable(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        fingerprint = ((80, 7000000, "Current", ("acme/current", "", "", "", "")),)
+        output_dir = tmp_path / "output"
+        monkeypatch.setenv("TAO_CRAWL_OUTPUT_DIR", str(output_dir))
+        monkeypatch.setattr("tao_git_crawl.scheduler.run_crawl", lambda log_dir: 1)
+        monkeypatch.setattr(
+            "tao_git_crawl.scheduler._fetch_live_identity_fingerprint_safely",
+            lambda: fingerprint,
+        )
+
+        exit_code, observed = _run_crawl_with_identity_guard(tmp_path, fingerprint)
+
+        assert exit_code == 1
+        assert observed == fingerprint
+        sentinel = json.loads(
+            (output_dir / "identity-reconciliation.json").read_text(encoding="utf-8")
+        )
+        assert sentinel["status"] == "failed"
+        assert "guarded crawl exited with status 1" in sentinel["reason"]
+
+
 class TestHealthcheck:
     def test_passes_when_writable(self, tmp_path, monkeypatch, capsys):
         monkeypatch.setenv("TAO_CRAWL_OUTPUT_DIR", str(tmp_path / "output"))
@@ -198,6 +342,7 @@ class TestSchedulerMain:
         monkeypatch.setenv("GITHUB_TOKEN", "fake-token")
         monkeypatch.setenv("TAO_CRAWL_RUN_ON_START", "true")
         monkeypatch.setenv("TAO_CRAWL_INTERVAL_SECONDS", "86400")
+        monkeypatch.setenv("TAO_CRAWL_IDENTITY_CHECK_SECONDS", "0")
         monkeypatch.setenv("TAO_CRAWL_LOG_DIR", str(tmp_path / "logs"))
 
         calls = []
@@ -223,6 +368,7 @@ class TestSchedulerMain:
         monkeypatch.setenv("GITHUB_TOKEN", "fake-token")
         monkeypatch.setenv("TAO_CRAWL_RUN_ON_START", "false")
         monkeypatch.setenv("TAO_CRAWL_INTERVAL_SECONDS", "10")
+        monkeypatch.setenv("TAO_CRAWL_IDENTITY_CHECK_SECONDS", "0")
         monkeypatch.setenv("TAO_CRAWL_LOG_DIR", str(tmp_path / "logs"))
 
         calls = []

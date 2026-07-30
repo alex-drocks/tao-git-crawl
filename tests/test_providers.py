@@ -17,7 +17,11 @@ class ScaleValue:
 def test_json_provider_accepts_nested_subnet_identity_records(tmp_path):
     payload = {
         "subnets": [
-            {"netuid": 64, "subnet_identity": {"subnet_name": "Chutes", "github_repo": "chutesai/api"}},
+            {
+                "netuid": 64,
+                "registered_at": 4531295,
+                "subnet_identity": {"subnet_name": "Chutes", "github_repo": "chutesai/api"},
+            },
             {"netuid": 3, "identity": {"description": "https://github.com/opentensor/subtensor"}},
         ]
     }
@@ -26,9 +30,9 @@ def test_json_provider_accepts_nested_subnet_identity_records(tmp_path):
 
     records = list(JsonSubnetIdentityProvider(path).fetch())
 
-    assert [(record.netuid, record.subnet_name, record.github_repo) for record in records] == [
-        (64, "Chutes", "chutesai/api"),
-        (3, "", ""),
+    assert [(record.netuid, record.registered_at, record.subnet_name, record.github_repo) for record in records] == [
+        (64, 4531295, "Chutes", "chutesai/api"),
+        (3, None, "", ""),
     ]
     assert records[1].description == "https://github.com/opentensor/subtensor"
 
@@ -84,6 +88,8 @@ def test_substrate_provider_queries_canonical_subnet_identity_storage_for_reques
 
         def query(self, module, storage_function, params):
             self.calls.append((module, storage_function, params))
+            if storage_function == "NetworkRegisteredAt":
+                return ScaleValue(1000 + params[0])
             return ScaleValue({"github_repo": b"opentensor/subtensor"})
 
     substrate = FakeSubstrate()
@@ -91,13 +97,15 @@ def test_substrate_provider_queries_canonical_subnet_identity_storage_for_reques
 
     records = list(provider.fetch(netuids=[1, 2]))
 
-    assert [(record.netuid, record.github_repo) for record in records] == [
-        (1, "opentensor/subtensor"),
-        (2, "opentensor/subtensor"),
+    assert [(record.netuid, record.registered_at, record.github_repo) for record in records] == [
+        (1, 1001, "opentensor/subtensor"),
+        (2, 1002, "opentensor/subtensor"),
     ]
     assert substrate.calls == [
         ("SubtensorModule", "SubnetIdentitiesV3", [1]),
+        ("SubtensorModule", "NetworkRegisteredAt", [1]),
         ("SubtensorModule", "SubnetIdentitiesV3", [2]),
+        ("SubtensorModule", "NetworkRegisteredAt", [2]),
     ]
 
 
@@ -108,6 +116,8 @@ def test_substrate_provider_skips_requested_root_network_netuid_zero():
 
         def query(self, module, storage_function, params):
             self.calls.append((module, storage_function, params))
+            if storage_function == "NetworkRegisteredAt":
+                return ScaleValue(1000 + params[0])
             return ScaleValue({"github_repo": b"opentensor/subtensor"})
 
     substrate = FakeSubstrate()
@@ -116,14 +126,14 @@ def test_substrate_provider_skips_requested_root_network_netuid_zero():
     records = list(provider.fetch(netuids=[0, 1, 129]))
 
     assert [(record.netuid, record.github_repo) for record in records] == [(1, "opentensor/subtensor")]
-    assert substrate.calls == [("SubtensorModule", "SubnetIdentitiesV3", [1])]
+    assert substrate.calls == [
+        ("SubtensorModule", "SubnetIdentitiesV3", [1]),
+        ("SubtensorModule", "NetworkRegisteredAt", [1]),
+    ]
 
 
 def test_substrate_provider_skips_root_network_from_discovered_netuids():
     class FakeSubstrate:
-        def __init__(self):
-            self.identity_calls = []
-
         def query_map(self, module, storage_function):
             if storage_function == "NetworksAdded":
                 return [
@@ -132,11 +142,20 @@ def test_substrate_provider_skips_root_network_from_discovered_netuids():
                     (ScaleValue(2), ScaleValue(True)),
                     (ScaleValue(129), ScaleValue(True)),
                 ]
+            if storage_function == "SubnetIdentitiesV3":
+                return [
+                    (ScaleValue(netuid), ScaleValue({"github_repo": f"owner/repo-{netuid}".encode()}))
+                    for netuid in (0, 1, 2, 129)
+                ]
+            if storage_function == "NetworkRegisteredAt":
+                return [
+                    (ScaleValue(netuid), ScaleValue(1000 + netuid))
+                    for netuid in (0, 1, 2, 129)
+                ]
             raise AssertionError(f"unexpected query_map {module}.{storage_function}")
 
-        def query(self, module, storage_function, params):
-            self.identity_calls.append((module, storage_function, params))
-            return ScaleValue({"github_repo": f"owner/repo-{params[0]}".encode()})
+        def query(self, *args, **kwargs):
+            raise AssertionError("full crawl discovery must not issue per-netuid queries")
 
     substrate = FakeSubstrate()
     provider = SubstrateSubnetIdentityProvider(endpoint="wss://example.invalid", substrate=substrate)
@@ -147,7 +166,120 @@ def test_substrate_provider_skips_root_network_from_discovered_netuids():
         (1, "owner/repo-1"),
         (2, "owner/repo-2"),
     ]
-    assert substrate.identity_calls == [
-        ("SubtensorModule", "SubnetIdentitiesV3", [1]),
-        ("SubtensorModule", "SubnetIdentitiesV3", [2]),
+
+
+def test_substrate_provider_fetches_populated_identity_map_without_per_netuid_queries():
+    class FakeSubstrate:
+        def query_map(self, module, storage_function):
+            assert (module, storage_function) == ("SubtensorModule", "SubnetIdentitiesV3")
+            return [
+                (ScaleValue(2), ScaleValue({"github_repo": b"owner/repo-2"})),
+                (ScaleValue(0), ScaleValue({"github_repo": b"root/repo"})),
+                (ScaleValue(1), ScaleValue({"github_repo": b"owner/repo-1"})),
+                (ScaleValue(129), ScaleValue({"github_repo": b"past/repo"})),
+            ]
+
+        def query(self, *args, **kwargs):
+            raise AssertionError("identity-map polling must not issue per-netuid queries")
+
+    provider = SubstrateSubnetIdentityProvider(
+        endpoint="wss://example.invalid",
+        substrate=FakeSubstrate(),
+    )
+
+    records = list(provider.fetch_populated())
+
+    assert [(record.netuid, record.github_repo) for record in records] == [
+        (1, "owner/repo-1"),
+        (2, "owner/repo-2"),
     ]
+
+
+def test_substrate_provider_fetches_active_subnets_with_registration_epochs_without_per_netuid_queries():
+    class FakeSubstrate:
+        def get_chain_head(self):
+            return "0xatomic-snapshot"
+
+        def query_map(self, module, storage_function, block_hash=None):
+            assert module == "SubtensorModule"
+            assert block_hash == "0xatomic-snapshot"
+            if storage_function == "NetworksAdded":
+                return [
+                    (ScaleValue(0), ScaleValue(True)),
+                    (ScaleValue(1), ScaleValue(True)),
+                    (ScaleValue(2), ScaleValue(True)),
+                ]
+            if storage_function == "SubnetIdentitiesV3":
+                return [(ScaleValue(1), ScaleValue({"github_repo": b"owner/repo-1"}))]
+            if storage_function == "NetworkRegisteredAt":
+                return [
+                    (ScaleValue(1), ScaleValue(5001)),
+                    (ScaleValue(2), ScaleValue(5002)),
+                ]
+            raise AssertionError(f"unexpected query_map {module}.{storage_function}")
+
+        def query(self, *args, **kwargs):
+            raise AssertionError("active identity polling must not issue per-netuid queries")
+
+    provider = SubstrateSubnetIdentityProvider(
+        endpoint="wss://example.invalid",
+        substrate=FakeSubstrate(),
+    )
+
+    records = list(provider.fetch_active())
+
+    assert [(record.netuid, record.registered_at, record.github_repo) for record in records] == [
+        (1, 5001, "owner/repo-1"),
+        (2, 5002, ""),
+    ]
+
+
+def test_substrate_provider_rejects_active_snapshot_with_missing_registration_epoch():
+    class FakeSubstrate:
+        def query_map(self, module, storage_function):
+            assert module == "SubtensorModule"
+            if storage_function == "NetworksAdded":
+                return [(ScaleValue(1), ScaleValue(True)), (ScaleValue(2), ScaleValue(True))]
+            if storage_function == "SubnetIdentitiesV3":
+                return []
+            if storage_function == "NetworkRegisteredAt":
+                return [(ScaleValue(1), ScaleValue(5001))]
+            raise AssertionError(f"unexpected query_map {module}.{storage_function}")
+
+    provider = SubstrateSubnetIdentityProvider(
+        endpoint="wss://example.invalid",
+        substrate=FakeSubstrate(),
+    )
+
+    with pytest.raises(RuntimeError, match=r"NetworkRegisteredAt.*subnet\(s\) 2"):
+        list(provider.fetch_active())
+
+
+def test_substrate_provider_does_not_turn_network_discovery_failure_into_empty_snapshot():
+    class FakeSubstrate:
+        def query_map(self, module, storage_function):
+            raise ConnectionError("RPC disconnected")
+
+    provider = SubstrateSubnetIdentityProvider(
+        endpoint="wss://example.invalid",
+        substrate=FakeSubstrate(),
+    )
+
+    with pytest.raises(ConnectionError, match="RPC disconnected"):
+        list(provider.fetch_active())
+
+
+def test_substrate_provider_rejects_requested_subnet_without_registration_epoch():
+    class FakeSubstrate:
+        def query(self, module, storage_function, params):
+            if storage_function == "NetworkRegisteredAt":
+                return ScaleValue(None)
+            return ScaleValue({"github_repo": b"owner/repo-1"})
+
+    provider = SubstrateSubnetIdentityProvider(
+        endpoint="wss://example.invalid",
+        substrate=FakeSubstrate(),
+    )
+
+    with pytest.raises(RuntimeError, match="active subnet 1"):
+        list(provider.fetch(netuids=[1]))

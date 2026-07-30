@@ -41,36 +41,81 @@ class JsonSubnetIdentityProvider:
 
 
 class SubstrateSubnetIdentityProvider:
-    """Read subnet identity from SubtensorModule.SubnetIdentitiesV3."""
+    """Read active subnet identity and lifecycle blocks from SubtensorModule."""
 
     def __init__(self, *, endpoint: str = DEFAULT_ENDPOINT, substrate: object | None = None):
         self.endpoint = endpoint
         self._substrate = substrate
 
     def fetch(self, netuids: Iterable[int] | None = None) -> Iterable[SubnetIdentityRecord]:
+        if netuids is None:
+            yield from self.fetch_active()
+            return
         substrate = self._substrate or self._connect()
-        if netuids is not None:
-            for netuid in netuids:
-                regular_netuid = _normalize_regular_subnet_netuid(netuid)
-                if regular_netuid is None:
-                    continue
-                yield decode_substrate_identity(
+        block_hash = _snapshot_block_hash(substrate)
+        for netuid in netuids:
+            regular_netuid = _normalize_regular_subnet_netuid(netuid)
+            if regular_netuid is None:
+                continue
+            raw_identity = _query_subnet_identity(
+                substrate,
+                regular_netuid,
+                block_hash=block_hash,
+            )
+            registered_at = _positive_int(
+                _query_network_registered_at(
+                    substrate,
                     regular_netuid,
-                    _query_subnet_identity(substrate, regular_netuid),
+                    block_hash=block_hash,
                 )
-            return
+            )
+            if registered_at is None:
+                raise RuntimeError(
+                    "NetworkRegisteredAt returned no lifecycle block for active subnet "
+                    f"{regular_netuid}; refusing an unbound identity snapshot"
+                )
+            yield decode_substrate_identity(
+                regular_netuid,
+                raw_identity,
+                registered_at=registered_at,
+            )
 
-        discovered_netuids = list(_query_network_netuids(substrate))
-        if discovered_netuids:
-            for netuid in discovered_netuids:
-                yield decode_substrate_identity(netuid, _query_subnet_identity(substrate, netuid))
-            return
-
-        for key, value in substrate.query_map(module="SubtensorModule", storage_function="SubnetIdentitiesV3"):
+    def fetch_populated(self) -> Iterable[SubnetIdentityRecord]:
+        """Read populated identity-map rows without querying every active netuid separately."""
+        substrate = self._substrate or self._connect()
+        block_hash = _snapshot_block_hash(substrate)
+        records: list[SubnetIdentityRecord] = []
+        for key, value in _query_map_at(
+            substrate,
+            storage_function="SubnetIdentitiesV3",
+            block_hash=block_hash,
+        ):
             netuid = _unwrap_netuid_key(key)
             if not is_regular_subnet_netuid(netuid):
                 continue
-            yield decode_substrate_identity(netuid, value)
+            records.append(decode_substrate_identity(netuid, value))
+        yield from sorted(records, key=lambda record: record.netuid)
+
+    def fetch_active(self) -> Iterable[SubnetIdentityRecord]:
+        """Read every active subnet and its registration block at one chain head."""
+        substrate = self._substrate or self._connect()
+        block_hash = _snapshot_block_hash(substrate)
+        active_netuids = _query_network_netuids(substrate, block_hash=block_hash)
+        identities = _query_subnet_identity_map(substrate, block_hash=block_hash)
+        registrations = _query_network_registration_map(substrate, block_hash=block_hash)
+        missing_registrations = sorted(set(active_netuids) - registrations.keys())
+        if missing_registrations:
+            missing = ", ".join(str(netuid) for netuid in missing_registrations)
+            raise RuntimeError(
+                "NetworkRegisteredAt omitted lifecycle blocks for active subnet(s) "
+                f"{missing}; refusing an unbound identity snapshot"
+            )
+        for netuid in active_netuids:
+            yield decode_substrate_identity(
+                netuid,
+                identities.get(netuid),
+                registered_at=registrations.get(netuid),
+            )
 
     def _connect(self):
         try:
@@ -134,33 +179,70 @@ def _regular_subnet_netuid_set(netuids: Iterable[int]) -> set[int]:
     return regular_netuids
 
 
-def decode_substrate_identity(netuid: int, raw_value: object) -> SubnetIdentityRecord:
+def decode_substrate_identity(
+    netuid: int,
+    raw_value: object,
+    *,
+    registered_at: object = None,
+) -> SubnetIdentityRecord:
     value = _unwrap_scale_value(raw_value)
     if value is None:
-        return SubnetIdentityRecord(netuid=netuid)
+        return SubnetIdentityRecord(netuid=netuid, registered_at=_positive_int(registered_at))
     if not isinstance(value, dict):
-        return SubnetIdentityRecord(netuid=netuid)
+        return SubnetIdentityRecord(netuid=netuid, registered_at=_positive_int(registered_at))
     decoded = {field: _decode_text(_unwrap_scale_value(value.get(field))) for field in IDENTITY_FIELDS}
-    return SubnetIdentityRecord(netuid=netuid, **decoded)
+    return SubnetIdentityRecord(
+        netuid=netuid,
+        registered_at=_positive_int(registered_at),
+        **decoded,
+    )
 
 
 def _identity_mapping_from_row(row: dict[str, object]) -> dict[str, object]:
     identity: dict[str, object] = {field: row[field] for field in IDENTITY_FIELDS if field in row}
+    for field in ("registered_at", "registration_block"):
+        if field in row:
+            identity[field] = row[field]
     nested = row.get("subnet_identity", row.get("identity"))
     if isinstance(nested, dict):
         identity.update(nested)
     return identity
 
 
-def _query_subnet_identity(substrate: object, netuid: int) -> object:
-    return substrate.query(module="SubtensorModule", storage_function="SubnetIdentitiesV3", params=[netuid])
+def _query_subnet_identity(
+    substrate: object,
+    netuid: int,
+    *,
+    block_hash: str | None,
+) -> object:
+    return _query_at(
+        substrate,
+        storage_function="SubnetIdentitiesV3",
+        params=[netuid],
+        block_hash=block_hash,
+    )
 
 
-def _query_network_netuids(substrate: object) -> list[int]:
-    try:
-        rows = substrate.query_map(module="SubtensorModule", storage_function="NetworksAdded")
-    except Exception:  # noqa: BLE001 - fallback to identity map for nodes/clients that do not expose query_map
-        return []
+def _query_network_registered_at(
+    substrate: object,
+    netuid: int,
+    *,
+    block_hash: str | None,
+) -> object:
+    return _query_at(
+        substrate,
+        storage_function="NetworkRegisteredAt",
+        params=[netuid],
+        block_hash=block_hash,
+    )
+
+
+def _query_network_netuids(substrate: object, *, block_hash: str | None) -> list[int]:
+    rows = _query_map_at(
+        substrate,
+        storage_function="NetworksAdded",
+        block_hash=block_hash,
+    )
     netuids: list[int] = []
     for key, value in rows:
         added = _unwrap_scale_value(value)
@@ -170,6 +252,74 @@ def _query_network_netuids(substrate: object) -> list[int]:
         if is_regular_subnet_netuid(netuid):
             netuids.append(netuid)
     return sorted(set(netuids))
+
+
+def _query_subnet_identity_map(substrate: object, *, block_hash: str | None) -> dict[int, object]:
+    return {
+        netuid: value
+        for key, value in _query_map_at(
+            substrate,
+            storage_function="SubnetIdentitiesV3",
+            block_hash=block_hash,
+        )
+        if is_regular_subnet_netuid(netuid := _unwrap_netuid_key(key))
+    }
+
+
+def _query_network_registration_map(substrate: object, *, block_hash: str | None) -> dict[int, int]:
+    registrations: dict[int, int] = {}
+    for key, value in _query_map_at(
+        substrate,
+        storage_function="NetworkRegisteredAt",
+        block_hash=block_hash,
+    ):
+        netuid = _unwrap_netuid_key(key)
+        registered_at = _positive_int(value)
+        if is_regular_subnet_netuid(netuid) and registered_at is not None:
+            registrations[netuid] = registered_at
+    return registrations
+
+
+def _snapshot_block_hash(substrate: object) -> str | None:
+    get_chain_head = getattr(substrate, "get_chain_head", None)
+    if not callable(get_chain_head):
+        return None
+    block_hash = get_chain_head()
+    if not isinstance(block_hash, str) or not block_hash.strip():
+        raise RuntimeError("chain endpoint returned no block hash for an atomic identity snapshot")
+    return block_hash
+
+
+def _query_at(
+    substrate: object,
+    *,
+    storage_function: str,
+    params: list[int],
+    block_hash: str | None,
+) -> object:
+    kwargs: dict[str, object] = {
+        "module": "SubtensorModule",
+        "storage_function": storage_function,
+        "params": params,
+    }
+    if block_hash is not None:
+        kwargs["block_hash"] = block_hash
+    return substrate.query(**kwargs)
+
+
+def _query_map_at(
+    substrate: object,
+    *,
+    storage_function: str,
+    block_hash: str | None,
+) -> Iterable[tuple[object, object]]:
+    kwargs: dict[str, object] = {
+        "module": "SubtensorModule",
+        "storage_function": storage_function,
+    }
+    if block_hash is not None:
+        kwargs["block_hash"] = block_hash
+    return substrate.query_map(**kwargs)
 
 
 def _unwrap_netuid_key(key: object) -> int:
@@ -193,3 +343,16 @@ def _decode_text(value: object) -> str:
     if isinstance(value, list) and all(isinstance(item, int) for item in value):
         return bytes(value).decode("utf-8", errors="replace").strip()
     return str(value).strip()
+
+
+def _positive_int(value: object) -> int | None:
+    unwrapped = _unwrap_scale_value(value)
+    if unwrapped is None or isinstance(unwrapped, bool):
+        return None
+    if isinstance(unwrapped, int):
+        parsed = unwrapped
+    elif isinstance(unwrapped, str) and unwrapped.strip().isdigit():
+        parsed = int(unwrapped.strip())
+    else:
+        return None
+    return parsed if parsed > 0 else None

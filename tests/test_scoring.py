@@ -2,6 +2,7 @@ import json
 from datetime import date
 
 from tao_git_crawl.models import SubnetIdentityRecord
+from tao_git_crawl.overrides import ResolverConfig, SubnetOverride, TargetOverride
 from tao_git_crawl.resolver import resolve_subnets
 from tao_git_crawl.scoring import build_score_document, write_score_outputs
 
@@ -162,6 +163,7 @@ def test_build_score_document_uses_global_raw_max_and_full_population(tmp_path):
     score_document = build_score_document(document, tmp_path)
 
     scores = {item["netuid"]: item for item in score_document["scores"]}
+    assert score_document["schema_version"] == "tao-git-crawl-score-v3"
     assert score_document["normalization"]["metric_method"] == "global_max"
     assert score_document["normalization"]["score_method"] == "max_weighted_composite_to_100"
     assert score_document["normalization"]["rank_method"] == "competition_score_desc"
@@ -188,6 +190,8 @@ def test_build_score_document_uses_global_raw_max_and_full_population(tmp_path):
     assert "repos_crawled" not in score_document["weights"]
     assert "repos_crawled" not in scores[1]["normalized_metrics"]
     assert "repos_crawled" not in scores[1]["weighted_components"]
+
+
     assert scores[1]["score"] == 100.0
     assert scores[1]["score_momentum"] == 0.0
     assert scores[1]["composite_score"] == 85.0
@@ -208,6 +212,78 @@ def test_build_score_document_uses_global_raw_max_and_full_population(tmp_path):
     assert scores[3]["rank_total"] == 3
     assert scores[3]["status"] == "unresolved"
     assert scores[3]["percentile"] == 0.0
+
+
+def test_shared_upstream_target_cannot_receive_subnet_score(tmp_path):
+    document = resolve_subnets(
+        [
+            SubnetIdentityRecord(
+                netuid=80,
+                subnet_name="Old subnet occupant",
+                github_repo="https://github.com/RaoFoundation/subtensor",
+            )
+        ],
+        target_label="bittensor-subnets",
+    )
+    _write_summary(tmp_path, 80, repos_crawled=1, file_changes=16744, lines_added=783221)
+
+    [score] = build_score_document(document, tmp_path)["scores"]
+
+    assert score["status"] == "attribution_rejected"
+    assert score["score"] == 0.0
+    assert score["composite_score"] == 0.0
+    assert score["raw_metrics"]["credited_file_changes"] == 0.0
+    assert "blocked upstream GitHub owner RaoFoundation" in score["reason"]
+
+
+def test_valid_target_still_scores_when_blocked_target_was_skipped(tmp_path):
+    document = resolve_subnets(
+        [
+            SubnetIdentityRecord(
+                netuid=80,
+                registered_at=7000000,
+                github_repo=(
+                    "https://github.com/acme/current "
+                    "https://github.com/opentensor/subtensor"
+                ),
+            )
+        ],
+        target_label="bittensor-subnets",
+    )
+    crawl_dir = _write_summary(
+        tmp_path,
+        80,
+        repos_crawled=1,
+        file_changes=3,
+        lines_added=30,
+    )
+    _write_activity(
+        crawl_dir,
+        commits=2,
+        file_changes=3,
+        lines_added=30,
+        active_days=2,
+        distinct_contributors=1,
+    )
+    (tmp_path / "crawl-report.json").write_text(
+        json.dumps(
+            {
+                "succeeded": [{"netuid": 80}],
+                "failed": [],
+                "skipped_inaccessible": [],
+                "skipped_attribution": [
+                    {"netuid": 80, "reason": "blocked upstream target skipped"}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    [score] = build_score_document(document, tmp_path)["scores"]
+
+    assert score["status"] == "scored"
+    assert score["score"] == 100.0
+    assert score["raw_metrics"]["credited_file_changes"] == 3.0
 
 
 def test_score_builds_30d_momentum_from_recent_credited_rows(tmp_path):
@@ -340,11 +416,115 @@ def test_score_includes_today_in_implicit_30d_momentum_window(tmp_path, monkeypa
 
     score = build_score_document(document, tmp_path)["scores"][0]
 
+    assert score["raw_metrics"]["credited_file_changes"] == 3.0
     assert score["raw_metrics"]["momentum_30d_credited_file_changes"] == 2.0
     assert score["raw_metrics"]["momentum_30d_credited_lines_added"] == 20.0
     assert score["raw_metrics"]["momentum_30d_active_days"] == 2.0
     assert score["raw_metrics"]["momentum_30d_avg_credited_commits_per_active_day"] == 1.0
     assert score["score_momentum"] == 100.0
+
+
+def test_score_rejects_orphaned_malformed_out_of_window_and_duplicate_change_rows(tmp_path):
+    document = resolve_subnets(
+        [SubnetIdentityRecord(netuid=1, github_repo="https://github.com/acme/current")],
+        target_label="bittensor-subnets",
+    )
+    crawl_dir = _write_summary(
+        tmp_path,
+        1,
+        repos_crawled=1,
+        file_changes=7,
+        lines_added=700,
+        history_since="2026-01-01",
+        history_until="2026-01-31",
+    )
+    _write_commits(
+        crawl_dir,
+        [
+            {"sha": "valid", "authored_at": "2026-01-15T12:00:00Z", "author_login": "dev"},
+            {"sha": "before", "authored_at": "2025-12-31T23:59:59Z", "author_login": "dev"},
+            {"sha": "after", "authored_at": "2026-02-01T00:00:00Z", "author_login": "dev"},
+            {"sha": "malformed", "authored_at": "definitely-not-a-date", "author_login": "dev"},
+        ],
+    )
+    _write_file_changes(
+        crawl_dir,
+        [
+            {"repo": "acme/repo", "sha": "valid", "path": "src/valid.py", "additions": 10},
+            {"repo": "acme/repo", "sha": "valid", "path": "src/valid.py", "additions": 10},
+            {"repo": "acme/repo", "sha": "before", "path": "src/before.py", "additions": 100},
+            {"repo": "acme/repo", "sha": "after", "path": "src/after.py", "additions": 100},
+            {"repo": "acme/repo", "sha": "malformed", "path": "src/bad.py", "additions": 100},
+            {"repo": "acme/repo", "sha": "orphan", "path": "src/orphan.py", "additions": 100},
+            {"repo": "acme/repo", "sha": "valid", "path": "", "additions": 100},
+            {"repo": "acme/repo", "sha": "valid", "path": "src/negative.py", "additions": -100},
+        ],
+    )
+
+    score = build_score_document(document, tmp_path)["scores"][0]
+
+    assert score["raw_metrics"]["credited_file_changes"] == 1.0
+    assert score["raw_metrics"]["credited_lines_added"] == 10.0
+    assert score["raw_metrics"]["active_days"] == 1.0
+    assert score["raw_metrics"]["distinct_contributors"] == 1.0
+
+
+def test_successful_identity_fallback_can_score_when_blocked_override_was_rejected(tmp_path):
+    document = resolve_subnets(
+        [
+            SubnetIdentityRecord(
+                netuid=80,
+                registered_at=7000000,
+                github_repo="https://github.com/acme/current",
+            )
+        ],
+        target_label="bittensor-subnets",
+        config=ResolverConfig(
+            subnet_overrides={
+                80: SubnetOverride(
+                    replace=True,
+                    targets=(
+                        TargetOverride(
+                            kind="repository",
+                            url="https://github.com/opentensor/subtensor",
+                        ),
+                    ),
+                )
+            }
+        ),
+    )
+    crawl_dir = _write_summary(tmp_path, 80, repos_crawled=1, file_changes=3, lines_added=30)
+    _write_activity(
+        crawl_dir,
+        commits=2,
+        file_changes=3,
+        lines_added=30,
+        active_days=2,
+        distinct_contributors=1,
+    )
+    (tmp_path / "crawl-report.json").write_text(
+        json.dumps(
+            {
+                "succeeded": [{"netuid": 80}],
+                "failed": [],
+                "skipped_inaccessible": [],
+                "skipped_attribution": [],
+                "fallback_used": [
+                    {
+                        "netuid": 80,
+                        "fallback_targets": ["https://github.com/acme/current"],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    [score] = build_score_document(document, tmp_path)["scores"]
+
+    assert score["status"] == "scored"
+    assert score["score"] == 100.0
+    assert score["raw_metrics"]["credited_file_changes"] == 3.0
 
 
 def test_aggregate_score_fallback_zeroes_momentum_for_windows_over_30_days(tmp_path):

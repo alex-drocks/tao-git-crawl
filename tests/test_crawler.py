@@ -5,6 +5,7 @@ from git_crawl.github import GitHubAPIError, partition_repositories
 from git_crawl.metrics import CommitChangesFiltrationLevel
 
 from tao_git_crawl.crawler import crawl_resolved_subnets
+from tao_git_crawl.identity_epochs import epoch_scoped_target
 from tao_git_crawl.models import SubnetIdentityRecord
 from tao_git_crawl.overrides import ResolverConfig, SubnetOverride, TargetOverride
 from tao_git_crawl.resolver import resolve_subnets
@@ -90,9 +91,13 @@ def test_crawl_resolved_subnets_discovers_owner_repos_and_labels_metrics_by_subn
 
     assert calls["owners"] == [("chutesai", "auto", None)]
     assert calls["repo_manifests"] == []
+    expected_target = epoch_scoped_target(
+        "bittensor-subnet-64",
+        document.identity_epoch_for_netuid(64),
+    )
     assert calls["crawls"] == [
         (
-            "bittensor-subnet-64",
+            expected_target,
             ["chutesai/api"],
             {
                 "cache_dir": tmp_path / "cache",
@@ -138,7 +143,7 @@ def test_crawl_resolved_subnets_publishes_score_progress_before_full_run_finishe
 
     def fake_crawl_repositories(target_label, repositories, **kwargs):
         crawl_calls.append(target_label)
-        if target_label == "bittensor-subnet-2":
+        if target_label.startswith("bittensor-subnet-2-"):
             first_score = json.loads((output_dir / "subnets" / "1" / "score.json").read_text(encoding="utf-8"))
             aggregate_scores = json.loads((output_dir / "subnet-scores.json").read_text(encoding="utf-8"))
             assert first_score["status"] == "scored"
@@ -179,7 +184,10 @@ def test_crawl_resolved_subnets_publishes_score_progress_before_full_run_finishe
     report = crawl_resolved_subnets(document, output_dir=output_dir, cache_dir=tmp_path / "cache")
 
     assert report.succeeded_netuids == [1, 2]
-    assert crawl_calls == ["bittensor-subnet-1", "bittensor-subnet-2"]
+    assert crawl_calls == [
+        epoch_scoped_target("bittensor-subnet-1", document.identity_epoch_for_netuid(1)),
+        epoch_scoped_target("bittensor-subnet-2", document.identity_epoch_for_netuid(2)),
+    ]
 
 
 def test_crawl_resolved_subnets_skips_inaccessible_github_404_targets(monkeypatch, tmp_path):
@@ -231,9 +239,70 @@ def test_crawl_resolved_subnets_skips_inaccessible_github_404_targets(monkeypatc
     assert '"netuid": 2' in report_json
 
 
+def test_crawl_rejects_shared_upstream_repository_before_github_lookup(monkeypatch, tmp_path):
+    document = resolve_subnets(
+        [
+            SubnetIdentityRecord(
+                netuid=80,
+                subnet_name="Old subnet occupant",
+                github_repo="https://github.com/opentensor/subtensor",
+            )
+        ],
+        target_label="bittensor-subnets",
+    )
+
+    def fail_github_lookup(*args, **kwargs):
+        raise AssertionError("shared upstream target must not reach GitHub discovery")
+
+    def fail_crawl(*args, **kwargs):
+        raise AssertionError("shared upstream target must not be crawled")
+
+    monkeypatch.setattr("tao_git_crawl.crawler.list_repositories_from_urls", fail_github_lookup)
+    monkeypatch.setattr("tao_git_crawl.crawler.crawl_repositories", fail_crawl)
+
+    report = crawl_resolved_subnets(document, output_dir=tmp_path / "out", cache_dir=tmp_path / "cache")
+
+    assert report.succeeded_netuids == []
+    assert report.failed == []
+    assert report.skipped_inaccessible == []
+    assert len(report.skipped_attribution) == 1
+    assert "blocked upstream GitHub owner opentensor" in report.skipped_attribution[0].reason
+    score = json.loads((tmp_path / "out" / "subnets" / "80" / "score.json").read_text(encoding="utf-8"))
+    assert score["status"] == "attribution_rejected"
+    assert score["score"] == 0.0
+
+
+def test_crawl_rejects_repository_redirect_to_different_canonical_repo(monkeypatch, tmp_path):
+    document = resolve_subnets(
+        [SubnetIdentityRecord(netuid=80, github_repo="https://github.com/legacy-owner/project")],
+        target_label="bittensor-subnets",
+    )
+
+    monkeypatch.setattr(
+        "tao_git_crawl.crawler.list_repositories_from_urls",
+        lambda urls, **kwargs: [_repo("new-owner/project")],
+    )
+
+    def fail_crawl(*args, **kwargs):
+        raise AssertionError("redirected repository must not be crawled")
+
+    monkeypatch.setattr("tao_git_crawl.crawler.crawl_repositories", fail_crawl)
+
+    report = crawl_resolved_subnets(document, output_dir=tmp_path / "out", cache_dir=tmp_path / "cache")
+
+    assert report.succeeded_netuids == []
+    assert report.failed == []
+    assert report.skipped_inaccessible == []
+    assert len(report.skipped_attribution) == 1
+    assert "legacy-owner/project resolved to new-owner/project" in report.skipped_attribution[0].reason
+    score = json.loads((tmp_path / "out" / "subnets" / "80" / "score.json").read_text(encoding="utf-8"))
+    assert score["status"] == "attribution_rejected"
+    assert score["score"] == 0.0
+
+
 def test_replace_override_primary_success_does_not_attempt_fallback(monkeypatch, tmp_path):
     document = resolve_subnets(
-        [SubnetIdentityRecord(netuid=23, subnet_name="Subnet", github_repo="https://github.com/current/repo")],
+        [SubnetIdentityRecord(netuid=23, registered_at=2300, subnet_name="Subnet", github_repo="https://github.com/current/repo")],
         target_label="bittensor-subnets",
         config=ResolverConfig(
             subnet_overrides={
@@ -280,7 +349,7 @@ def test_replace_override_primary_success_does_not_attempt_fallback(monkeypatch,
 
 def test_replace_override_404_primary_falls_back_to_identity_target(monkeypatch, tmp_path):
     document = resolve_subnets(
-        [SubnetIdentityRecord(netuid=23, subnet_name="Subnet", github_repo="https://github.com/current/repo")],
+        [SubnetIdentityRecord(netuid=23, registered_at=2300, subnet_name="Subnet", github_repo="https://github.com/current/repo")],
         target_label="bittensor-subnets",
         config=ResolverConfig(
             subnet_overrides={
@@ -336,7 +405,7 @@ def test_replace_override_404_primary_falls_back_to_identity_target(monkeypatch,
 
 def test_replace_override_404_primary_and_404_fallback_keep_inaccessible_skip(monkeypatch, tmp_path):
     document = resolve_subnets(
-        [SubnetIdentityRecord(netuid=23, subnet_name="Subnet", github_repo="https://github.com/current/missing")],
+        [SubnetIdentityRecord(netuid=23, registered_at=2300, subnet_name="Subnet", github_repo="https://github.com/current/missing")],
         target_label="bittensor-subnets",
         config=ResolverConfig(
             subnet_overrides={
@@ -373,7 +442,7 @@ def test_replace_override_404_primary_and_404_fallback_keep_inaccessible_skip(mo
 
 def test_replace_override_non_404_primary_error_does_not_attempt_fallback(monkeypatch, tmp_path):
     document = resolve_subnets(
-        [SubnetIdentityRecord(netuid=23, subnet_name="Subnet", github_repo="https://github.com/current/repo")],
+        [SubnetIdentityRecord(netuid=23, registered_at=2300, subnet_name="Subnet", github_repo="https://github.com/current/repo")],
         target_label="bittensor-subnets",
         config=ResolverConfig(
             subnet_overrides={
@@ -409,7 +478,7 @@ def test_replace_override_non_404_primary_error_does_not_attempt_fallback(monkey
 
 def test_replace_override_mixed_primary_success_and_404_does_not_attempt_fallback(monkeypatch, tmp_path):
     document = resolve_subnets(
-        [SubnetIdentityRecord(netuid=23, subnet_name="Subnet", github_repo="https://github.com/current/repo")],
+        [SubnetIdentityRecord(netuid=23, registered_at=2300, subnet_name="Subnet", github_repo="https://github.com/current/repo")],
         target_label="bittensor-subnets",
         config=ResolverConfig(
             subnet_overrides={
@@ -544,7 +613,7 @@ def test_crawl_resolved_subnets_treats_non_success_crawl_status_as_failure(monke
 
 def test_crawl_resolved_subnets_does_not_fetch_owner_targets_after_max_repos_is_reached(monkeypatch, tmp_path):
     document = resolve_subnets(
-        [SubnetIdentityRecord(netuid=64, subnet_name="Chutes", github_repo="https://github.com/chutesai/api")],
+        [SubnetIdentityRecord(netuid=64, registered_at=6400, subnet_name="Chutes", github_repo="https://github.com/chutesai/api")],
         target_label="bittensor-subnets",
         config=ResolverConfig(
             subnet_overrides={
@@ -638,7 +707,7 @@ def test_owner_fetch_respects_max_repos_and_does_not_overfetch(monkeypatch, tmp_
 
 def test_owner_fetch_max_repos_counts_unique_repositories_after_explicit_repo_overlap(monkeypatch, tmp_path):
     document = resolve_subnets(
-        [SubnetIdentityRecord(netuid=64, subnet_name="Chutes", github_repo="https://github.com/chutesai/api")],
+        [SubnetIdentityRecord(netuid=64, registered_at=6400, subnet_name="Chutes", github_repo="https://github.com/chutesai/api")],
         target_label="bittensor-subnets",
         config=ResolverConfig(
             subnet_overrides={
@@ -735,7 +804,7 @@ def test_owner_fetch_max_repos_counts_only_crawlable_repositories(monkeypatch, t
 
 def test_owner_fetch_still_runs_when_exact_repo_is_excluded_by_crawl_filters(monkeypatch, tmp_path):
     document = resolve_subnets(
-        [SubnetIdentityRecord(netuid=78, subnet_name="Acme", github_repo="https://github.com/acme/archived")],
+        [SubnetIdentityRecord(netuid=78, registered_at=7800, subnet_name="Acme", github_repo="https://github.com/acme/archived")],
         target_label="bittensor-subnets",
         config=ResolverConfig(
             subnet_overrides={

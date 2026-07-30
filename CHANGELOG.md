@@ -10,6 +10,35 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 Use this section for changes that have merged but have not been released yet.
 Move entries into a dated version section when cutting the next tag.
 
+## [2.0.0] - 2026-07-29
+
+### Added
+
+- Poll live subnet identity fields every 15 minutes while the Docker scheduler is idle and trigger an early crawl when
+  a recycled netuid changes identity or GitHub metadata; retry up to two times when identity changes during a crawl.
+- Use the on-chain `NetworkRegisteredAt` block as an immutable subnet identity epoch, archive ended or legacy-unbound
+  live histories outside the API path, expose the current epoch and history audit, scope incremental state by epoch,
+  and fail closed at the API while reconciliation is in progress or failed.
+
+### Changed
+
+- Keep registry and Python-config overrides as simple, manually maintained target mappings without lifecycle fields.
+- Advance resolver output to `tao-git-crawl-resolution-v3`, including per-netuid identity epochs.
+
+### Fixed
+
+- Reject every target owned by `opentensor` or `RaoFoundation` from regular-subnet scoring while preserving credit from
+  a separately accepted target when the current crawl confirms that it succeeded.
+- Require each credited file-change row to join a valid, in-window commit; deduplicate repeated commit paths and reject
+  orphan, malformed-date, out-of-window, or negative-addition rows from score and API totals.
+- Fail closed when any crawl snapshot lacks registration epochs or a guarded crawl exits unsuccessfully, propagate live
+  subnet-discovery failures instead of treating the network as empty, and suppress scores if on-chain attribution does
+  not stabilize after repeated crawl reconciliation.
+- Pin active-netuid, identity, and registration-map reads to one chain head so a rollover cannot create a mixed
+  attribution snapshot from multiple blocks.
+- Reject exact repository redirects/transfers and owner-expansion rows whose canonical GitHub identity differs from the
+  explicit subnet target, report them as `attribution_rejected`, and hide any stale crawl datasets for those netuids.
+
 ## [1.0.1] - 2026-07-11
 
 ### Changed
@@ -185,7 +214,8 @@ Move entries into a dated version section when cutting the next tag.
 
 - Keep local runtime state directories out of git and Docker build contexts.
 
-[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v1.0.1...v2.0.0
 [1.0.1]: https://github.com/alex-drocks/tao-git-crawl/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.7.1...v1.0.0
 [0.7.1]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.7.0...v0.7.1

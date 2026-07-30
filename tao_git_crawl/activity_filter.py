@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 CODE_ACTIVITY_EXCLUDED_CHURN_CLASSES = (
     "binary",
     "lockfile",
@@ -141,6 +143,23 @@ def noise_change_class(row: dict[str, object]) -> str | None:
 
 def is_noise_change(row: dict[str, object]) -> bool:
     return noise_change_class(row) is not None
+
+
+def has_valid_churn_metrics(row: dict[str, object]) -> bool:
+    """Reject malformed churn values before a file-change row can receive credit."""
+    for key in ("additions", "lines_added", "deletions", "lines_deleted"):
+        if key not in row or row[key] is None:
+            continue
+        value = row[key]
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            return False
+        if (isinstance(value, float) and not math.isfinite(value)) or value < 0:
+            return False
+    return True
+
+
+def is_credited_change(row: dict[str, object]) -> bool:
+    return has_valid_churn_metrics(row) and not is_noise_change(row)
 
 
 def _row_path(row: dict[str, object]) -> str:

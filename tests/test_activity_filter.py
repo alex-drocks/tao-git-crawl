@@ -1,6 +1,6 @@
 import pytest
 
-from tao_git_crawl.activity_filter import noise_change_class
+from tao_git_crawl.activity_filter import has_valid_churn_metrics, noise_change_class
 
 
 @pytest.mark.parametrize(
@@ -27,3 +27,12 @@ def test_noise_change_class_filters_artifacts_and_data_paths(path, expected):
 
 def test_noise_change_class_uses_filename_when_path_is_absent():
     assert noise_change_class({"filename": "data/leads.json", "path_class": "source"}) == "artifact/data"
+
+
+@pytest.mark.parametrize("value", [-1, True, "10", float("inf"), float("nan")])
+def test_churn_metrics_reject_malformed_or_negative_numbers(value):
+    assert has_valid_churn_metrics({"additions": value}) is False
+
+
+def test_churn_metrics_accept_nonnegative_and_arbitrarily_large_integers():
+    assert has_valid_churn_metrics({"additions": 0, "deletions": 10**1000}) is True
