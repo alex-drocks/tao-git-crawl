@@ -521,7 +521,7 @@ def _subnet_overview(subnet_dir: Path, *, report_state: ApiCrawlReportState | No
         "has_crawl": crawl_dir.exists() and use_crawl_output,
         "has_summary": summary is not None,
         "activity": activity,
-        "summary": _summary_with_score(summary, score, activity=activity),
+        "summary": _summary_with_score(summary, score, crawl_dir, activity=activity),
         "score": score,
         "identity_epoch": identity_epoch,
         "target_count": len(targets),

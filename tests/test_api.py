@@ -1225,7 +1225,7 @@ def test_activity_endpoint_rejects_non_object_summary_json(tmp_path):
     assert response.payload == {"error": "invalid crawl summary: expected JSON object"}
 
 
-def test_summary_activity_matches_activity_endpoint_when_jsonl_rows_exist(tmp_path):
+def test_summary_activity_matches_detail_and_list_endpoints_when_jsonl_rows_exist(tmp_path):
     crawl_dir = tmp_path / "subnets" / "94" / "crawl"
     crawl_dir.mkdir(parents=True)
     (crawl_dir / "summary.json").write_text(
@@ -1283,6 +1283,7 @@ def test_summary_activity_matches_activity_endpoint_when_jsonl_rows_exist(tmp_pa
 
     summary_payload = get_subnet_dataset(tmp_path, 94, "summary")
     activity_payload = get_subnet_dataset(tmp_path, 94, "activity")
+    list_summary = list_subnets(tmp_path)[0]["summary"]
 
     assert summary_payload["activity"] == activity_payload
     assert activity_payload["totals"]["commits"] == 1
@@ -1301,6 +1302,8 @@ def test_summary_activity_matches_activity_endpoint_when_jsonl_rows_exist(tmp_pa
             "lines_deleted": 1,
         }
     ]
+    assert list_summary["top_repositories"] == summary_payload["top_repositories"]
+    assert list_summary["top_paths"] == summary_payload["top_paths"]
     assert "source_like_totals" not in summary_payload
 
 
