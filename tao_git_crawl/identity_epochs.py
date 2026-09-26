@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from .atomic_io import write_json_atomic
 from .models import GITHUB_DISCOVERY_FIELDS, SubnetIdentityRecord
 
 IDENTITY_EPOCH_SCHEMA_VERSION = "tao-git-crawl-identity-epoch-v1"
@@ -93,7 +94,7 @@ def reconcile_identity_epochs(
     output_path = Path(output_dir)
     detected_at = (now or datetime.now(UTC)).astimezone(UTC)
     sentinel_path = output_path / IDENTITY_RECONCILIATION_FILENAME
-    _write_json_atomic(
+    write_json_atomic(
         sentinel_path,
         {
             "status": "in_progress",
@@ -108,7 +109,7 @@ def reconcile_identity_epochs(
             detected_at=detected_at,
         )
     except Exception as exc:
-        _write_json_atomic(
+        write_json_atomic(
             sentinel_path,
             {
                 "status": "failed",
@@ -179,7 +180,7 @@ def _reconcile_identity_epochs(
                     reason="subnet registration epoch changed",
                 )
             )
-        _write_json_atomic(subnet_dir / "identity-epoch.json", current.to_dict())
+        write_json_atomic(subnet_dir / "identity-epoch.json", current.to_dict())
 
     if full_snapshot and subnets_path.exists():
         for subnet_dir in sorted(subnets_path.iterdir()):
@@ -271,7 +272,7 @@ def _append_history_events(output_path: Path, events: list[IdentityHistoryEvent]
                 existing = payload["events"]
         except (OSError, json.JSONDecodeError):
             existing = []
-    _write_json_atomic(
+    write_json_atomic(
         history_path,
         {
             "schema_version": IDENTITY_HISTORY_SCHEMA_VERSION,
@@ -290,10 +291,3 @@ def _invalidate_live_aggregate_files(output_path: Path) -> None:
 def _safe_path_segment(value: str) -> str:
     normalized = re.sub(r"[^a-zA-Z0-9._-]+", "-", value).strip("-.")
     return normalized[:80] or "unknown"
-
-
-def _write_json_atomic(path: Path, payload: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp")
-    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    temporary.replace(path)

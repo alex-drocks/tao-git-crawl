@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .atomic_io import write_json_atomic
 from .github_links import extract_github_targets, manual_github_target_from_url
 from .identity_epochs import identity_epoch
 from .models import GITHUB_DISCOVERY_FIELDS, GitHubTarget, SubnetIdentityRecord, UnresolvedSubnetRecord
@@ -143,7 +143,7 @@ def write_resolution_outputs(document: ResolutionDocument, output_dir: str | Pat
     ]
     written: list[Path] = []
     for path, payload in files:
-        _write_json(path, payload)
+        write_json_atomic(path, payload)
         written.append(path)
     for netuid in document.netuids:
         subnet_document = document.for_netuid(netuid)
@@ -155,7 +155,7 @@ def write_resolution_outputs(document: ResolutionDocument, output_dir: str | Pat
             (subnet_dir / "unresolved.json", [item.to_dict() for item in subnet_document.unresolved]),
         ]
         for path, payload in subnet_files:
-            _write_json(path, payload)
+            write_json_atomic(path, payload)
             written.append(path)
     return written
 
@@ -216,11 +216,6 @@ def _dedupe_targets(targets: list[GitHubTarget]) -> list[GitHubTarget]:
 
 def _target_sort_key(target: GitHubTarget) -> tuple[int, str, str]:
     return target.netuid, target.kind, target.url
-
-
-def _write_json(path: Path, payload: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def _source_label(target: GitHubTarget) -> str:

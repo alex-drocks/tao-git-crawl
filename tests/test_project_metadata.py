@@ -1,6 +1,8 @@
 import tomllib
 from pathlib import Path
 
+GIT_CRAWL_PIN = "git+https://github.com/alex-drocks/git-crawl.git@38617b3343ca4b91f15a2c6e3ffa07f810b3e332"
+
 
 def test_runtime_dependencies_are_package_index_compatible_and_reference_git_crawl():
     metadata = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))
@@ -122,8 +124,10 @@ def test_docker_docs_and_compose_pass_documented_scheduler_environment():
         assert name in readme
         assert name in compose
 
-    assert 'git-crawl.git@v0.3.2' in dockerfile
-    assert 'git-crawl.git@v0.3.2' in compose
+    assert GIT_CRAWL_PIN in dockerfile
+    assert compose.count(GIT_CRAWL_PIN) == 2
+    assert 'git-crawl.git@v' not in dockerfile
+    assert 'git-crawl.git@v' not in compose
     assert 'git-crawl.git@main' not in dockerfile
     assert 'git-crawl.git@main' not in compose
     assert 'COPY registry/ ./registry/' in dockerfile
@@ -146,6 +150,7 @@ def test_docker_docs_and_compose_pass_documented_scheduler_environment():
     assert 'tao-git-crawl-api --host 127.0.0.1' in readme
     assert 'do not change `TAO_API_HOST=0.0.0.0` inside the container' in readme
     assert "python3.12 -m pip install -e '.[dev]'" in readme
+    assert readme.count(f"python3.12 -m pip install 'git-crawl @ {GIT_CRAWL_PIN}'") == 2
 
 
 def test_docker_compose_uses_single_data_volume_for_persistent_paths():

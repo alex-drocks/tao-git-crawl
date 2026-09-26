@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -16,10 +15,12 @@ from git_crawl.pipeline import (
     DEFAULT_COMMIT_CHANGES_FILTRATION_LEVEL,
     REF_SCOPE_DEFAULT_BRANCH,
     crawl_repositories,
+    finalize_crawl_state,
     write_crawl_outputs,
 )
 from git_crawl.redaction import redact_text
 
+from .atomic_io import write_json_atomic
 from .attribution import (
     canonical_owner_rejection,
     canonical_repository_rejection,
@@ -286,16 +287,33 @@ def crawl_resolved_subnets(
                 workers=workers,
                 fail_fast=fail_fast,
                 commit_changes_filtration_level=commit_changes_filtration_level,
+                # Like the git-crawl CLI, advance incremental repo state only after outputs are
+                # written, so a failed write does not drop those commits from the next delta.
+                finalize_state=state_db is None,
             )
             subnet_output_dir = output_path / "subnets" / str(netuid) / "crawl"
-            written_files = tuple(
-                write_crawl_outputs(
-                    result,
-                    subnet_output_dir,
-                    write_json=True,
-                    write_csv_files=False,
+            try:
+                written_files = tuple(
+                    write_crawl_outputs(
+                        result,
+                        subnet_output_dir,
+                        write_json=True,
+                        write_csv_files=False,
+                    )
                 )
-            )
+            except Exception as exc:
+                if state_db:
+                    error_messages = [result.run.error_message, f"output write failed: {exc}"]
+                    finalize_crawl_state(
+                        result,
+                        state_db,
+                        status="failed",
+                        error_message=redact_text("; ".join(message for message in error_messages if message)),
+                        update_repo_states=False,
+                    )
+                raise
+            if state_db:
+                result = finalize_crawl_state(result, state_db)
             success = SubnetCrawlSuccess(
                 netuid=netuid,
                 target_label=target_label,
@@ -385,7 +403,7 @@ def _publish_progress_outputs(
         skipped_attribution=list(skipped_attribution),
     )
     report_path = output_path / "crawl-report.json"
-    _write_report(report_path, report.to_dict())
+    write_json_atomic(report_path, report.to_dict())
     write_score_outputs(document, output_path)
     return report
 
@@ -597,8 +615,3 @@ def _repository_limit_view(repo: Any) -> _RepositoryLimitView:
         fork=bool(getattr(repo, "fork", False)),
         private=bool(getattr(repo, "private", False)),
     )
-
-
-def _write_report(path: Path, payload: dict[str, object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
