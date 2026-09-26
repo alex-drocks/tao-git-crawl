@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .activity_filter import is_credited_change
+from .atomic_io import write_json_atomic
 from .attribution import target_attribution_rejection, targets_attribution_rejection
 from .resolver import ResolutionDocument
 
@@ -59,7 +60,7 @@ def write_score_outputs(document: ResolutionDocument, output_dir: str | Path) ->
     score_document = build_score_document(document, output_path)
     written: list[Path] = []
     aggregate_path = output_path / "subnet-scores.json"
-    _write_json(aggregate_path, score_document)
+    write_json_atomic(aggregate_path, score_document)
     written.append(aggregate_path)
 
     for score in score_document["scores"]:
@@ -69,7 +70,7 @@ def write_score_outputs(document: ResolutionDocument, output_dir: str | Path) ->
         if not isinstance(netuid, int):
             continue
         subnet_path = output_path / "subnets" / str(netuid) / "score.json"
-        _write_json(subnet_path, score)
+        write_json_atomic(subnet_path, score)
         written.append(subnet_path)
 
     return written
@@ -867,11 +868,6 @@ def _read_json_optional(path: Path) -> object | None:
     if not path.exists():
         return None
     return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _write_json(path: Path, payload: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def _mapping(value: object) -> dict[str, Any]:

@@ -51,7 +51,7 @@ def test_crawl_resolved_subnets_discovers_owner_repos_and_labels_metrics_by_subn
         config=ResolverConfig(default_repository_policy="owner"),
     )
     repo = SimpleNamespace(name="api", full_name="chutesai/api")
-    calls = {"owners": [], "repo_manifests": [], "crawls": [], "writes": []}
+    calls = {"owners": [], "repo_manifests": [], "crawls": [], "writes": [], "finalized": []}
 
     def fake_list_owner_repositories(owner, *, owner_type="auto", token=None):
         calls["owners"].append((owner, owner_type, token))
@@ -75,10 +75,15 @@ def test_crawl_resolved_subnets_discovers_owner_repos_and_labels_metrics_by_subn
         summary_path.write_text('{"status":"success"}\n', encoding="utf-8")
         return [summary_path]
 
+    def fake_finalize_crawl_state(result, state_db, **kwargs):
+        calls["finalized"].append((state_db, kwargs, len(calls["writes"])))
+        return result
+
     monkeypatch.setattr("tao_git_crawl.crawler.list_owner_repositories", fake_list_owner_repositories)
     monkeypatch.setattr("tao_git_crawl.crawler.list_repositories_from_urls", fake_list_repositories_from_urls)
     monkeypatch.setattr("tao_git_crawl.crawler.crawl_repositories", fake_crawl_repositories)
     monkeypatch.setattr("tao_git_crawl.crawler.write_crawl_outputs", fake_write_crawl_outputs)
+    monkeypatch.setattr("tao_git_crawl.crawler.finalize_crawl_state", fake_finalize_crawl_state)
 
     report = crawl_resolved_subnets(
         document,
@@ -113,15 +118,75 @@ def test_crawl_resolved_subnets_discovers_owner_repos_and_labels_metrics_by_subn
                 "workers": 2,
                 "fail_fast": False,
                 "commit_changes_filtration_level": CommitChangesFiltrationLevel.SOURCE_LIKE,
+                "finalize_state": False,
             },
         )
     ]
     assert calls["writes"] == [(tmp_path / "out" / "subnets" / "64" / "crawl", True, False)]
+    # Incremental state is finalized only after the subnet's outputs were written.
+    assert calls["finalized"] == [(tmp_path / "state" / "git-crawl.sqlite", {}, 1)]
     assert report.succeeded_netuids == [64]
     assert report.failed == []
     assert (tmp_path / "out" / "subnets" / "64" / "crawl" / "summary.json").exists()
     assert (tmp_path / "out" / "subnet-scores.json").exists()
     assert (tmp_path / "out" / "subnets" / "64" / "score.json").exists()
+
+
+def test_crawl_resolved_subnets_keeps_incremental_state_when_output_write_fails(monkeypatch, tmp_path):
+    document = resolve_subnets(
+        [SubnetIdentityRecord(netuid=64, subnet_name="Chutes", github_repo="https://github.com/chutesai/api")],
+        target_label="bittensor-subnets",
+        config=ResolverConfig(default_repository_policy="owner"),
+    )
+    state_db = tmp_path / "state" / "git-crawl.sqlite"
+    crawl_kwargs = []
+    finalized = []
+
+    def fake_crawl_repositories(target_label, repositories, **kwargs):
+        crawl_kwargs.append(kwargs)
+        return SimpleNamespace(
+            run=SimpleNamespace(status="success", run_id="test-run-0", error_message=None),
+            repositories=list(repositories),
+        )
+
+    def fail_write_crawl_outputs(result, output_dir, **kwargs):
+        raise OSError("disk full")
+
+    def fake_finalize_crawl_state(result, state_db, **kwargs):
+        finalized.append((state_db, kwargs))
+        return result
+
+    monkeypatch.setattr(
+        "tao_git_crawl.crawler.list_owner_repositories",
+        lambda owner, **kwargs: [SimpleNamespace(name="api", full_name="chutesai/api")],
+    )
+    monkeypatch.setattr("tao_git_crawl.crawler.crawl_repositories", fake_crawl_repositories)
+    monkeypatch.setattr("tao_git_crawl.crawler.write_crawl_outputs", fail_write_crawl_outputs)
+    monkeypatch.setattr("tao_git_crawl.crawler.finalize_crawl_state", fake_finalize_crawl_state)
+
+    report = crawl_resolved_subnets(
+        document,
+        output_dir=tmp_path / "out",
+        cache_dir=tmp_path / "cache",
+        state_db=state_db,
+    )
+
+    assert crawl_kwargs[-1]["finalize_state"] is False
+    assert finalized == [
+        (
+            state_db,
+            {"status": "failed", "error_message": "output write failed: disk full", "update_repo_states": False},
+        )
+    ]
+    assert report.succeeded_netuids == []
+    assert [failure.reason for failure in report.failed] == ["disk full"]
+
+    finalized.clear()
+    report = crawl_resolved_subnets(document, output_dir=tmp_path / "out-without-state", cache_dir=tmp_path / "cache")
+
+    assert crawl_kwargs[-1]["finalize_state"] is True
+    assert finalized == []
+    assert [failure.reason for failure in report.failed] == ["disk full"]
 
 
 def test_crawl_resolved_subnets_publishes_score_progress_before_full_run_finishes(monkeypatch, tmp_path):
