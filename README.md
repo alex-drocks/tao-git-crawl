@@ -125,6 +125,10 @@ score and health requests return `503`, and per-subnet scores and crawl rows are
 successful reconciliation. If archival fails, it remains with `status: failed` so stale output cannot become live again
 without operator recovery or a successful subsequent crawl.
 
+The scheduler also writes a `status: failed` sentinel when a guarded crawl exits fatally, meaning any exit code other
+than `0` or `3`. A crawl that completes with per-subnet failures exits `3` and still publishes its scores: each failed
+subnet scores `0` with status `crawl_failed` and its crawl datasets are hidden, while every other subnet stays live.
+
 Set `TAO_CRAWL_INCREMENTAL=true` only for operator diagnostics where latest-delta output is intentional. Incremental
 mode uses `TAO_CRAWL_STATE_DB` to crawl only changes since the previously stored default-branch head, so API activity
 and scores from that output are not comparable to rolling-window rankings.
@@ -429,6 +433,15 @@ tao-git-crawl crawl \
 
 For investor-facing score output, omit `--state-db` so each crawl output covers the complete selected `--since` window.
 Use `--state-db` only when you intentionally want incremental default-branch output from the previous stored heads.
+
+`crawl` exit codes:
+
+| Code | Meaning |
+| ---- | ------- |
+| `0` | Every crawled subnet succeeded. |
+| `3` | The run completed and published scores, but some subnets failed; they score `0` with status `crawl_failed`. |
+| `1` | Nothing trustworthy was published: a fatal snapshot, reconciliation, or config error, a `--fail-fast` abort, or every crawled subnet failed. |
+| `2` | Invalid command-line arguments. |
 
 Crawl SN64 from the full Chutes owner:
 

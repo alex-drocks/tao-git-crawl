@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from tao_git_crawl.cli import EXIT_SUBNET_FAILURES
 from tao_git_crawl.models import SubnetIdentityRecord
 from tao_git_crawl.scheduler import (
     _identity_fingerprint,
@@ -277,15 +278,17 @@ class TestIdentityChangeDetection:
         assert sentinel["status"] == "failed"
         assert "changed during every bounded reconciliation crawl" in sentinel["reason"]
 
+    @pytest.mark.parametrize("failed_exit_code", [1, 2])
     def test_failed_guarded_crawl_fails_closed_when_identity_is_stable(
         self,
         monkeypatch,
         tmp_path,
+        failed_exit_code,
     ):
         fingerprint = ((80, 7000000, "Current", ("acme/current", "", "", "", "")),)
         output_dir = tmp_path / "output"
         monkeypatch.setenv("TAO_CRAWL_OUTPUT_DIR", str(output_dir))
-        monkeypatch.setattr("tao_git_crawl.scheduler.run_crawl", lambda log_dir: 1)
+        monkeypatch.setattr("tao_git_crawl.scheduler.run_crawl", lambda log_dir: failed_exit_code)
         monkeypatch.setattr(
             "tao_git_crawl.scheduler._fetch_live_identity_fingerprint_safely",
             lambda: fingerprint,
@@ -293,13 +296,53 @@ class TestIdentityChangeDetection:
 
         exit_code, observed = _run_crawl_with_identity_guard(tmp_path, fingerprint)
 
-        assert exit_code == 1
+        assert exit_code == failed_exit_code
         assert observed == fingerprint
         sentinel = json.loads(
             (output_dir / "identity-reconciliation.json").read_text(encoding="utf-8")
         )
         assert sentinel["status"] == "failed"
-        assert "guarded crawl exited with status 1" in sentinel["reason"]
+        assert f"guarded crawl exited with status {failed_exit_code}" in sentinel["reason"]
+
+    def test_per_subnet_failures_publish_scores_without_failing_closed(self, monkeypatch, tmp_path):
+        fingerprint = ((80, 7000000, "Current", ("acme/current", "", "", "", "")),)
+        output_dir = tmp_path / "output"
+        monkeypatch.setenv("TAO_CRAWL_OUTPUT_DIR", str(output_dir))
+        crawl_calls = []
+        monkeypatch.setattr(
+            "tao_git_crawl.scheduler.run_crawl",
+            lambda log_dir: crawl_calls.append(log_dir) or EXIT_SUBNET_FAILURES,
+        )
+        monkeypatch.setattr(
+            "tao_git_crawl.scheduler._fetch_live_identity_fingerprint_safely",
+            lambda: fingerprint,
+        )
+
+        exit_code, observed = _run_crawl_with_identity_guard(tmp_path, fingerprint)
+
+        assert exit_code == EXIT_SUBNET_FAILURES
+        assert observed == fingerprint
+        assert crawl_calls == [tmp_path]
+        assert not (output_dir / "identity-reconciliation.json").exists()
+
+    def test_per_subnet_failures_still_rerun_when_identity_changes_during_crawl(self, monkeypatch, tmp_path):
+        baseline = ((80, 6000000, "Old", ("old/repo", "", "", "", "")),)
+        replacement = ((80, 7000000, "New", ("new/repo", "", "", "", "")),)
+        output_dir = tmp_path / "output"
+        monkeypatch.setenv("TAO_CRAWL_OUTPUT_DIR", str(output_dir))
+        exit_codes = iter([EXIT_SUBNET_FAILURES, 0])
+        fingerprints = iter([replacement, replacement])
+        monkeypatch.setattr("tao_git_crawl.scheduler.run_crawl", lambda log_dir: next(exit_codes))
+        monkeypatch.setattr(
+            "tao_git_crawl.scheduler._fetch_live_identity_fingerprint_safely",
+            lambda: next(fingerprints),
+        )
+
+        exit_code, observed = _run_crawl_with_identity_guard(tmp_path, baseline)
+
+        assert exit_code == 0
+        assert observed == replacement
+        assert not (output_dir / "identity-reconciliation.json").exists()
 
 
 class TestHealthcheck:
