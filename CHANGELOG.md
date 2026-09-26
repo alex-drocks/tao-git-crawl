@@ -10,6 +10,21 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 Use this section for changes that have merged but have not been released yet.
 Move entries into a dated version section when cutting the next tag.
 
+### Changed
+
+- Pin Docker, Compose, and CI installs of `git-crawl` to its v0.3.3 release commit instead of the movable `v0.3.2`
+  tag. v0.3.3 stops caching GitHub pull request refs, tolerates non-UTF-8 bytes in repository history, retries
+  GitHub and git network calls for about 30 seconds, and writes crawl outputs atomically. Existing `/data/cache`
+  mirrors are upgraded in place, and default-branch crawl results are unchanged.
+- Document installing `git-crawl` from GitHub before installing this package, since `git-crawl` is not on PyPI.
+
+### Fixed
+
+- Write `crawl-report.json`, score files, resolver outputs, and identity epoch files atomically so the API never
+  reads a partially written file while a crawl is running.
+- With `TAO_CRAWL_INCREMENTAL=true`, advance incremental repository state only after a subnet's crawl outputs are
+  written, so a failed output write no longer drops those commits from the next incremental delta.
+
 ## [2.0.0] - 2026-07-29
 
 ### Added

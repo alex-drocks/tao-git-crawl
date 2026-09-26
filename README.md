@@ -29,7 +29,9 @@ Docker Compose is the main way to run `tao-git-crawl` as a scheduled crawler. Th
 repeats every 24 hours by default. While idle it checks live subnet identity fields every 15 minutes and starts an early
 reconciliation crawl when a netuid's identity or GitHub metadata changes.
 
-Docker builds install `git-crawl` from `git+https://github.com/alex-drocks/git-crawl.git@v0.3.2` by default.
+Docker builds install `git-crawl` v0.3.3 from
+`git+https://github.com/alex-drocks/git-crawl.git@38617b3343ca4b91f15a2c6e3ffa07f810b3e332` by default. The commit pin
+cannot move the way a tag can; set the `GIT_CRAWL_URL` build argument to build against another `git-crawl` ref.
 
 ```bash
 cp .env.example .env
@@ -309,7 +311,11 @@ Use the local Python CLI for one-off runs outside Docker.
 
 Python 3.12+ is required.
 
+`git-crawl` is not published on PyPI, so install it from GitHub first, pinned to the same commit Docker and CI use.
+Without it, pip looks for `git-crawl` on PyPI and the install fails:
+
 ```bash
+python3.12 -m pip install 'git-crawl @ git+https://github.com/alex-drocks/git-crawl.git@38617b3343ca4b91f15a2c6e3ffa07f810b3e332'
 python3.12 -m pip install -e .
 ```
 
@@ -338,9 +344,10 @@ The explicit loopback host keeps this unauthenticated development server off oth
 
 ## Development and Testing
 
-Install the development tools in an editable environment:
+Install the development tools in an editable environment, after installing `git-crawl` from GitHub:
 
 ```bash
+python3.12 -m pip install 'git-crawl @ git+https://github.com/alex-drocks/git-crawl.git@38617b3343ca4b91f15a2c6e3ffa07f810b3e332'
 python3.12 -m pip install -e '.[dev]'
 ```
 
