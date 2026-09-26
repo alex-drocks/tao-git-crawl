@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 from git_crawl.metrics import CommitChangesFiltrationLevel
 
-from tao_git_crawl.cli import main
+from tao_git_crawl.cli import EXIT_SUBNET_FAILURES, main
 
 
 def test_resolve_cli_writes_resolution_manifest_owner_targets_and_unresolved(tmp_path, capsys):
@@ -394,6 +394,61 @@ def test_crawl_cli_resolves_writes_manifests_and_crawls_each_subnet(monkeypatch,
         "Crawled 1 subnets, 0 failed, 0 unresolved skipped, "
         "0 inaccessible skipped, 0 attribution rejected."
     ) in captured.out
+
+
+@pytest.mark.parametrize(
+    ("succeeded_netuids", "failed_netuids", "extra_args", "expected_exit_code"),
+    [
+        ([1, 2], [], [], 0),
+        ([1], [2], [], EXIT_SUBNET_FAILURES),
+        ([], [1, 2], [], 1),
+        ([1], [2], ["--fail-fast"], 1),
+    ],
+)
+def test_crawl_cli_exit_code_separates_per_subnet_failures_from_fatal_runs(
+    monkeypatch,
+    tmp_path,
+    succeeded_netuids,
+    failed_netuids,
+    extra_args,
+    expected_exit_code,
+):
+    input_path = tmp_path / "subnets.json"
+    input_path.write_text(
+        json.dumps(
+            [
+                {"netuid": 1, "registered_at": 10, "github_repo": "github.com/alice/api"},
+                {"netuid": 2, "registered_at": 20, "github_repo": "github.com/bob/app"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_crawl_resolved_subnets(document, **kwargs):
+        return SimpleNamespace(
+            succeeded_netuids=succeeded_netuids,
+            failed=[SimpleNamespace(netuid=netuid) for netuid in failed_netuids],
+            skipped_unresolved_netuids=[],
+        )
+
+    monkeypatch.setattr("tao_git_crawl.cli.crawl_resolved_subnets", fake_crawl_resolved_subnets)
+
+    exit_code = main(
+        [
+            "crawl",
+            "--from-json",
+            str(input_path),
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--cache-dir",
+            str(tmp_path / "cache"),
+            "--env-file",
+            str(tmp_path / "missing.env"),
+            *extra_args,
+        ]
+    )
+
+    assert exit_code == expected_exit_code
 
 
 def test_crawl_cli_rejects_removed_format_option():

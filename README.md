@@ -12,7 +12,9 @@ It is self-hosted. You provide the chain endpoint or JSON export, GitHub token, 
 - Restricts subnet resolution to regular subnet slots `1` through `128`, excluding netuid `0`, the Bittensor root
   network.
 - Extracts GitHub repository URLs, owner roots, and bare `owner/repo` values from subnet identity text.
-- Treats `github_repo` as the primary GitHub metadata field and scans `subnet_url`, `description`, `additional`, and `subnet_contact` as fallback fields.
+- Treats `github_repo` as the primary GitHub metadata field and scans `subnet_url`, `description`, `additional`, and
+  `subnet_contact` only as fallback fields when `github_repo` contains no valid GitHub repository or owner URL. Links in
+  those fields never add targets to a subnet whose `github_repo` already resolves.
 - Writes aggregate resolver outputs plus split outputs under `subnets/<netuid>/`.
 - Crawls each resolved subnet as its own `git-crawl` target.
 - Rejects every repository and owner target under `opentensor` or `RaoFoundation`, plus repository redirects/transfers
@@ -122,6 +124,10 @@ While directories are being reconciled, `identity-reconciliation.json` acts as a
 score and health requests return `503`, and per-subnet scores and crawl rows are hidden. The sentinel is removed only after a
 successful reconciliation. If archival fails, it remains with `status: failed` so stale output cannot become live again
 without operator recovery or a successful subsequent crawl.
+
+The scheduler also writes a `status: failed` sentinel when a guarded crawl exits fatally, meaning any exit code other
+than `0` or `3`. A crawl that completes with per-subnet failures exits `3` and still publishes its scores: each failed
+subnet scores `0` with status `crawl_failed` and its crawl datasets are hidden, while every other subnet stays live.
 
 Set `TAO_CRAWL_INCREMENTAL=true` only for operator diagnostics where latest-delta output is intentional. Incremental
 mode uses `TAO_CRAWL_STATE_DB` to crawl only changes since the previously stored default-branch head, so API activity
@@ -427,6 +433,15 @@ tao-git-crawl crawl \
 
 For investor-facing score output, omit `--state-db` so each crawl output covers the complete selected `--since` window.
 Use `--state-db` only when you intentionally want incremental default-branch output from the previous stored heads.
+
+`crawl` exit codes:
+
+| Code | Meaning |
+| ---- | ------- |
+| `0` | Every crawled subnet succeeded. |
+| `3` | The run completed and published scores, but some subnets failed; they score `0` with status `crawl_failed`. |
+| `1` | Nothing trustworthy was published: a fatal snapshot, reconciliation, or config error, a `--fail-fast` abort, or every crawled subnet failed. |
+| `2` | Invalid command-line arguments. |
 
 Crawl SN64 from the full Chutes owner:
 

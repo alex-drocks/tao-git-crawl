@@ -83,13 +83,26 @@ BARE_OWNER_REPO_CONTEXT_RE = re.compile(
     r"github(?:\s+(?:repo|repos|repository|source(?:\s+code)?|code))?\s*(?::|=|-|is|at|->)?\s*$",
     re.IGNORECASE,
 )
+PRIMARY_GITHUB_FIELD = "github_repo"
+FALLBACK_GITHUB_FIELDS = tuple(field for field in GITHUB_DISCOVERY_FIELDS if field != PRIMARY_GITHUB_FIELD)
 
 def extract_github_targets(record: SubnetIdentityRecord) -> list[GitHubTarget]:
-    """Extract normalized GitHub repository and owner targets from subnet identity fields."""
+    """Extract normalized GitHub targets from github_repo, or from fallback fields when it has none.
+
+    Links elsewhere in the identity text (dependencies, contact profiles, other projects) must not
+    add credit to a subnet whose primary github_repo already names its code.
+    """
+    return _targets_from_fields(record, (PRIMARY_GITHUB_FIELD,)) or _targets_from_fields(
+        record,
+        FALLBACK_GITHUB_FIELDS,
+    )
+
+
+def _targets_from_fields(record: SubnetIdentityRecord, fields: tuple[str, ...]) -> list[GitHubTarget]:
     targets: list[GitHubTarget] = []
     seen: set[tuple[str, str]] = set()
 
-    for field in GITHUB_DISCOVERY_FIELDS:
+    for field in fields:
         raw_value = getattr(record, field)
         if not raw_value:
             continue

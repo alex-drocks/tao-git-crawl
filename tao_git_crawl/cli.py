@@ -9,7 +9,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from git_crawl.github import token_from_env
 
-from .crawler import crawl_resolved_subnets
+from .crawler import SubnetCrawlReport, crawl_resolved_subnets
 from .identity_epochs import reconcile_identity_epochs
 from .overrides import ResolverConfig, ResolverConfigError, load_resolver_config
 from .providers import (
@@ -27,6 +27,10 @@ from .registry import (
     resolver_config_from_registry,
 )
 from .resolver import resolve_subnets, write_resolution_outputs
+
+# `crawl` finished and published scores, but some subnets failed and were scored as
+# crawl_failed. Distinct from 1 (fatal) and 2 (argparse usage errors).
+EXIT_SUBNET_FAILURES = 3
 
 
 def _add_resolution_arguments(parser: argparse.ArgumentParser) -> None:
@@ -260,10 +264,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         report_path = getattr(report, "report_path", None)
         if report_path:
             print(report_path)
-        return 0 if not report.failed else 1
+        return _crawl_exit_code(report, fail_fast=args.fail_fast)
 
     parser.error(f"Unknown command {args.command!r}")
     return 2
+
+
+def _crawl_exit_code(report: SubnetCrawlReport, *, fail_fast: bool) -> int:
+    if not report.failed:
+        return 0
+    # A fail-fast abort or a run where every crawled subnet failed has no trustworthy ranking.
+    if fail_fast or not report.succeeded_netuids:
+        return 1
+    return EXIT_SUBNET_FAILURES
 
 
 def _load_env_file(env_file: Path | None) -> None:

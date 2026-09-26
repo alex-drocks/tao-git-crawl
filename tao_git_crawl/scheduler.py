@@ -37,6 +37,7 @@ import time
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
+from .cli import EXIT_SUBNET_FAILURES
 from .identity_epochs import IDENTITY_RECONCILIATION_FILENAME
 from .models import GITHUB_DISCOVERY_FIELDS, SubnetIdentityRecord
 from .providers import DEFAULT_NETWORK_ENDPOINTS, SubstrateSubnetIdentityProvider
@@ -45,6 +46,9 @@ logger = logging.getLogger("tao-git-crawl.scheduler")
 DEFAULT_CRAWL_WINDOW_DAYS = 365
 DEFAULT_IDENTITY_CHECK_SECONDS = 900
 MAX_IDENTITY_GUARD_RUNS = 3
+# Per-subnet failures are already scored as crawl_failed in the published output, so only
+# fatal crawl exits (snapshot, reconciliation, config, or total failure) fail the API closed.
+COMPLETED_CRAWL_EXIT_CODES = frozenset({0, EXIT_SUBNET_FAILURES})
 type IdentityFingerprint = tuple[tuple[int, int | None, str, tuple[str, ...]], ...]
 
 
@@ -139,6 +143,8 @@ def run_crawl(log_dir: Path) -> int:
 
     if result.returncode == 0:
         logger.info("Crawl run completed successfully — log: %s", log_file)
+    elif result.returncode == EXIT_SUBNET_FAILURES:
+        logger.warning("Crawl run completed with per-subnet failures — log: %s", log_file)
     else:
         logger.error("Crawl run failed with exit code %d — log: %s", result.returncode, log_file)
 
@@ -221,7 +227,7 @@ def _run_crawl_with_identity_guard(
     for attempt in range(1, MAX_IDENTITY_GUARD_RUNS + 1):
         exit_code = run_crawl(log_dir)
         observed_after = _fetch_live_identity_fingerprint_safely()
-        if exit_code != 0:
+        if exit_code not in COMPLETED_CRAWL_EXIT_CODES:
             reason = (
                 f"guarded crawl exited with status {exit_code}; "
                 "score publication is disabled until a successful crawl completes"

@@ -10,6 +10,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 Use this section for changes that have merged but have not been released yet.
 Move entries into a dated version section when cutting the next tag.
 
+## [2.2.0] - 2026-09-26
+
 ### Changed
 
 - Pin Docker, Compose, and CI installs of `git-crawl` to its v0.3.3 release commit instead of the movable `v0.3.2`
@@ -17,6 +19,8 @@ Move entries into a dated version section when cutting the next tag.
   GitHub and git network calls for about 30 seconds, and writes crawl outputs atomically. Existing `/data/cache`
   mirrors are upgraded in place, and default-branch crawl results are unchanged.
 - Document installing `git-crawl` from GitHub before installing this package, since `git-crawl` is not on PyPI.
+- `tao-git-crawl crawl` exits `3` when a completed run published scores but some subnets failed, keeping `1` for fatal
+  snapshot, reconciliation, or config errors, `--fail-fast` aborts, and runs where every crawled subnet failed.
 
 ### Fixed
 
@@ -24,6 +28,21 @@ Move entries into a dated version section when cutting the next tag.
   reads a partially written file while a crawl is running.
 - With `TAO_CRAWL_INCREMENTAL=true`, advance incremental repository state only after a subnet's crawl outputs are
   written, so a failed output write no longer drops those commits from the next incremental delta.
+- Credit only `github_repo` targets when that field resolves, scanning `subnet_url`, `description`, `additional`, and
+  `subnet_contact` only as documented fallbacks. Links to dependencies, other projects, or contact profiles no longer add
+  repositories or owner-wide expansions to a subnet's score.
+- Keep the Docker scheduler's fail-closed sentinel for fatal guarded crawls only. A crawl with per-subnet failures no
+  longer hides every subnet's score and activity or fails `/health` until the next scheduled run.
+- Correct stale built-in registry targets: SN5 now credits `hone-subnet-org/hone-subnet` instead of the deleted
+  `manifold-inc/hone`; SN100 credits `CortexLM/cortex`, where `BaseIntelligence/base` was moved; SN50 credits
+  `synthdataco/synth-subnet`, the transferred repository its on-chain `github_repo` still names by its old URL.
+
+## [2.1.0] - 2026-09-02
+
+### Fixed
+
+- Include credited `top_repositories` and `top_paths` in the summaries embedded in `/api/subnets` and
+  `/api/subnets/<netuid>`, matching `/api/subnets/<netuid>/summary`.
 
 ## [2.0.0] - 2026-07-29
 
@@ -229,7 +248,9 @@ Move entries into a dated version section when cutting the next tag.
 
 - Keep local runtime state directories out of git and Docker build contexts.
 
-[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v2.2.0...HEAD
+[2.2.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v2.1.0...v2.2.0
+[2.1.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v1.0.1...v2.0.0
 [1.0.1]: https://github.com/alex-drocks/tao-git-crawl/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v0.7.1...v1.0.0

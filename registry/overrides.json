@@ -1,6 +1,6 @@
 {
   "schema_version": "tao-git-crawl-registry-v2",
-  "updated_at": "2026-07-29T00:00:00Z",
+  "updated_at": "2026-09-26T00:00:00Z",
   "overrides": {
     "2": {
       "replace": true,
@@ -47,7 +47,7 @@
       "targets": [
         {
           "kind": "repository",
-          "url": "https://github.com/manifold-inc/hone"
+          "url": "https://github.com/hone-subnet-org/hone-subnet"
         },
         {
           "kind": "repository",
@@ -58,7 +58,7 @@
           "url": "https://github.com/manifold-inc/hone-dashboard"
         }
       ],
-      "note": "Hone curated repo set; do not expand all manifold-inc repos"
+      "note": "Hone curated repo set; validator moved from deleted manifold-inc/hone to hone-subnet-org; do not expand all manifold-inc repos"
     },
     "10": {
       "replace": true,
@@ -124,6 +124,16 @@
       ],
       "note": "TrishoolAI curated repo set"
     },
+    "50": {
+      "replace": true,
+      "targets": [
+        {
+          "kind": "repository",
+          "url": "https://github.com/synthdataco/synth-subnet"
+        }
+      ],
+      "note": "Synth repo transferred from mode-network/synth-subnet to the synthdata.co org; on-chain github_repo still names the old URL"
+    },
     "61": {
       "replace": true,
       "targets": [
@@ -167,7 +177,7 @@
       "targets": [
         {
           "kind": "repository",
-          "url": "https://github.com/BaseIntelligence/base"
+          "url": "https://github.com/CortexLM/cortex"
         },
         {
           "kind": "repository",
@@ -182,7 +192,7 @@
           "url": "https://github.com/BaseIntelligence/agent-challenge"
         }
       ],
-      "note": "Base Intelligence curated repo set; activity spans multiple repos, not a single repo"
+      "note": "Cortex (formerly Base Intelligence) curated repo set; main repo moved from BaseIntelligence/base to CortexLM/cortex"
     }
   }
 }

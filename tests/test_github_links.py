@@ -26,6 +26,37 @@ def test_accepts_bare_owner_repo_in_github_repo_field():
     assert [target.url for target in targets] == ["https://github.com/opentensor/subtensor"]
 
 
+def test_fallback_fields_do_not_add_targets_when_github_repo_resolves():
+    record = SubnetIdentityRecord(
+        netuid=66,
+        github_repo="https://github.com/conjectures-io/conjectures-validator",
+        subnet_url="https://github.com/conjectures-io",
+        description="Inference runs on https://github.com/vllm-project/vllm",
+        additional="agent repo: https://github.com/ninja-subnet/ninja",
+        subnet_contact="https://github.com/some-founder",
+    )
+
+    targets = extract_github_targets(record)
+
+    assert [(target.kind, target.url, target.source_field) for target in targets] == [
+        ("repository", "https://github.com/conjectures-io/conjectures-validator", "github_repo"),
+    ]
+
+
+def test_fallback_fields_are_scanned_when_github_repo_has_no_github_target():
+    record = SubnetIdentityRecord(
+        netuid=67,
+        github_repo="https://example.com/not-github",
+        description="Code lives at https://github.com/acme/subnet",
+    )
+
+    targets = extract_github_targets(record)
+
+    assert [(target.url, target.source_field) for target in targets] == [
+        ("https://github.com/acme/subnet", "description"),
+    ]
+
+
 def test_scans_contextual_bare_owner_repo_in_fallback_text():
     record = SubnetIdentityRecord(
         netuid=13,

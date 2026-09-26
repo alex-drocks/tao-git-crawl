@@ -17,7 +17,8 @@ GitHub discovery uses these `SubnetIdentityV3` fields:
 - `additional`
 - `subnet_contact`
 
-`github_repo` is the primary source. The other fields are fallback text sources.
+`github_repo` is the primary source. The other fields are fallback text sources, scanned only when `github_repo` contains
+no valid GitHub repository or owner URL; they never add targets alongside a resolving `github_repo`.
 
 Exact repository URLs and bare `owner/repo` values become repository targets. GitHub owner roots become owner targets. Subnets with no usable GitHub target are written to `unresolved.json`.
 
