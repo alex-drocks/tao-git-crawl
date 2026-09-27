@@ -1,6 +1,6 @@
 {
   "schema_version": "tao-git-crawl-registry-v2",
-  "updated_at": "2026-09-26T00:00:00Z",
+  "updated_at": "2026-09-27T00:00:00Z",
   "overrides": {
     "2": {
       "replace": true,
@@ -171,6 +171,16 @@
         }
       ],
       "note": "Chutes AI - requires owner-level crawl to capture multi-repo activity"
+    },
+    "66": {
+      "replace": true,
+      "targets": [
+        {
+          "kind": "owner",
+          "url": "https://github.com/conjectures-io"
+        }
+      ],
+      "note": "Conjectures - requires owner-level crawl to capture multi-repo activity; ninja-subnet is the pre-2026-07-31 Ninja project"
     },
     "100": {
       "replace": true,
