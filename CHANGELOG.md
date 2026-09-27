@@ -10,6 +10,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 Use this section for changes that have merged but have not been released yet.
 Move entries into a dated version section when cutting the next tag.
 
+### Added
+
+- Crawl SN66 Conjectures at the `conjectures-io` owner level, like SN64 Chutes, so its miner, task, and contribution
+  repositories are credited alongside the on-chain validator repository.
+
 ## [2.2.0] - 2026-09-26
 
 ### Changed
