@@ -14,6 +14,26 @@ Move entries into a dated version section when cutting the next tag.
 
 - Crawl SN66 Conjectures at the `conjectures-io` owner level, like SN64 Chutes, so its miner, task, and contribution
   repositories are credited alongside the on-chain validator repository.
+- Registry overrides accept reviewed credit `exclusions` for content that is not the subnet team's own work. Each names
+  an exact repository plus a path, a commit, or both, with the evidence as `reason`. The resolver writes them to
+  `subnet-targets.json` as `credit_exclusions`, scoring skips the covered rows, and the API reports them under
+  `skipped.by_reason["registry exclusion"]`. Optional `except_paths` preserves reviewed local files in mixed imports.
+- Exclude verified third-party and miner content from credit: vendored OpenClaw in SN23's initial commit, Polyhedra
+  Expander/ECC in SN2's workspace import, Exercism problems in SN62's two dataset imports, vendored BoltzGen and Boltz
+  commits in SN68, terminal-bench tasks in SN100's `live-task-cache`, synced miner champions in SN91, and the
+  third-party `impeccable` agent skill in SN118. Evidence includes upstream file snapshot matches and the miner archive
+  workflow; matches establish provenance for those snapshots, not every unmatched file in a mixed import.
+
+### Fixed
+
+- Stop crediting committed run output and data as code: `.log`, `.stdout`, `.stderr`, checksum files, trailing
+  `.bak`/`.orig`/`.rej` backups, sequence data, `.dat`, and `.mtl` files; text and JSON/YAML data in `corpus`,
+  `evidence`, and capture directories; and captured exit codes, pids, and timestamps inside `evidence` and capture
+  directories. Source code and supported prose formats in those directories remain eligible. These filename heuristics
+  can also exclude authored `.txt` work logs and cannot detect output saved under preserved extensions.
+- Preserve SN68's local Boltz/BoltzGen adapters within vendoring and move commits. Scope SN100's task-cache imports and
+  SN118's skill imports to their import commits so subsequent maintenance remains eligible.
+- Credit hand-written `coverage.py`-style source files that the coverage report guardrail previously skipped.
 
 ## [2.2.0] - 2026-09-26
 

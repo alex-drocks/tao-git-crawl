@@ -18,11 +18,13 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from .activity_filter import (
     CODE_ACTIVITY_EXCLUDED_CHURN_CLASSES,
+    credit_exclusions_from_document,
     has_valid_churn_metrics,
     is_credited_change,
     noise_change_class,
 )
 from .identity_epochs import IDENTITY_HISTORY_SCHEMA_VERSION, IDENTITY_RECONCILIATION_FILENAME
+from .models import CreditExclusion
 
 DEFAULT_OUTPUT_DIR = Path("/data/output")
 DEFAULT_HOST = "0.0.0.0"
@@ -252,11 +254,12 @@ def get_subnet_dataset(
         limit = _parse_query_int(query_params, "limit", DEFAULT_LIMIT)
         offset = _parse_query_int(query_params, "offset", 0)
         if dataset == "file-changes":
+            exclusions = _credit_exclusions(crawl_dir)
             return _read_jsonl_page(
                 crawl_dir / JSONL_DATASETS[dataset],
                 limit=limit,
                 offset=offset,
-                row_filter=_is_code_change_row,
+                row_filter=lambda row: _is_code_change_row(row, exclusions),
                 row_transform=_file_change_row_payload,
             )
         if dataset == "commits":
@@ -950,12 +953,13 @@ def _code_activity_from_jsonl(
     credited_change_stats: dict[tuple[str, str], dict[str, int | float]] = {}
     credited_paths_by_commit: dict[tuple[str, str], set[str]] = {}
     skipped = _empty_skipped_activity()
+    exclusions = _credit_exclusions(crawl_dir)
     for row in _iter_jsonl_objects(file_changes_path):
         if not isinstance(row, dict):
             continue
         if not has_valid_churn_metrics(row):
             continue
-        skipped_class = noise_change_class(row)
+        skipped_class = noise_change_class(row, exclusions)
         if skipped_class is not None:
             _add_skipped_change(skipped, row, skipped_class)
             continue
@@ -1118,8 +1122,15 @@ def _add_skipped_change(skipped: dict[str, object], row: dict[str, object], skip
     skipped["by_reason"] = by_reason
 
 
-def _is_code_change_row(row: object) -> bool:
-    return isinstance(row, dict) and is_credited_change(row)
+def _is_code_change_row(row: object, exclusions: tuple[CreditExclusion, ...] = ()) -> bool:
+    return isinstance(row, dict) and is_credited_change(row, exclusions)
+
+
+def _credit_exclusions(crawl_dir: Path) -> tuple[CreditExclusion, ...]:
+    """Reviewed registry exclusions written next to this subnet's crawl output by the resolver."""
+    subnet_dir = crawl_dir.parent
+    netuid = int(subnet_dir.name) if subnet_dir.name.isdigit() else None
+    return credit_exclusions_from_document(_read_json_optional(subnet_dir / "subnet-targets.json"), netuid)
 
 
 def _credited_commit_stats_from_file_changes(crawl_dir: Path) -> dict[tuple[str, str], dict[str, int | float]] | None:
@@ -1128,8 +1139,9 @@ def _credited_commit_stats_from_file_changes(crawl_dir: Path) -> dict[tuple[str,
         return None
     credited_commit_stats: dict[tuple[str, str], dict[str, int | float]] = {}
     credited_paths: dict[tuple[str, str], set[str]] = {}
+    exclusions = _credit_exclusions(crawl_dir)
     for row in _iter_jsonl_objects(file_changes_path):
-        if not _is_code_change_row(row):
+        if not _is_code_change_row(row, exclusions):
             continue
         commit_key = _commit_key(row)
         path = _file_change_path(row)
@@ -1340,8 +1352,9 @@ def _top_activity_from_jsonl(crawl_dir: Path | None) -> dict[str, list[dict[str,
         return None
 
     path_stats: dict[tuple[str, str, str], dict[str, object]] = {}
+    exclusions = _credit_exclusions(crawl_dir)
     for row in _iter_jsonl_objects(file_changes_path):
-        if not _is_code_change_row(row) or not isinstance(row, dict):
+        if not _is_code_change_row(row, exclusions) or not isinstance(row, dict):
             continue
         repo = str(row.get("repo", ""))
         path = str(row.get("path", ""))

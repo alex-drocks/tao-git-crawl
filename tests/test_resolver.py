@@ -1,6 +1,6 @@
 import json
 
-from tao_git_crawl.models import SubnetIdentityRecord
+from tao_git_crawl.models import CreditExclusion, SubnetIdentityRecord
 from tao_git_crawl.overrides import ResolverConfig, SubnetOverride, TargetOverride
 from tao_git_crawl.resolver import resolve_subnets, write_resolution_outputs
 
@@ -183,3 +183,33 @@ def test_resolution_outputs_include_per_subnet_manifests_for_company_scoped_craw
     assert fallback_rows == [
         ("repository", "chutesai/api", "github_repo")
     ]
+
+
+def test_exclusion_only_override_keeps_identity_targets_and_writes_credit_exclusions(tmp_path):
+    records = [
+        SubnetIdentityRecord(netuid=68, subnet_name="Nova", github_repo="https://github.com/acme/nova"),
+        SubnetIdentityRecord(netuid=69, subnet_name="Other", github_repo="https://github.com/acme/other"),
+    ]
+    exclusion = CreditExclusion(
+        repo="acme/nova", reason="vendored upstream", path="vendor-copy/", except_paths=("vendor-copy/adapter.py",)
+    )
+    config = ResolverConfig(subnet_overrides={68: SubnetOverride(replace=False, exclusions=(exclusion,))})
+
+    document = resolve_subnets(records, target_label="bittensor-subnets", config=config)
+    write_resolution_outputs(document, tmp_path)
+
+    assert [(target.netuid, target.url) for target in document.targets] == [
+        (68, "https://github.com/acme/nova"),
+        (69, "https://github.com/acme/other"),
+    ]
+    assert document.credit_exclusions_for_netuid(68) == (exclusion,)
+    assert document.credit_exclusions_for_netuid(69) == ()
+    subnet_targets = json.loads((tmp_path / "subnets" / "68" / "subnet-targets.json").read_text(encoding="utf-8"))
+    assert subnet_targets["credit_exclusions"] == [
+        {
+            "netuid": 68, "repo": "acme/nova", "reason": "vendored upstream", "path": "vendor-copy/",
+            "except_paths": ["vendor-copy/adapter.py"],
+        }
+    ]
+    other_targets = json.loads((tmp_path / "subnets" / "69" / "subnet-targets.json").read_text(encoding="utf-8"))
+    assert other_targets["credit_exclusions"] == []

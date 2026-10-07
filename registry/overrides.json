@@ -1,6 +1,6 @@
 {
   "schema_version": "tao-git-crawl-registry-v2",
-  "updated_at": "2026-09-27T00:00:00Z",
+  "updated_at": "2026-10-07T00:00:00Z",
   "overrides": {
     "2": {
       "replace": true,
@@ -20,6 +20,20 @@
         {
           "kind": "repository",
           "url": "https://github.com/inference-labs-inc/JSTprove"
+        }
+      ],
+      "exclusions": [
+        {
+          "repo": "inference-labs-inc/JSTprove",
+          "commit": "5a65898a005077d5669bc6719fe3080e440c17f0",
+          "path": "compiler/",
+          "reason": "Imports PolyhedraZK ExpanderCompilerCollection; with prover/, 70% of files (82% of lines) are byte-identical to upstream history"
+        },
+        {
+          "repo": "inference-labs-inc/JSTprove",
+          "commit": "5a65898a005077d5669bc6719fe3080e440c17f0",
+          "path": "prover/",
+          "reason": "Imports PolyhedraZK Expander; with compiler/, 70% of files (82% of lines) are byte-identical to upstream history"
         }
       ],
       "note": "curated repo set"
@@ -122,6 +136,14 @@
           "url": "https://github.com/TrishoolAI/trishool-subnet"
         }
       ],
+      "exclusions": [
+        {
+          "repo": "TrishoolAI/trishool-phase2",
+          "commit": "fdd3eb5f4e04d3a764c23c37326cdcc2231b9e05",
+          "path": "tri-claw/",
+          "reason": "Initial commit vendors openclaw/openclaw; 99% of tri-claw files are byte-identical to upstream history"
+        }
+      ],
       "note": "TrishoolAI curated repo set"
     },
     "50": {
@@ -160,6 +182,20 @@
           "url": "https://github.com/ridgesai/sandbox-proxy"
         }
       ],
+      "exclusions": [
+        {
+          "repo": "ridgesai/ridges",
+          "commit": "a3afe890436a025ecfdc8f476d68a91e36826aba",
+          "path": "evaluator/datasets/",
+          "reason": "Imports Exercism polyglot problems; 70% of files are byte-identical to exercism/python, exercism/javascript, or Aider-AI/polyglot-benchmark"
+        },
+        {
+          "repo": "ridgesai/ridges",
+          "commit": "c3a4d715cee961feb30ca2ab08ce0a2d06ff1285",
+          "path": "evaluator/datasets/",
+          "reason": "Imports Exercism problem sets; 71% of files are byte-identical to exercism/python, exercism/javascript, or Aider-AI/polyglot-benchmark"
+        }
+      ],
       "note": "Ridges curated repo set"
     },
     "64": {
@@ -182,6 +218,49 @@
       ],
       "note": "Conjectures - requires owner-level crawl to capture multi-repo activity; ninja-subnet is the pre-2026-07-31 Ninja project"
     },
+    "68": {
+      "replace": false,
+      "targets": [],
+      "exclusions": [
+        {
+          "repo": "metanova-labs/nova",
+          "commit": "89db91520f8cd0bde0f67ccc783252d3c2904c22",
+          "path": "boltzgen/",
+          "except_paths": ["boltzgen/src/boltzgen/boltzgen_wrapper.py"],
+          "reason": "Vendors HannesStark/boltzgen; 256/267 changed-file snapshots match upstream history; preserve the separately maintained integration adapter"
+        },
+        {
+          "repo": "metanova-labs/nova",
+          "commit": "73c5bd5535e341762939b9036140260e756b8bf0",
+          "path": "external_tools/",
+          "except_paths": [
+            "external_tools/boltz/boltz_wrapper.py",
+            "external_tools/boltzgen/src/boltzgen/boltzgen_wrapper.py"
+          ],
+          "reason": "Moves the vendored boltz and boltzgen directories into external_tools/; preserve the Nova integration adapters and their local changes"
+        },
+        {
+          "repo": "metanova-labs/nova",
+          "commit": "9a5ba074334ba89bc2bd4a520196def1f24b9cbf",
+          "path": "external_tools/boltz/",
+          "except_paths": ["external_tools/boltz/boltz_wrapper.py"],
+          "reason": "Syncs vendored jwohlwend/boltz; 93/99 changed-file snapshots match upstream history; preserve the separately maintained integration adapter"
+        }
+      ],
+      "note": "Nova keeps on-chain targets; only reviewed vendored-code commits are excluded from credit"
+    },
+    "91": {
+      "replace": false,
+      "targets": [],
+      "exclusions": [
+        {
+          "repo": "TensorLink-AI/cascade",
+          "path": "champions/",
+          "reason": "Winning miner submissions synced and archived by cascade-king-sync; miner code, not subnet team work"
+        }
+      ],
+      "note": "Cascade keeps on-chain targets; synced miner champions are excluded from credit"
+    },
     "100": {
       "replace": true,
       "targets": [
@@ -202,7 +281,40 @@
           "url": "https://github.com/BaseIntelligence/agent-challenge"
         }
       ],
+      "exclusions": [
+        {
+          "repo": "BaseIntelligence/agent-challenge",
+          "commit": "714f90887cda7b4873d4ab9f8b072569edc73bfa",
+          "path": "docker/canonical/live-task-cache/",
+          "reason": "Initial live-smoke assets include baked third-party terminal-bench tasks; later local maintenance stays credited"
+        },
+        {
+          "repo": "BaseIntelligence/agent-challenge",
+          "commit": "2875ca832495b187d1db6cc19e072ab0d03fc247",
+          "path": "docker/canonical/live-task-cache/",
+          "reason": "Bakes the complete third-party terminal-bench task cache; later local maintenance stays credited"
+        }
+      ],
       "note": "Cortex (formerly Base Intelligence) curated repo set; main repo moved from BaseIntelligence/base to CortexLM/cortex"
+    },
+    "118": {
+      "replace": false,
+      "targets": [],
+      "exclusions": [
+        {
+          "repo": "ditto-assistant/ditto-subnet",
+          "commit": "d826138230154503c2e572262c33c46c12f154e5",
+          "path": ".agents/skills/impeccable/",
+          "reason": "Vendored third-party impeccable agent skill; 100% of files byte-identical to pbakaus/impeccable"
+        },
+        {
+          "repo": "ditto-assistant/ditto-subnet",
+          "commit": "d826138230154503c2e572262c33c46c12f154e5",
+          "path": ".claude/skills/impeccable/",
+          "reason": "Vendored third-party impeccable agent skill; 100% of files byte-identical to pbakaus/impeccable"
+        }
+      ],
+      "note": "Ditto keeps on-chain owner targets; only the vendored third-party skill is excluded from credit"
     }
   }
 }

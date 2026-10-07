@@ -170,7 +170,8 @@ The activity payload exposes:
 - `averages.per_active_day`: commits, file changes, and line churn divided by active days.
 - `averages.per_calendar_day`, `per_calendar_week`, and `per_calendar_month`: the same metrics divided by the crawl calendar span.
 - `skipped`: file-change and line totals skipped because they were binary, lockfile, generated, vendored,
-  spec/schema-like, or artifact/data changes. When reason details are available, `by_reason` breaks those totals down.
+  spec/schema-like, artifact/data, or registry exclusion changes. When reason details are available, `by_reason` breaks
+  those totals down.
 
 The normal API presents one canonical activity model: totals and averages are real code/docs changes only.
 `/api/subnets/<netuid>/summary` uses those same totals and exposes skipped noisy changes under `skipped`; raw crawl
@@ -229,6 +230,28 @@ not fall back to raw churn totals. Aggregate fallbacks cannot reconstruct 30-day
 window itself is 30 days or shorter. Repository breadth is reported only for repositories with credited activity in the
 scoring window. The default `source_like` crawl filter reduces upstream noise before outputs are written;
 `tao-git-crawl` then rechecks detailed rows for investor-facing scoring and API activity.
+
+Local artifact rules and registry exclusions require detailed file-change rows. Aggregate-only fallbacks cannot
+reapply those rules and can retain imported content or captured output. Regenerate detailed outputs through the normal
+resolution and crawl cycle when backfilling scores. For reproducible comparisons, retain the same crawl data, resolved
+`credit_exclusions`, registry revision, scoring code, and scoring date.
+
+The artifact/data guardrails treat committed run output as non-code: `.log`, `.stdout`, and `.stderr` files, checksum
+files such as `*.sha256` and `SHA256SUMS`, trailing `.bak`, `.orig`, and `.rej` backups, sequence data (`.fasta`,
+`.fa`, `.fastq`), `.dat` files, and `.mtl` material files that accompany already-excluded `.obj` models. Text and
+JSON/YAML data inside `corpus`, `evidence`, `captures`, or `capture` directories is data. Inside `evidence` and capture
+directories, source code, prose docs (`.md`, `.mdx`, `.rst`, `.adoc`), and code-like formats such as `.proto`, `.toml`,
+or `.lean` remain eligible; exit codes, pids, timestamps, and raw output do not. These are filename and path heuristics,
+not content or authorship detection: an authored `.txt` work log in an evidence directory is also excluded, while output
+saved with a preserved extension may remain eligible.
+
+A reviewed registry entry can also exclude specific content that is not the subnet team's own work, such as a vendored
+third-party project or archived miner submissions. Each exclusion names an exact repository plus a path, a commit, or
+both, and records the evidence in `reason`; see `registry/README.md`. The resolver writes these exclusions to
+`subnet-targets.json` as `credit_exclusions`, the scorer skips the covered rows, and the API reports them under
+`skipped.by_reason["registry exclusion"]`.
+One-time imports use commit scopes so subsequent maintenance keeps credit; `except_paths` preserves reviewed local
+adapters within a mixed import. Exceptions still pass the other activity filters and overlapping exclusions.
 
 Regular subnets cannot receive credit for any repository or owner target under `opentensor` or `RaoFoundation`; the
 owner-wide deny rule applies regardless of repository name. Exact targets must also resolve through GitHub to the same canonical `owner/repo`, and
