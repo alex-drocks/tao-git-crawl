@@ -1462,7 +1462,10 @@ def test_registry_credit_exclusions_hide_rows_from_datasets_and_activity(tmp_pat
             {
                 "targets": [{"kind": "repository", "subnet_name": "Vendored"}],
                 "credit_exclusions": [
-                    {"netuid": 23, "repo": "owner/code", "path": "vendor-copy/", "reason": "vendored upstream"}
+                    {
+                        "netuid": 23, "repo": "owner/code", "path": "vendor-copy/", "reason": "vendored upstream",
+                        "except_paths": ["vendor-copy/adapter.py"],
+                    }
                 ],
             }
         ),
@@ -1484,6 +1487,10 @@ def test_registry_credit_exclusions_hide_rows_from_datasets_and_activity(tmp_pat
         [
             {"repo": "owner/code", "sha": "own", "path": "src/app.py", "path_class": "source", "additions": 3},
             {"repo": "owner/code", "sha": "imp", "path": "vendor-copy/a.py", "path_class": "source", "additions": 900},
+            {
+                "repo": "owner/code", "sha": "imp", "path": "vendor-copy/adapter.py", "path_class": "source",
+                "additions": 5,
+            },
         ],
     )
 
@@ -1491,10 +1498,10 @@ def test_registry_credit_exclusions_hide_rows_from_datasets_and_activity(tmp_pat
     commits = get_subnet_dataset(tmp_path, 23, "commits")
     activity = get_subnet_dataset(tmp_path, 23, "activity")
 
-    assert [row["path"] for row in file_changes["data"]] == ["src/app.py"]
-    assert [row["sha"] for row in commits["data"]] == ["own"]
-    assert activity["totals"]["file_changes"] == 1
-    assert activity["totals"]["lines_added"] == 3
+    assert [row["path"] for row in file_changes["data"]] == ["src/app.py", "vendor-copy/adapter.py"]
+    assert [row["sha"] for row in commits["data"]] == ["own", "imp"]
+    assert activity["totals"]["file_changes"] == 2
+    assert activity["totals"]["lines_added"] == 8
     assert activity["skipped"]["by_reason"]["registry exclusion"] == {
         "file_changes": 1,
         "lines_added": 900,

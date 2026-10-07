@@ -226,19 +226,25 @@
           "repo": "metanova-labs/nova",
           "commit": "89db91520f8cd0bde0f67ccc783252d3c2904c22",
           "path": "boltzgen/",
-          "reason": "Vendors HannesStark/boltzgen; 98% of files are byte-identical to upstream history"
+          "except_paths": ["boltzgen/src/boltzgen/boltzgen_wrapper.py"],
+          "reason": "Vendors HannesStark/boltzgen; 256/267 changed-file snapshots match upstream history; preserve the separately maintained integration adapter"
         },
         {
           "repo": "metanova-labs/nova",
           "commit": "73c5bd5535e341762939b9036140260e756b8bf0",
           "path": "external_tools/",
-          "reason": "Moves the vendored boltz and boltzgen directories into external_tools/"
+          "except_paths": [
+            "external_tools/boltz/boltz_wrapper.py",
+            "external_tools/boltzgen/src/boltzgen/boltzgen_wrapper.py"
+          ],
+          "reason": "Moves the vendored boltz and boltzgen directories into external_tools/; preserve the Nova integration adapters and their local changes"
         },
         {
           "repo": "metanova-labs/nova",
           "commit": "9a5ba074334ba89bc2bd4a520196def1f24b9cbf",
           "path": "external_tools/boltz/",
-          "reason": "Syncs vendored jwohlwend/boltz; 98% of files are byte-identical to upstream history"
+          "except_paths": ["external_tools/boltz/boltz_wrapper.py"],
+          "reason": "Syncs vendored jwohlwend/boltz; 93/99 changed-file snapshots match upstream history; preserve the separately maintained integration adapter"
         }
       ],
       "note": "Nova keeps on-chain targets; only reviewed vendored-code commits are excluded from credit"
@@ -278,8 +284,15 @@
       "exclusions": [
         {
           "repo": "BaseIntelligence/agent-challenge",
+          "commit": "714f90887cda7b4873d4ab9f8b072569edc73bfa",
           "path": "docker/canonical/live-task-cache/",
-          "reason": "Baked copies of third-party terminal-bench tasks"
+          "reason": "Initial live-smoke assets include baked third-party terminal-bench tasks; later local maintenance stays credited"
+        },
+        {
+          "repo": "BaseIntelligence/agent-challenge",
+          "commit": "2875ca832495b187d1db6cc19e072ab0d03fc247",
+          "path": "docker/canonical/live-task-cache/",
+          "reason": "Bakes the complete third-party terminal-bench task cache; later local maintenance stays credited"
         }
       ],
       "note": "Cortex (formerly Base Intelligence) curated repo set; main repo moved from BaseIntelligence/base to CortexLM/cortex"
@@ -290,11 +303,13 @@
       "exclusions": [
         {
           "repo": "ditto-assistant/ditto-subnet",
+          "commit": "d826138230154503c2e572262c33c46c12f154e5",
           "path": ".agents/skills/impeccable/",
           "reason": "Vendored third-party impeccable agent skill; 100% of files byte-identical to pbakaus/impeccable"
         },
         {
           "repo": "ditto-assistant/ditto-subnet",
+          "commit": "d826138230154503c2e572262c33c46c12f154e5",
           "path": ".claude/skills/impeccable/",
           "reason": "Vendored third-party impeccable agent skill; 100% of files byte-identical to pbakaus/impeccable"
         }

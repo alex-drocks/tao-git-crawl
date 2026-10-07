@@ -46,9 +46,16 @@ skipped by scoring and API activity and reported under `skipped.by_reason["regis
   Prefer `commit` plus `path` for imports the team keeps developing; use `path` alone for content that is never the
   team's work, such as a directory a bot syncs from miners.
 - Use full 40-character commit SHAs for built-in entries.
+- `except_paths` is an optional list of repository-relative files or directories to preserve within that exclusion,
+  for example `"except_paths": ["tri-claw/local_adapter.py"]`. When `path` is set, exceptions must be within it.
+  They still pass other activity filters and any other matching exclusion. Use this for reviewed local adapters and
+  edits included in a mixed import.
 - An entry that only adds exclusions must set `"replace": false` and `"targets": []` so the subnet keeps its on-chain
   targets.
 
-Only add an exclusion with direct evidence, for example most files being byte-identical to an upstream repository's
-history. Large commits, initial releases of the team's own private code, and monorepo migrations are real work and stay
-credited.
+Only add an exclusion with direct evidence, for example matching file snapshots against an upstream repository's
+history or a workflow that archives miner submissions. State the scope and limits of that evidence in `reason`;
+matching most files does not establish the provenance of every unmatched file. Review local adapters and edits before
+excluding a mixed import. Pin one-time task and skill imports to their import commits, reserving permanent path scopes
+for continuously mirrored content. Large commits, initial releases of the team's own private code, and monorepo
+migrations can be real work and remain eligible unless the imported content is independently verified.

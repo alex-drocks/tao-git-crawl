@@ -221,6 +221,8 @@ def matching_exclusion(row: dict[str, object], exclusions: Iterable[CreditExclus
             continue
         if exclusion.path is not None and not _path_is_within(path, exclusion.path):
             continue
+        if any(_path_is_within(path, scope) for scope in exclusion.except_paths):
+            continue
         return exclusion
     return None
 
@@ -240,6 +242,7 @@ def credit_exclusions_from_document(document: object, netuid: int | None = None)
             continue
         repo, reason = item.get("repo"), item.get("reason")
         path, commit = item.get("path"), item.get("commit")
+        except_paths = item.get("except_paths", [])
         if not isinstance(repo, str) or not repo.strip() or not isinstance(reason, str):
             continue
         if path is not None and not isinstance(path, str):
@@ -248,7 +251,13 @@ def credit_exclusions_from_document(document: object, netuid: int | None = None)
             continue
         if path is None and commit is None:
             continue
-        exclusions.append(CreditExclusion(repo=repo.strip(), reason=reason, path=path, commit=commit))
+        if not isinstance(except_paths, list) or any(not isinstance(scope, str) or not scope for scope in except_paths):
+            continue
+        exclusions.append(
+            CreditExclusion(
+                repo=repo.strip(), reason=reason, path=path, commit=commit, except_paths=tuple(except_paths)
+            )
+        )
     return tuple(exclusions)
 
 

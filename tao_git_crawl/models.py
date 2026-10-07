@@ -68,16 +68,21 @@ class CreditExclusion:
     """A reviewed decision that a repository path or commit is not the subnet team's own work.
 
     ``path`` excludes a file or directory prefix in every commit; ``commit`` excludes one commit by SHA prefix. When
-    both are set, only that path within that commit is excluded.
+    both are set, only that path within that commit is excluded. ``except_paths`` preserves reviewed local files or
+    directories within this exclusion's scope; other noise rules and exclusions still apply.
     """
 
     repo: str
     reason: str
     path: str | None = None
     commit: str | None = None
+    except_paths: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
-        return {key: value for key, value in asdict(self).items() if value is not None}
+        result = {key: value for key, value in asdict(self).items() if value is not None and key != "except_paths"}
+        if self.except_paths:
+            result["except_paths"] = list(self.except_paths)
+        return result
 
 
 @dataclass(frozen=True)

@@ -139,3 +139,30 @@ def test_credit_exclusions_from_document_reads_valid_entries_for_the_netuid():
     )
     assert credit_exclusions_from_document({"targets": []}, 23) == ()
     assert credit_exclusions_from_document(None, 23) == ()
+
+
+def test_exclusion_exceptions_preserve_local_paths_without_overriding_other_rules():
+    exclusion = CreditExclusion(
+        repo="acme/app", commit="abc1234", path="lib/", reason="import",
+        except_paths=("lib/adapter.py", "lib/local/"),
+    )
+    row = {"repo": "acme/app", "sha": "abc1234ffff", "path": "lib/adapter.py", "additions": 4}
+    assert is_credited_change(row, (exclusion,))
+    assert is_credited_change({**row, "path": "lib/local/adapter.py"}, (exclusion,))
+    assert not is_credited_change({**row, "path": "lib/locality/adapter.py"}, (exclusion,))
+    assert not is_credited_change({**row, "path": "lib/upstream.py"}, (exclusion,))
+    assert not is_credited_change({**row, "is_binary": True}, (exclusion,))
+    other = CreditExclusion(repo="acme/app", path="lib/adapter.py", reason="separate reviewed import")
+    assert not is_credited_change(row, (exclusion, other))
+
+
+def test_credit_exclusion_exceptions_survive_document_round_trip():
+    exclusion = CreditExclusion(
+        repo="acme/app", path="lib/", reason="import", except_paths=("lib/adapter.py",),
+    )
+    document = {"credit_exclusions": [{"netuid": 23, **exclusion.to_dict()}]}
+    assert document["credit_exclusions"][0]["except_paths"] == ["lib/adapter.py"]
+    assert credit_exclusions_from_document(document, 23) == (exclusion,)
+    assert "except_paths" not in CreditExclusion(repo="acme/app", path="lib/", reason="import").to_dict()
+    malformed = {"credit_exclusions": [{"netuid": 23, **exclusion.to_dict(), "except_paths": [123]}]}
+    assert credit_exclusions_from_document(malformed, 23) == ()

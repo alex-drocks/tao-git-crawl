@@ -1327,3 +1327,35 @@ def test_build_score_document_skips_rows_covered_by_registry_credit_exclusions(t
     assert score["raw_metrics"]["credited_lines_added"] == 10.0
     assert score["raw_metrics"]["active_days"] == 1.0
     assert score["raw_metrics"]["distinct_contributors"] == 1.0
+
+
+def test_mixed_import_keeps_adapter_and_subsequent_upstream_maintenance_in_scores(tmp_path):
+    exclusion = CreditExclusion(
+        repo="acme/repo", reason="one-time upstream import", commit="import1", path="lib/",
+        except_paths=("lib/adapter.py",),
+    )
+    document = resolve_subnets(
+        [SubnetIdentityRecord(netuid=68, subnet_name="Mixed import", github_repo="https://github.com/acme/repo")],
+        target_label="bittensor-subnets",
+        config=ResolverConfig(subnet_overrides={68: SubnetOverride(replace=False, exclusions=(exclusion,))}),
+    )
+    crawl_dir = _write_summary(
+        tmp_path, 68, repos_crawled=1, file_changes=3, lines_added=1025,
+        history_since="2026-01-01", history_until="2026-02-01",
+    )
+    _write_commits(crawl_dir, [
+        {"sha": "import1", "authored_at": "2026-01-02T00:00:00+00:00", "author_login": "alice"},
+        {"sha": "maintenance", "authored_at": "2026-01-03T00:00:00+00:00", "author_login": "bob"},
+    ])
+    _write_file_changes(crawl_dir, [
+        {"repo": "acme/repo", "sha": "import1", "path": "lib/upstream.py", "path_class": "source", "additions": 1000},
+        {"repo": "acme/repo", "sha": "import1", "path": "lib/adapter.py", "path_class": "source", "additions": 20},
+        {"repo": "acme/repo", "sha": "maintenance", "path": "lib/upstream.py", "path_class": "source", "additions": 5},
+    ])
+
+    score = build_score_document(document, tmp_path)["scores"][0]
+
+    assert score["raw_metrics"]["credited_file_changes"] == 2.0
+    assert score["raw_metrics"]["credited_lines_added"] == 25.0
+    assert score["raw_metrics"]["active_days"] == 2.0
+    assert score["raw_metrics"]["distinct_contributors"] == 2.0
