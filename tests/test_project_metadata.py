@@ -147,7 +147,7 @@ def test_docker_docs_and_compose_pass_documented_scheduler_environment():
     assert 'GET /api/subnets/<netuid>/score' in readme
     assert 'GET /api/scores' in readme
     assert 'Crawl-window average credited commits per active day' in readme
-    assert 'Crawl-window credited file changes' in readme
+    assert 'Crawl-window credited file-days' in readme
     assert 'trailing 365-day score/activity window by default' in readme
     assert 'rolling-window rankings' in readme
     assert 'TAO_CRAWL_INCREMENTAL=true' in readme
