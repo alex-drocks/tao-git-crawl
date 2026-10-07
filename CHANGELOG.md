@@ -23,6 +23,15 @@ Move entries into a dated version section when cutting the next tag.
   commits in SN68, terminal-bench tasks in SN100's `live-task-cache`, synced miner champions in SN91, and the
   third-party `impeccable` agent skill in SN118. Each was confirmed by matching file contents against upstream history.
 
+### Changed
+
+- Score credited file-days instead of raw file changes (`credited_file_days`, 30%, and
+  `momentum_30d_credited_file_days`, 40% of momentum). A file counts once per authored day however many commits touch
+  it, so splitting work into many small commits or rewriting one file repeatedly no longer multiplies credit, while
+  work on a file across many days still counts each day. `credited_file_changes` and
+  `momentum_30d_credited_file_changes` remain in `raw_metrics` for context without weight. Score outputs move to
+  schema version `tao-git-crawl-score-v4`; activity totals and API file-change counts are unchanged.
+
 ### Fixed
 
 - Stop crediting committed run output and data as code: `.log`, `.stdout`, `.stderr`, checksum files, trailing

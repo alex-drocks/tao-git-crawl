@@ -163,14 +163,14 @@ def test_build_score_document_uses_global_raw_max_and_full_population(tmp_path):
     score_document = build_score_document(document, tmp_path)
 
     scores = {item["netuid"]: item for item in score_document["scores"]}
-    assert score_document["schema_version"] == "tao-git-crawl-score-v3"
+    assert score_document["schema_version"] == "tao-git-crawl-score-v4"
     assert score_document["normalization"]["metric_method"] == "global_max"
     assert score_document["normalization"]["score_method"] == "max_weighted_composite_to_100"
     assert score_document["normalization"]["rank_method"] == "competition_score_desc"
     assert score_document["normalization"]["momentum_30d"] == {
         "window_days": 30,
         "weights": {
-            "momentum_30d_credited_file_changes": 0.40,
+            "momentum_30d_credited_file_days": 0.40,
             "momentum_30d_active_days": 0.30,
             "momentum_30d_avg_credited_commits_per_active_day": 0.15,
             "momentum_30d_credited_lines_added": 0.15,
@@ -179,12 +179,12 @@ def test_build_score_document_uses_global_raw_max_and_full_population(tmp_path):
     assert score_document["normalization"]["metric_maxima"] == {
         "active_days": 2.0,
         "avg_credited_commits_per_active_day": 1.5,
-        "credited_file_changes": 10.0,
+        "credited_file_days": 10.0,
         "credited_lines_added": 100.0,
         "distinct_contributors": 2.0,
         "momentum_30d_active_days": 0.0,
         "momentum_30d_avg_credited_commits_per_active_day": 0.0,
-        "momentum_30d_credited_file_changes": 0.0,
+        "momentum_30d_credited_file_days": 0.0,
         "momentum_30d_credited_lines_added": 0.0,
     }
     assert "repos_crawled" not in score_document["weights"]
@@ -1327,3 +1327,44 @@ def test_build_score_document_skips_rows_covered_by_registry_credit_exclusions(t
     assert score["raw_metrics"]["credited_lines_added"] == 10.0
     assert score["raw_metrics"]["active_days"] == 1.0
     assert score["raw_metrics"]["distinct_contributors"] == 1.0
+
+
+def test_file_days_count_each_file_once_per_authored_day(tmp_path, monkeypatch):
+    monkeypatch.setattr("tao_git_crawl.scoring._today_utc", lambda: date(2026, 1, 10))
+    document = resolve_subnets(
+        [SubnetIdentityRecord(netuid=7, subnet_name="Churn", github_repo="https://github.com/acme/repo")],
+        target_label="bittensor-subnets",
+    )
+    crawl_dir = _write_summary(
+        tmp_path, 7, repos_crawled=1, file_changes=0, lines_added=0, history_since="2025-12-01"
+    )
+    _write_commits(
+        crawl_dir,
+        [
+            {"sha": "a1", "authored_at": "2026-01-05T09:00:00+00:00", "author_login": "alice"},
+            {"sha": "a2", "authored_at": "2026-01-05T10:00:00+00:00", "author_login": "alice"},
+            {"sha": "a3", "authored_at": "2026-01-05T11:00:00+00:00", "author_login": "alice"},
+            {"sha": "b1", "authored_at": "2026-01-06T09:00:00+00:00", "author_login": "alice"},
+        ],
+    )
+    rows = [
+        {"sha": "a1", "path": "src/core.py", "additions": 5},
+        {"sha": "a1", "path": "src/util.py", "additions": 5},
+        {"sha": "a2", "path": "src/core.py", "additions": 5},
+        {"sha": "a3", "path": "src/core.py", "additions": 5},
+        {"sha": "b1", "path": "src/core.py", "additions": 5},
+    ]
+    _write_file_changes(
+        crawl_dir,
+        [{"repo": "acme/repo", "path_class": "source", "is_binary": False, **row} for row in rows],
+    )
+
+    score = build_score_document(document, tmp_path)["scores"][0]
+
+    assert score["raw_metrics"]["credited_file_changes"] == 5.0
+    assert score["raw_metrics"]["credited_file_days"] == 3.0
+    assert score["raw_metrics"]["momentum_30d_credited_file_changes"] == 5.0
+    assert score["raw_metrics"]["momentum_30d_credited_file_days"] == 3.0
+    assert score["raw_metrics"]["credited_lines_added"] == 25.0
+    assert "credited_file_changes" not in score["weights"]
+    assert score["weights"]["credited_file_days"] == 0.30

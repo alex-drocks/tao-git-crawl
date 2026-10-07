@@ -185,7 +185,7 @@ When detailed rows are available, `/api/subnets/<netuid>/file-changes` returns c
 ### Subnet Scores
 
 Each crawl writes `subnet-scores.json` plus `subnets/<netuid>/score.json`. The API also embeds the same score object in `/api/subnets`, `/api/subnets/<netuid>`, and `/api/subnets/<netuid>/summary`.
-Score outputs use schema version `tao-git-crawl-score-v3`.
+Score outputs use schema version `tao-git-crawl-score-v4`.
 
 Scores first use raw global-max normalization for metrics covering the selected crawl window and for 30-day momentum
 sub-metrics. Scheduled Docker crawls use a 365-day window by default, while manual `--since` and `--until` values can
@@ -204,7 +204,7 @@ The weighted score is:
 | Metric | Weight |
 | ------ | ------ |
 | Crawl-window active days | `35%` |
-| Crawl-window credited file changes | `30%` |
+| Crawl-window credited file-days | `30%` |
 | 30d Momentum | `15%` |
 | Crawl-window average credited commits per active day | `5%` |
 | Crawl-window credited lines added | `10%` |
@@ -215,9 +215,16 @@ using a half-open `[score_until - 30 days, score_until)` day range when the craw
 Default scheduler crawls omit `history_until`, so the scorer uses tomorrow's UTC date as the exclusive bound and includes
 commits authored today.
 
+A credited file-day is one credited file touched on one authored day: a file counts once per day however many commits
+change it that day, and again on every other day it is worked on. Raw file changes count every commit that touches a
+file, so splitting work into many small commits or rewriting the same file repeatedly multiplies them; file-days keep
+sustained work while making the score independent of commit granularity. `raw_metrics` still reports
+`credited_file_changes` and `momentum_30d_credited_file_changes` for context, without weight. When detailed rows are
+unavailable, the aggregate fallbacks use credited file changes as the file-day value.
+
 | Momentum metric | Momentum weight |
 | --------------- | --------------- |
-| 30d Credited file changes | `40%` |
+| 30d Credited file-days | `40%` |
 | 30d Active days | `30%` |
 | 30d Average credited commits per active day | `15%` |
 | 30d Credited lines added | `15%` |

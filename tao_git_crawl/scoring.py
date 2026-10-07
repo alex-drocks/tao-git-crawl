@@ -12,13 +12,13 @@ from .attribution import target_attribution_rejection, targets_attribution_rejec
 from .models import CreditExclusion
 from .resolver import ResolutionDocument
 
-SCORE_SCHEMA_VERSION = "tao-git-crawl-score-v3"
+SCORE_SCHEMA_VERSION = "tao-git-crawl-score-v4"
 GIT_CRAWL_ACTIVITY_SCHEMA_VERSION = "git-crawl-activity-v1"
 MOMENTUM_WINDOW_DAYS = 30
 
 SCORE_WEIGHTS = {
     "active_days": 0.35,
-    "credited_file_changes": 0.30,
+    "credited_file_days": 0.30,
     "momentum_30d": 0.15,
     "avg_credited_commits_per_active_day": 0.05,
     "credited_lines_added": 0.10,
@@ -26,7 +26,7 @@ SCORE_WEIGHTS = {
 }
 
 MOMENTUM_30D_WEIGHTS = {
-    "momentum_30d_credited_file_changes": 0.40,
+    "momentum_30d_credited_file_days": 0.40,
     "momentum_30d_active_days": 0.30,
     "momentum_30d_avg_credited_commits_per_active_day": 0.15,
     "momentum_30d_credited_lines_added": 0.15,
@@ -35,7 +35,10 @@ MOMENTUM_30D_WEIGHTS = {
 SCORE_METRIC_MAXIMA = tuple(metric for metric in SCORE_WEIGHTS if metric != "momentum_30d") + tuple(
     MOMENTUM_30D_WEIGHTS
 )
-RAW_METRICS = SCORE_METRIC_MAXIMA + ("repos_crawled",)
+# Reported for context only. Raw file changes count every commit that touches a file, so splitting work into many
+# small commits or rewriting one file repeatedly multiplies them; the score uses file-days instead.
+CONTEXT_METRICS = ("credited_file_changes", "momentum_30d_credited_file_changes", "repos_crawled")
+RAW_METRICS = SCORE_METRIC_MAXIMA + CONTEXT_METRICS
 ZERO_METRICS = {metric: 0.0 for metric in RAW_METRICS}
 
 
@@ -314,6 +317,8 @@ def _credited_metrics_from_outputs(
     return {
         "avg_credited_commits_per_active_day": avg_commits_per_active_day,
         "credited_file_changes": credited_file_changes,
+        # Aggregate totals carry no per-file rows, so file changes are the closest available file-day bound.
+        "credited_file_days": credited_file_changes,
         "active_days": active_days,
         "credited_lines_added": credited_lines_added,
         "repos_crawled": _summary_repo_count_with_credited_activity(summary, has_credited_activity),
@@ -362,6 +367,8 @@ def _credited_metrics_from_activity_json(
     return {
         "avg_credited_commits_per_active_day": credited_commits / active_days if active_days > 0 else 0.0,
         "credited_file_changes": credited_file_changes,
+        # activity.json carries no per-file rows, so file changes are the closest available file-day bound.
+        "credited_file_days": credited_file_changes,
         "active_days": active_days,
         "credited_lines_added": credited_lines_added,
         "repos_crawled": _repo_count_with_credited_activity(summary, has_credited_activity, credited_repo_count),
@@ -417,6 +424,7 @@ def _credited_metrics_from_jsonl(
     history_since, history_until, history_until_inclusive = _history_timestamp_window(summary, None)
     momentum_commit_keys: set[tuple[str, str]] = set()
     momentum_active_days: set[str] = set()
+    credited_commit_days: dict[tuple[str, str], str] = {}
     seen_commits: set[tuple[str, str]] = set()
     with commits_path.open(encoding="utf-8") as handle:
         for line in handle:
@@ -445,6 +453,7 @@ def _credited_metrics_from_jsonl(
             credited_commits += 1
             authored_day = authored_at.date().isoformat()
             active_days.add(authored_day)
+            credited_commit_days[commit_key] = authored_day
             contributors.add(_contributor_key(row))
             if _is_day_in_range(authored_day, momentum_since, momentum_until):
                 momentum_commit_keys.add(commit_key)
@@ -458,6 +467,15 @@ def _credited_metrics_from_jsonl(
         credited_change_stats_by_commit[commit_key]["lines_added"]
         for commit_key in credited_commit_keys
     )
+    # A file counts once per authored day, however many commits touched it that day.
+    file_days: set[tuple[str, str, str]] = set()
+    momentum_file_days: set[tuple[str, str, str]] = set()
+    for commit_key, authored_day in credited_commit_days.items():
+        for path in credited_paths_by_commit.get(commit_key, ()):
+            file_day = (commit_key[0].lower(), path, authored_day)
+            file_days.add(file_day)
+            if commit_key in momentum_commit_keys:
+                momentum_file_days.add(file_day)
     credited_repos = {commit_key[0].lower() for commit_key in credited_commit_keys}
     active_day_count = float(len(active_days))
     has_credited_activity = credited_file_changes > 0 or credited_commits > 0 or credited_lines_added > 0
@@ -480,6 +498,7 @@ def _credited_metrics_from_jsonl(
     return {
         "avg_credited_commits_per_active_day": credited_commits / active_day_count if active_day_count > 0 else 0.0,
         "credited_file_changes": credited_file_changes,
+        "credited_file_days": float(len(file_days)),
         "active_days": active_day_count,
         "credited_lines_added": credited_lines_added,
         "repos_crawled": _repo_count_with_credited_activity(
@@ -493,6 +512,7 @@ def _credited_metrics_from_jsonl(
             momentum_commits / momentum_active_day_count if momentum_active_day_count > 0 else 0.0
         ),
         "momentum_30d_credited_file_changes": momentum_file_changes,
+        "momentum_30d_credited_file_days": float(len(momentum_file_days)),
         "momentum_30d_credited_lines_added": momentum_lines_added,
     }
 
@@ -678,12 +698,13 @@ def _aggregate_momentum_metrics(
             credited_commits / active_days if active_days > 0 else 0.0
         ),
         "momentum_30d_credited_file_changes": credited_file_changes,
+        "momentum_30d_credited_file_days": credited_file_changes,
         "momentum_30d_credited_lines_added": credited_lines_added,
     }
 
 
 def _zero_momentum_metrics() -> dict[str, float]:
-    return {metric: 0.0 for metric in MOMENTUM_30D_WEIGHTS}
+    return {metric: 0.0 for metric in (*MOMENTUM_30D_WEIGHTS, "momentum_30d_credited_file_changes")}
 
 
 def _aggregate_window_is_within_days(
