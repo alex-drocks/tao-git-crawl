@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from tao_git_crawl.models import CreditExclusion
 from tao_git_crawl.overrides import TargetOverride
 from tao_git_crawl.registry import (
     DEFAULT_REGISTRY_REPO_PATH,
@@ -181,3 +182,63 @@ def test_load_registry_local_override(tmp_path):
     registry = load_registry(registry_path=custom)
     assert 99 in registry.overrides
     assert registry.overrides[64].targets[0].url == "https://github.com/chutesai-v2"
+
+
+def _registry_with_override(override: dict) -> str:
+    return json.dumps({"schema_version": DEFAULT_REGISTRY_SCHEMA_VERSION, "overrides": {"23": override}})
+
+
+def test_parse_registry_json_reads_reviewed_credit_exclusions():
+    registry = parse_registry_json(
+        _registry_with_override(
+            {
+                "replace": False,
+                "targets": [],
+                "exclusions": [
+                    {"repo": "acme/app", "path": "/vendor-copy/", "reason": "vendored upstream"},
+                    {"repo": "acme/app", "commit": "ABC1234DEF", "path": "lib/", "reason": "import commit"},
+                ],
+            }
+        )
+    )
+
+    assert registry.overrides[23].exclusions == (
+        CreditExclusion(repo="acme/app", reason="vendored upstream", path="vendor-copy/"),
+        CreditExclusion(repo="acme/app", reason="import commit", path="lib/", commit="abc1234def"),
+    )
+
+
+@pytest.mark.parametrize(
+    ("exclusion", "message"),
+    [
+        ({"repo": "acme/app", "path": "x/"}, "reason"),
+        ({"repo": "acme", "path": "x/", "reason": "r"}, "owner/name"),
+        ({"repo": "https://github.com/acme/app", "path": "x/", "reason": "r"}, "owner/name"),
+        ({"repo": "acme/app", "commit": "not-a-sha", "reason": "r"}, "hex SHA"),
+        ({"repo": "acme/app", "reason": "r"}, "'path', a 'commit', or both"),
+        ({"repo": "acme/app", "path": "../x", "reason": "r"}, r"'\.\.'"),
+        ({"repo": "acme/app", "path": "x/", "reason": "r", "confidence": "high"}, "unsupported keys"),
+        ("acme/app:x/", "must be an object"),
+    ],
+)
+def test_parse_registry_json_rejects_invalid_credit_exclusions(exclusion, message):
+    with pytest.raises(RegistryError, match=message):
+        parse_registry_json(_registry_with_override({"replace": False, "targets": [], "exclusions": [exclusion]}))
+
+
+def test_parse_registry_json_rejects_exclusion_only_override_that_would_replace_targets():
+    exclusion = {"repo": "acme/app", "path": "x/", "reason": "vendored"}
+    with pytest.raises(RegistryError, match="replace to false"):
+        parse_registry_json(_registry_with_override({"targets": [], "exclusions": [exclusion]}))
+
+
+def test_built_in_registry_exclusions_are_reviewed_and_pinned():
+    registry = load_built_in_registry()
+    excluded = {netuid for netuid, override in registry.overrides.items() if override.exclusions}
+    assert {2, 23, 62, 68, 91, 100, 118} <= excluded
+    for override in registry.overrides.values():
+        for exclusion in override.exclusions:
+            assert exclusion.reason
+            assert exclusion.commit is None or len(exclusion.commit) == 40
+        if override.exclusions and not override.targets:
+            assert override.replace is False

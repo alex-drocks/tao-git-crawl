@@ -1451,3 +1451,52 @@ def test_readme_one_off_compose_command_overrides_entrypoint():
 
     assert "docker compose run --rm --entrypoint python scheduler" in readme
     assert "docker compose run --rm scheduler \\\n  python -m tao_git_crawl.cli crawl" not in readme
+
+
+def test_registry_credit_exclusions_hide_rows_from_datasets_and_activity(tmp_path):
+    subnet_dir = tmp_path / "subnets" / "23"
+    crawl_dir = subnet_dir / "crawl"
+    crawl_dir.mkdir(parents=True)
+    (subnet_dir / "subnet-targets.json").write_text(
+        json.dumps(
+            {
+                "targets": [{"kind": "repository", "subnet_name": "Vendored"}],
+                "credit_exclusions": [
+                    {"netuid": 23, "repo": "owner/code", "path": "vendor-copy/", "reason": "vendored upstream"}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (crawl_dir / "summary.json").write_text(
+        json.dumps({"status": "success", "history_since": "2025-01-01", "calendar_span": {"days": 10}}),
+        encoding="utf-8",
+    )
+    _write_jsonl(
+        crawl_dir / "commits.jsonl",
+        [
+            {"repo": "owner/code", "sha": "own", "authored_at": "2025-01-02T00:00:00+00:00", "author_login": "a"},
+            {"repo": "owner/code", "sha": "imp", "authored_at": "2025-01-03T00:00:00+00:00", "author_login": "a"},
+        ],
+    )
+    _write_jsonl(
+        crawl_dir / "file_changes.jsonl",
+        [
+            {"repo": "owner/code", "sha": "own", "path": "src/app.py", "path_class": "source", "additions": 3},
+            {"repo": "owner/code", "sha": "imp", "path": "vendor-copy/a.py", "path_class": "source", "additions": 900},
+        ],
+    )
+
+    file_changes = get_subnet_dataset(tmp_path, 23, "file-changes")
+    commits = get_subnet_dataset(tmp_path, 23, "commits")
+    activity = get_subnet_dataset(tmp_path, 23, "activity")
+
+    assert [row["path"] for row in file_changes["data"]] == ["src/app.py"]
+    assert [row["sha"] for row in commits["data"]] == ["own"]
+    assert activity["totals"]["file_changes"] == 1
+    assert activity["totals"]["lines_added"] == 3
+    assert activity["skipped"]["by_reason"]["registry exclusion"] == {
+        "file_changes": 1,
+        "lines_added": 900,
+        "lines_deleted": 0,
+    }

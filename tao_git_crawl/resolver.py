@@ -6,7 +6,13 @@ from pathlib import Path
 from .atomic_io import write_json_atomic
 from .github_links import extract_github_targets, manual_github_target_from_url
 from .identity_epochs import identity_epoch
-from .models import GITHUB_DISCOVERY_FIELDS, GitHubTarget, SubnetIdentityRecord, UnresolvedSubnetRecord
+from .models import (
+    GITHUB_DISCOVERY_FIELDS,
+    CreditExclusion,
+    GitHubTarget,
+    SubnetIdentityRecord,
+    UnresolvedSubnetRecord,
+)
 from .overrides import EMPTY_RESOLVER_CONFIG, ResolverConfig
 
 RESOLUTION_SCHEMA_VERSION = "tao-git-crawl-resolution-v3"
@@ -20,6 +26,7 @@ class ResolutionDocument:
     schema_version: str = RESOLUTION_SCHEMA_VERSION
     fallback_targets: list[GitHubTarget] = field(default_factory=list)
     identity_epochs: dict[int, str] = field(default_factory=dict)
+    credit_exclusions: dict[int, tuple[CreditExclusion, ...]] = field(default_factory=dict)
 
     @property
     def repository_targets(self) -> list[GitHubTarget]:
@@ -66,10 +73,16 @@ class ResolutionDocument:
             identity_epochs=(
                 {netuid: self.identity_epochs[netuid]} if netuid in self.identity_epochs else {}
             ),
+            credit_exclusions=(
+                {netuid: self.credit_exclusions[netuid]} if netuid in self.credit_exclusions else {}
+            ),
         )
 
     def identity_epoch_for_netuid(self, netuid: int) -> str | None:
         return self.identity_epochs.get(netuid)
+
+    def credit_exclusions_for_netuid(self, netuid: int) -> tuple[CreditExclusion, ...]:
+        return self.credit_exclusions.get(netuid, ())
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -82,6 +95,11 @@ class ResolutionDocument:
             },
             "unresolved": [item.to_dict() for item in self.unresolved],
             "git_crawl_repository_manifest": self.git_crawl_repository_manifest,
+            "credit_exclusions": [
+                {"netuid": netuid, **exclusion.to_dict()}
+                for netuid, exclusions in sorted(self.credit_exclusions.items())
+                for exclusion in exclusions
+            ],
         }
 
 
@@ -96,8 +114,12 @@ def resolve_subnets(
     fallback_targets: list[GitHubTarget] = []
     unresolved: list[UnresolvedSubnetRecord] = []
     identity_epochs: dict[int, str] = {}
+    credit_exclusions: dict[int, tuple[CreditExclusion, ...]] = {}
     for record in records:
         identity_epochs[record.netuid] = identity_epoch(record).epoch_id
+        override = resolver_config.subnet_overrides.get(record.netuid)
+        if override is not None and override.exclusions:
+            credit_exclusions[record.netuid] = override.exclusions
         identity_targets = extract_github_targets(record)
         identity_targets = _apply_repository_policy(identity_targets, resolver_config.default_repository_policy)
         identity_targets = _dedupe_targets(identity_targets)
@@ -129,6 +151,7 @@ def resolve_subnets(
         unresolved=unresolved,
         fallback_targets=fallback_targets,
         identity_epochs=identity_epochs,
+        credit_exclusions=credit_exclusions,
     )
 
 

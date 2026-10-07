@@ -64,6 +64,23 @@ class GitHubTarget:
 
 
 @dataclass(frozen=True)
+class CreditExclusion:
+    """A reviewed decision that a repository path or commit is not the subnet team's own work.
+
+    ``path`` excludes a file or directory prefix in every commit; ``commit`` excludes one commit by SHA prefix. When
+    both are set, only that path within that commit is excluded.
+    """
+
+    repo: str
+    reason: str
+    path: str | None = None
+    commit: str | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return {key: value for key, value in asdict(self).items() if value is not None}
+
+
+@dataclass(frozen=True)
 class UnresolvedSubnetRecord:
     netuid: int
     subnet_name: str

@@ -9,6 +9,7 @@ from typing import Any
 from .activity_filter import is_credited_change
 from .atomic_io import write_json_atomic
 from .attribution import target_attribution_rejection, targets_attribution_rejection
+from .models import CreditExclusion
 from .resolver import ResolutionDocument
 
 SCORE_SCHEMA_VERSION = "tao-git-crawl-score-v3"
@@ -258,16 +259,25 @@ def _score_input_for_netuid(
             raw_metrics=dict(ZERO_METRICS),
         )
 
-    metrics = _credited_metrics_from_outputs(subnet_dir, summary)
+    metrics = _credited_metrics_from_outputs(
+        subnet_dir,
+        summary,
+        exclusions=subnet_document.credit_exclusions_for_netuid(netuid),
+    )
     return SubnetScoreInput(netuid=netuid, status="scored", raw_metrics=metrics)
 
 
-def _credited_metrics_from_outputs(subnet_dir: Path, summary: dict[str, object]) -> dict[str, float]:
-    jsonl_metrics = _credited_metrics_from_jsonl(subnet_dir / "crawl", summary)
+def _credited_metrics_from_outputs(
+    subnet_dir: Path,
+    summary: dict[str, object],
+    *,
+    exclusions: tuple[CreditExclusion, ...] = (),
+) -> dict[str, float]:
+    jsonl_metrics = _credited_metrics_from_jsonl(subnet_dir / "crawl", summary, exclusions=exclusions)
     if jsonl_metrics is not None:
         return jsonl_metrics
 
-    activity_metrics = _credited_metrics_from_activity_json(subnet_dir / "crawl", summary)
+    activity_metrics = _credited_metrics_from_activity_json(subnet_dir / "crawl", summary, exclusions=exclusions)
     if activity_metrics is not None:
         return activity_metrics
 
@@ -312,7 +322,12 @@ def _credited_metrics_from_outputs(subnet_dir: Path, summary: dict[str, object])
     }
 
 
-def _credited_metrics_from_activity_json(crawl_dir: Path, summary: dict[str, object]) -> dict[str, float] | None:
+def _credited_metrics_from_activity_json(
+    crawl_dir: Path,
+    summary: dict[str, object],
+    *,
+    exclusions: tuple[CreditExclusion, ...] = (),
+) -> dict[str, float] | None:
     activity = _read_json_optional(crawl_dir / "activity.json")
     if not isinstance(activity, dict) or activity.get("schema_version") != GIT_CRAWL_ACTIVITY_SCHEMA_VERSION:
         return None
@@ -333,7 +348,7 @@ def _credited_metrics_from_activity_json(crawl_dir: Path, summary: dict[str, obj
             distinct_contributors,
         )
     )
-    credited_repo_count = _credited_repo_count_from_file_changes(crawl_dir)
+    credited_repo_count = _credited_repo_count_from_file_changes(crawl_dir, exclusions=exclusions)
     if credited_repo_count is None:
         credited_repo_count = _credited_repo_count_from_repo_days(crawl_dir)
     momentum_metrics = _aggregate_momentum_metrics(
@@ -355,7 +370,12 @@ def _credited_metrics_from_activity_json(crawl_dir: Path, summary: dict[str, obj
     }
 
 
-def _credited_metrics_from_jsonl(crawl_dir: Path, summary: dict[str, object]) -> dict[str, float] | None:
+def _credited_metrics_from_jsonl(
+    crawl_dir: Path,
+    summary: dict[str, object],
+    *,
+    exclusions: tuple[CreditExclusion, ...] = (),
+) -> dict[str, float] | None:
     commits_path = crawl_dir / "commits.jsonl"
     file_changes_path = crawl_dir / "file_changes.jsonl"
     if not commits_path.exists() or not file_changes_path.exists():
@@ -369,7 +389,7 @@ def _credited_metrics_from_jsonl(crawl_dir: Path, summary: dict[str, object]) ->
             if not line.strip():
                 continue
             row = json.loads(line)
-            if not isinstance(row, dict) or not is_credited_change(row):
+            if not isinstance(row, dict) or not is_credited_change(row, exclusions):
                 continue
             commit_key = _commit_key(row)
             path = _file_change_path(row)
@@ -808,7 +828,11 @@ def _days_between_dates(since: str | None, until: str | None) -> int | None:
     return days if days >= 0 else None
 
 
-def _credited_repo_count_from_file_changes(crawl_dir: Path) -> float | None:
+def _credited_repo_count_from_file_changes(
+    crawl_dir: Path,
+    *,
+    exclusions: tuple[CreditExclusion, ...] = (),
+) -> float | None:
     file_changes_path = crawl_dir / "file_changes.jsonl"
     if not file_changes_path.exists():
         return None
@@ -819,7 +843,7 @@ def _credited_repo_count_from_file_changes(crawl_dir: Path) -> float | None:
             if not line.strip():
                 continue
             row = json.loads(line)
-            if not isinstance(row, dict) or not is_credited_change(row):
+            if not isinstance(row, dict) or not is_credited_change(row, exclusions):
                 continue
             repo = _text_key(row.get("repo")).lower()
             if repo:

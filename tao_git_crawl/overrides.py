@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Literal
 
-from .models import TargetKind
+from .models import CreditExclusion, TargetKind
 
 RepositoryPolicy = Literal["repository", "owner"]
 
 VALID_REPOSITORY_POLICIES = {"repository", "owner"}
 VALID_TARGET_KINDS = {"repository", "owner"}
+CREDIT_EXCLUSION_KEYS = {"repo", "path", "commit", "reason"}
+_REPOSITORY_FULL_NAME_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9._-]+$")
+_COMMIT_SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 
 
 class ResolverConfigError(ValueError):
@@ -34,6 +38,14 @@ class TargetOverride:
 class SubnetOverride:
     targets: tuple[TargetOverride, ...] = ()
     replace: bool = True
+    exclusions: tuple[CreditExclusion, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.exclusions and self.replace and not self.targets:
+            raise ResolverConfigError(
+                "a subnet override with exclusions but no targets must set replace to false so the subnet keeps "
+                "its on-chain targets"
+            )
 
 
 @dataclass(frozen=True)
@@ -123,10 +135,46 @@ def _parse_subnet_override(value: object) -> SubnetOverride:
     raw_targets = value.get("targets", [])
     if not isinstance(raw_targets, list | tuple):
         raise ResolverConfigError("subnet override 'targets' must be a list")
+    raw_exclusions = value.get("exclusions", [])
+    if not isinstance(raw_exclusions, list | tuple):
+        raise ResolverConfigError("subnet override 'exclusions' must be a list")
     return SubnetOverride(
         targets=tuple(_parse_target_override(item) for item in raw_targets),
         replace=replace,
+        exclusions=tuple(parse_credit_exclusion(item) for item in raw_exclusions),
     )
+
+
+def parse_credit_exclusion(value: object) -> CreditExclusion:
+    """Validate one reviewed credit exclusion: an exact repository plus a path, a commit, or both."""
+    if isinstance(value, CreditExclusion):
+        value = value.to_dict()
+    if not isinstance(value, dict):
+        raise ResolverConfigError("credit exclusion must be an object")
+    unsupported = sorted(set(value) - CREDIT_EXCLUSION_KEYS)
+    if unsupported:
+        raise ResolverConfigError(f"credit exclusion has unsupported keys: {', '.join(unsupported)}")
+    repo = value.get("repo")
+    if not isinstance(repo, str) or not _REPOSITORY_FULL_NAME_RE.match(repo.strip()):
+        raise ResolverConfigError("credit exclusion 'repo' must be an exact 'owner/name' repository")
+    reason = value.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        raise ResolverConfigError("credit exclusion 'reason' must explain why the content is not the team's work")
+    path = value.get("path")
+    if path is not None:
+        if not isinstance(path, str) or not path.strip().strip("/"):
+            raise ResolverConfigError("credit exclusion 'path' must be a non-empty repository path")
+        path = path.strip().lstrip("/")
+        if ".." in path.split("/"):
+            raise ResolverConfigError("credit exclusion 'path' must not contain '..'")
+    commit = value.get("commit")
+    if commit is not None:
+        if not isinstance(commit, str) or not _COMMIT_SHA_RE.match(commit.strip()):
+            raise ResolverConfigError("credit exclusion 'commit' must be a 7-40 character hex SHA")
+        commit = commit.strip().lower()
+    if path is None and commit is None:
+        raise ResolverConfigError("credit exclusion needs a 'path', a 'commit', or both")
+    return CreditExclusion(repo=repo.strip(), reason=reason.strip(), path=path, commit=commit)
 
 
 def _parse_target_override(value: object) -> TargetOverride:

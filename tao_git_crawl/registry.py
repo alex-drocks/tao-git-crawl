@@ -6,7 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .overrides import ResolverConfig, SubnetOverride, TargetOverride
+from .models import CreditExclusion
+from .overrides import ResolverConfig, ResolverConfigError, SubnetOverride, TargetOverride, parse_credit_exclusion
 
 DEFAULT_REGISTRY_SCHEMA_VERSION = "tao-git-crawl-registry-v2"
 DEFAULT_REGISTRY_CACHE_TTL_SECONDS = 3600  # 1 hour
@@ -137,7 +138,19 @@ def _parse_registry_subnet_override(netuid_key: str, value: Any) -> SubnetOverri
             raise
         except Exception as exc:
             raise RegistryError(f"override for netuid {netuid_key}: target at index {idx}: {exc}") from exc
-    return SubnetOverride(targets=tuple(targets), replace=replace)
+    raw_exclusions = value.get("exclusions", [])
+    if not isinstance(raw_exclusions, list):
+        raise RegistryError(f"override for netuid {netuid_key}: 'exclusions' must be a list")
+    exclusions: list[CreditExclusion] = []
+    for idx, item in enumerate(raw_exclusions):
+        try:
+            exclusions.append(parse_credit_exclusion(item))
+        except ResolverConfigError as exc:
+            raise RegistryError(f"override for netuid {netuid_key}: exclusion at index {idx}: {exc}") from exc
+    try:
+        return SubnetOverride(targets=tuple(targets), replace=replace, exclusions=tuple(exclusions))
+    except ResolverConfigError as exc:
+        raise RegistryError(f"override for netuid {netuid_key}: {exc}") from exc
 
 
 def _parse_registry_target_override(netuid_key: str, idx: int, item: Any) -> TargetOverride:

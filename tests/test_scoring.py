@@ -1,7 +1,7 @@
 import json
 from datetime import date
 
-from tao_git_crawl.models import SubnetIdentityRecord
+from tao_git_crawl.models import CreditExclusion, SubnetIdentityRecord
 from tao_git_crawl.overrides import ResolverConfig, SubnetOverride, TargetOverride
 from tao_git_crawl.resolver import resolve_subnets
 from tao_git_crawl.scoring import build_score_document, write_score_outputs
@@ -1288,3 +1288,42 @@ def test_score_active_days_match_git_crawl_utc_day_convention(tmp_path):
 
     assert score["raw_metrics"]["active_days"] == 1.0
     assert score["raw_metrics"]["avg_credited_commits_per_active_day"] == 2.0
+
+
+def test_build_score_document_skips_rows_covered_by_registry_credit_exclusions(tmp_path):
+    exclusions = (
+        CreditExclusion(repo="acme/repo", reason="vendored upstream project", path="vendor-copy/"),
+        CreditExclusion(repo="acme/repo", reason="import commit", commit="import1"),
+    )
+    document = resolve_subnets(
+        [SubnetIdentityRecord(netuid=23, subnet_name="Vendored", github_repo="https://github.com/acme/repo")],
+        target_label="bittensor-subnets",
+        config=ResolverConfig(subnet_overrides={23: SubnetOverride(replace=False, exclusions=exclusions)}),
+    )
+    crawl_dir = _write_summary(tmp_path, 23, repos_crawled=1, file_changes=0, lines_added=0)
+    _write_commits(
+        crawl_dir,
+        [
+            {"sha": "import1", "authored_at": "2026-01-01T00:00:00+00:00", "author_login": "alice"},
+            {"sha": "own1", "authored_at": "2026-01-02T00:00:00+00:00", "author_login": "alice"},
+            {"sha": "own2", "authored_at": "2026-01-03T00:00:00+00:00", "author_login": "bob"},
+        ],
+    )
+    rows = [
+        {"repo": "acme/repo", "sha": "import1", "path": f"src/imported_{index}.py", "additions": 1000}
+        for index in range(50)
+    ]
+    rows += [
+        {"repo": "acme/repo", "sha": "own1", "path": "src/app.py", "additions": 10},
+        {"repo": "acme/repo", "sha": "own1", "path": "vendor-copy/patched.py", "additions": 500},
+        {"repo": "acme/repo", "sha": "own2", "path": "vendor-copy/only.py", "additions": 500},
+    ]
+    _write_file_changes(crawl_dir, [{"path_class": "source", "is_binary": False, **row} for row in rows])
+
+    score = build_score_document(document, tmp_path)["scores"][0]
+
+    assert score["status"] == "scored"
+    assert score["raw_metrics"]["credited_file_changes"] == 1.0
+    assert score["raw_metrics"]["credited_lines_added"] == 10.0
+    assert score["raw_metrics"]["active_days"] == 1.0
+    assert score["raw_metrics"]["distinct_contributors"] == 1.0
