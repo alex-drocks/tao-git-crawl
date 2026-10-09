@@ -178,6 +178,44 @@
       ],
       "note": "Synth repo transferred from mode-network/synth-subnet to the synthdata.co org; on-chain github_repo still names the old URL"
     },
+    "51": {
+      "replace": true,
+      "targets": [
+        {
+          "kind": "repository",
+          "url": "https://github.com/Datura-ai/lium-io"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/Datura-ai/lium"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/Datura-ai/lium-skill"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/Datura-ai/computenet-docker-images"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/Datura-ai/celium-collateral-contracts"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/Datura-ai/lium-localmaxxing"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/Datura-ai/shadeform-sdk"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/Datura-ai/sn51-auditor"
+        }
+      ],
+      "note": "Lium curated repo set; Datura-ai previously hosted Desearch (SN22), so do not expand all Datura-ai repos"
+    },
     "61": {
       "replace": true,
       "targets": [
