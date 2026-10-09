@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable
+from functools import lru_cache
 
 from git_crawl.path_classification import classify_path
 
@@ -172,13 +173,21 @@ def noise_change_class(row: dict[str, object], exclusions: Iterable[CreditExclus
         return "binary"
     if row.get("is_generated_like") is True:
         return "generated"
-    path = _row_path(row)
+    path_noise_class = _path_noise_class(_row_path(row))
+    if path_noise_class is not None:
+        return path_noise_class
+    if matching_exclusion(row, exclusions) is not None:
+        return REGISTRY_EXCLUSION_CLASS
+    return None
+
+
+@lru_cache(maxsize=65536)
+def _path_noise_class(path: str) -> str | None:
+    """Classify noise that depends only on the path; the API checks each file-change row several times."""
     if _is_generated_report(path):
         return "generated"
     if _is_artifact_or_data_path(path) or _is_evidence_capture(path):
         return "artifact/data"
-    if matching_exclusion(row, exclusions) is not None:
-        return REGISTRY_EXCLUSION_CLASS
     return None
 
 
@@ -289,8 +298,7 @@ def _basename(path: str) -> str:
 
 
 def _has_any_suffix(path: str, suffixes: tuple[str, ...]) -> bool:
-    normalized = _normalized_path(path)
-    return any(normalized.endswith(suffix) for suffix in suffixes)
+    return _normalized_path(path).endswith(suffixes)
 
 
 def _is_generated_report(path: str) -> bool:

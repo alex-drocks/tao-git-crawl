@@ -13,7 +13,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from math import ceil
 from pathlib import Path
-from threading import Lock
+from threading import Lock, Thread
 from urllib.parse import parse_qs, unquote, urlparse
 
 from .activity_filter import (
@@ -36,6 +36,7 @@ DEFAULT_RATE_LIMIT_WINDOW_SECONDS = 60
 ACTIVITY_SCHEMA_VERSION = "tao-git-crawl-activity-v2"
 SUBNET_SUMMARY_SCHEMA_VERSION = "tao-git-crawl-subnet-summary-v2"
 GIT_CRAWL_ACTIVITY_SCHEMA_VERSION = "git-crawl-activity-v1"
+OVERVIEW_CACHE_WARM_SECONDS = 60
 
 JSON_DATASETS = {
     "summary": "summary.json",
@@ -315,11 +316,22 @@ def serve(
     )
     handler_class = _make_handler(Path(output_dir), cors_origin=cors_origin, rate_limiter=rate_limiter)
     server = ThreadingHTTPServer((host, port), handler_class)
+    Thread(target=_warm_subnet_overviews, args=(Path(output_dir),), name="overview-cache-warmer", daemon=True).start()
     print(f"tao-git-crawl API serving {Path(output_dir)} on http://{host}:{port}", flush=True)
     try:
         server.serve_forever()
     finally:
         server.server_close()
+
+
+def _warm_subnet_overviews(output_dir: Path) -> None:
+    """Rebuild changed subnet overviews in the background so requests after a crawl stay fast."""
+    while True:
+        try:
+            list_subnets(output_dir)
+        except Exception as exc:  # noqa: BLE001 - a warming failure must not stop the server
+            print(f"subnet overview cache warm failed: {exc}", file=sys.stderr, flush=True)
+        time.sleep(OVERVIEW_CACHE_WARM_SECONDS)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -498,7 +510,51 @@ def _count_subnet_dirs(output_dir: Path) -> int:
         return 0
 
 
+_OVERVIEW_CACHE: dict[Path, tuple[object, dict[str, object]]] = {}
+_OVERVIEW_CACHE_LOCK = Lock()
+
+
 def _subnet_overview(subnet_dir: Path, *, report_state: ApiCrawlReportState | None = None) -> dict[str, object]:
+    """Return a subnet's overview, rebuilding it only after its output files or crawl status change.
+
+    Building scans every file-change row, so an uncached ``/api/subnets`` takes seconds per large subnet. Callers get
+    a shallow copy and may add top-level keys.
+    """
+    key = _subnet_overview_cache_key(subnet_dir, report_state)
+    with _OVERVIEW_CACHE_LOCK:
+        cached = _OVERVIEW_CACHE.get(subnet_dir)
+    if cached is not None and cached[0] == key:
+        return dict(cached[1])
+    payload = _build_subnet_overview(subnet_dir, report_state=report_state)
+    with _OVERVIEW_CACHE_LOCK:
+        _OVERVIEW_CACHE[subnet_dir] = (key, payload)
+    return dict(payload)
+
+
+def _subnet_overview_cache_key(subnet_dir: Path, report_state: ApiCrawlReportState | None) -> object:
+    netuid = int(subnet_dir.name)
+    return (
+        _is_current_crawl_output(report_state, netuid),
+        json.dumps(_current_crawl_payload(report_state, netuid), sort_keys=True),
+        (subnet_dir.parents[1] / IDENTITY_RECONCILIATION_FILENAME).exists(),
+        _directory_fingerprint(subnet_dir),
+        _directory_fingerprint(subnet_dir / "crawl"),
+    )
+
+
+def _directory_fingerprint(directory: Path) -> tuple[tuple[str, int, int, int], ...]:
+    """Identify the files directly inside ``directory``; atomic replacement changes the inode."""
+    try:
+        with os.scandir(directory) as entries:
+            stats = [(entry.name, entry.stat()) for entry in entries if entry.is_file()]
+    except OSError:
+        return ()
+    return tuple(sorted((name, stat.st_ino, stat.st_mtime_ns, stat.st_size) for name, stat in stats))
+
+
+def _build_subnet_overview(
+    subnet_dir: Path, *, report_state: ApiCrawlReportState | None = None
+) -> dict[str, object]:
     netuid = int(subnet_dir.name)
     targets_doc = _read_json_optional(subnet_dir / "subnet-targets.json")
     unresolved = _read_json_optional(subnet_dir / "unresolved.json") or []

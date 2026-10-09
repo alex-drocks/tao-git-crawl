@@ -1507,3 +1507,31 @@ def test_registry_credit_exclusions_hide_rows_from_datasets_and_activity(tmp_pat
         "lines_added": 900,
         "lines_deleted": 0,
     }
+
+
+def test_list_subnets_reuses_overviews_until_subnet_output_changes(tmp_path, monkeypatch):
+    from tao_git_crawl import api
+
+    subnet_dir = tmp_path / "subnets" / "7"
+    (subnet_dir / "crawl").mkdir(parents=True)
+    (subnet_dir / "subnet-targets.json").write_text(
+        json.dumps({"targets": [{"kind": "owner", "subnet_name": "Cached"}]}), encoding="utf-8"
+    )
+    (subnet_dir / "score.json").write_text(json.dumps({"score": 10.0}), encoding="utf-8")
+    builds = []
+    build = api._build_subnet_overview
+    monkeypatch.setattr(
+        api, "_build_subnet_overview", lambda path, **kwargs: builds.append(path) or build(path, **kwargs)
+    )
+
+    assert list_subnets(tmp_path)[0]["score"] == {"score": 10.0}
+    get_subnet_detail(tmp_path, 7)["files"].append("caller-owned")
+    assert "files" not in list_subnets(tmp_path)[0]
+    assert len(builds) == 1
+
+    replacement = subnet_dir / "score.json.tmp"
+    replacement.write_text(json.dumps({"score": 20.0}), encoding="utf-8")
+    replacement.replace(subnet_dir / "score.json")
+
+    assert list_subnets(tmp_path)[0]["score"] == {"score": 20.0}
+    assert len(builds) == 2
