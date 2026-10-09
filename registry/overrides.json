@@ -1,6 +1,6 @@
 {
   "schema_version": "tao-git-crawl-registry-v2",
-  "updated_at": "2026-10-07T00:00:00Z",
+  "updated_at": "2026-10-09T00:00:00Z",
   "overrides": {
     "2": {
       "replace": true,
@@ -145,6 +145,28 @@
         }
       ],
       "note": "TrishoolAI curated repo set"
+    },
+    "28": {
+      "replace": true,
+      "targets": [
+        {
+          "kind": "repository",
+          "url": "https://github.com/taostat/gm-miner"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/taostat/gm-validator"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/taostat/gm-mcp"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/taostat/saygm-cookbook"
+        }
+      ],
+      "note": "taostat GM subnet - curated gm-* and saygm-* repo set"
     },
     "50": {
       "replace": true,
