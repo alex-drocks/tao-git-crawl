@@ -10,6 +10,19 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 Use this section for changes that have merged but have not been released yet.
 Move entries into a dated version section when cutting the next tag.
 
+## [2.4.0] - 2026-10-09
+
+### Added
+
+- Crawl SN28 SayGM across the taostat `gm-miner`, `gm-validator`, `gm-mcp`, and `saygm-cookbook` repositories
+  instead of only its on-chain `gm-miner` repository. Exact repository targets keep taostat's unrelated repositories
+  out of the subnet's score.
+- Crawl SN51 Lium across its own `Datura-ai` repositories: `lium-io`, the `lium` CLI, `computenet-docker-images`,
+  `lium-skill`, `shadeform-sdk`, `celium-collateral-contracts`, `lium-localmaxxing`, and `sn51-auditor`. Exact
+  repository targets keep forks and former Desearch (SN22) work under `Datura-ai` out of the subnet's score.
+
+## [2.3.0] - 2026-10-07
+
 ### Added
 
 - Crawl SN66 Conjectures at the `conjectures-io` owner level, like SN64 Chutes, so its miner, task, and contribution
@@ -273,7 +286,9 @@ Move entries into a dated version section when cutting the next tag.
 
 - Keep local runtime state directories out of git and Docker build contexts.
 
-[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v2.2.0...HEAD
+[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v2.4.0...HEAD
+[2.4.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v2.3.0...v2.4.0
+[2.3.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v1.0.1...v2.0.0
