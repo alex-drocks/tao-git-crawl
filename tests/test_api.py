@@ -1535,3 +1535,28 @@ def test_list_subnets_reuses_overviews_until_subnet_output_changes(tmp_path, mon
 
     assert list_subnets(tmp_path)[0]["score"] == {"score": 20.0}
     assert len(builds) == 2
+
+
+def test_handler_logs_one_line_when_client_disconnects(tmp_path, capsys):
+    from tao_git_crawl.api import _make_handler
+
+    class ClosedSocket:
+        def write(self, _body):
+            raise BrokenPipeError(32, "Broken pipe")
+
+    handler_class = _make_handler(
+        tmp_path, cors_origin="*", rate_limiter=SlidingWindowRateLimiter(max_requests=0, window_seconds=0)
+    )
+    handler = handler_class.__new__(handler_class)
+    handler.wfile = ClosedSocket()
+    handler.client_address = ("127.0.0.1", 1)
+    handler.requestline = "GET /api/subnets HTTP/1.1"
+    handler.request_version = "HTTP/1.1"
+    handler.path = "/api/subnets"
+    handler._headers_buffer = []
+
+    handler._send_json(HTTPStatus.OK, {"data": []})
+
+    assert capsys.readouterr().err.strip().endswith(
+        '"GET /api/subnets HTTP/1.1" client disconnected before the response was sent'
+    )

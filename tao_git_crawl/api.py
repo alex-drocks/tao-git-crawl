@@ -396,10 +396,14 @@ def _make_handler(
             extra_headers: dict[str, str] | None = None,
         ) -> None:
             body = json.dumps(payload, sort_keys=True).encode("utf-8")
-            self.send_response(status)
-            self._send_headers(content_length=len(body), extra_headers=extra_headers)
-            self.end_headers()
-            self.wfile.write(body)
+            try:
+                self.send_response(status)
+                self._send_headers(content_length=len(body), extra_headers=extra_headers)
+                self.end_headers()
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                # The client gave up (for example on its own timeout); nothing is left to send.
+                self.log_message('"%s" client disconnected before the response was sent', self.requestline)
 
         def _send_headers(
             self,

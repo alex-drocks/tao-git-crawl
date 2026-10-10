@@ -15,6 +15,7 @@ Move entries into a dated version section when cutting the next tag.
 - Serve `/api/subnets` from a per-subnet cache that rebuilds a subnet only after its output files or crawl status
   change. The endpoint had grown past 15 seconds, the TaoFlows fetch timeout. Uncached builds also take about half as
   long: path-only noise checks are memoized and use one suffix test.
+- Log one line instead of a `BrokenPipeError` traceback when an API client disconnects before its response is sent.
 
 ## [2.4.0] - 2026-10-09
 
