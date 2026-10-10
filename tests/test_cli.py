@@ -6,9 +6,12 @@ import pytest
 from git_crawl.metrics import CommitChangesFiltrationLevel
 
 from tao_git_crawl.cli import EXIT_SUBNET_FAILURES, main
+from tao_git_crawl.registry import Registry
 
 
-def test_resolve_cli_writes_resolution_manifest_owner_targets_and_unresolved(tmp_path, capsys):
+def test_resolve_cli_writes_resolution_manifest_owner_targets_and_unresolved(tmp_path, capsys, monkeypatch):
+    # This synthetic identity fixture should not depend on real subnet registry entries.
+    monkeypatch.setattr("tao_git_crawl.cli.load_registry", lambda **kwargs: Registry.empty())
     input_path = tmp_path / "subnets.json"
     input_path.write_text(
         json.dumps(
