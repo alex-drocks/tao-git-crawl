@@ -13,7 +13,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from math import ceil
 from pathlib import Path
-from threading import Lock, Thread
+from threading import Lock
 from urllib.parse import parse_qs, unquote, urlparse
 
 from .activity_filter import (
@@ -36,7 +36,6 @@ DEFAULT_RATE_LIMIT_WINDOW_SECONDS = 60
 ACTIVITY_SCHEMA_VERSION = "tao-git-crawl-activity-v2"
 SUBNET_SUMMARY_SCHEMA_VERSION = "tao-git-crawl-subnet-summary-v2"
 GIT_CRAWL_ACTIVITY_SCHEMA_VERSION = "git-crawl-activity-v1"
-OVERVIEW_CACHE_WARM_SECONDS = 60
 
 JSON_DATASETS = {
     "summary": "summary.json",
@@ -316,22 +315,11 @@ def serve(
     )
     handler_class = _make_handler(Path(output_dir), cors_origin=cors_origin, rate_limiter=rate_limiter)
     server = ThreadingHTTPServer((host, port), handler_class)
-    Thread(target=_warm_subnet_overviews, args=(Path(output_dir),), name="overview-cache-warmer", daemon=True).start()
     print(f"tao-git-crawl API serving {Path(output_dir)} on http://{host}:{port}", flush=True)
     try:
         server.serve_forever()
     finally:
         server.server_close()
-
-
-def _warm_subnet_overviews(output_dir: Path) -> None:
-    """Rebuild changed subnet overviews in the background so requests after a crawl stay fast."""
-    while True:
-        try:
-            list_subnets(output_dir)
-        except Exception as exc:  # noqa: BLE001 - a warming failure must not stop the server
-            print(f"subnet overview cache warm failed: {exc}", file=sys.stderr, flush=True)
-        time.sleep(OVERVIEW_CACHE_WARM_SECONDS)
 
 
 def main(argv: list[str] | None = None) -> int:
