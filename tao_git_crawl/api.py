@@ -396,10 +396,14 @@ def _make_handler(
             extra_headers: dict[str, str] | None = None,
         ) -> None:
             body = json.dumps(payload, sort_keys=True).encode("utf-8")
-            self.send_response(status)
-            self._send_headers(content_length=len(body), extra_headers=extra_headers)
-            self.end_headers()
-            self.wfile.write(body)
+            try:
+                self.send_response(status)
+                self._send_headers(content_length=len(body), extra_headers=extra_headers)
+                self.end_headers()
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                # The client gave up (for example on its own timeout); nothing is left to send.
+                self.log_message('"%s" client disconnected before the response was sent', self.requestline)
 
         def _send_headers(
             self,
@@ -498,7 +502,51 @@ def _count_subnet_dirs(output_dir: Path) -> int:
         return 0
 
 
+_OVERVIEW_CACHE: dict[Path, tuple[object, dict[str, object]]] = {}
+_OVERVIEW_CACHE_LOCK = Lock()
+
+
 def _subnet_overview(subnet_dir: Path, *, report_state: ApiCrawlReportState | None = None) -> dict[str, object]:
+    """Return a subnet's overview, rebuilding it only after its output files or crawl status change.
+
+    Building scans every file-change row, so an uncached ``/api/subnets`` takes seconds per large subnet. Callers get
+    a shallow copy and may add top-level keys.
+    """
+    key = _subnet_overview_cache_key(subnet_dir, report_state)
+    with _OVERVIEW_CACHE_LOCK:
+        cached = _OVERVIEW_CACHE.get(subnet_dir)
+    if cached is not None and cached[0] == key:
+        return dict(cached[1])
+    payload = _build_subnet_overview(subnet_dir, report_state=report_state)
+    with _OVERVIEW_CACHE_LOCK:
+        _OVERVIEW_CACHE[subnet_dir] = (key, payload)
+    return dict(payload)
+
+
+def _subnet_overview_cache_key(subnet_dir: Path, report_state: ApiCrawlReportState | None) -> object:
+    netuid = int(subnet_dir.name)
+    return (
+        _is_current_crawl_output(report_state, netuid),
+        json.dumps(_current_crawl_payload(report_state, netuid), sort_keys=True),
+        (subnet_dir.parents[1] / IDENTITY_RECONCILIATION_FILENAME).exists(),
+        _directory_fingerprint(subnet_dir),
+        _directory_fingerprint(subnet_dir / "crawl"),
+    )
+
+
+def _directory_fingerprint(directory: Path) -> tuple[tuple[str, int, int, int], ...]:
+    """Identify the files directly inside ``directory``; atomic replacement changes the inode."""
+    try:
+        with os.scandir(directory) as entries:
+            stats = [(entry.name, entry.stat()) for entry in entries if entry.is_file()]
+    except OSError:
+        return ()
+    return tuple(sorted((name, stat.st_ino, stat.st_mtime_ns, stat.st_size) for name, stat in stats))
+
+
+def _build_subnet_overview(
+    subnet_dir: Path, *, report_state: ApiCrawlReportState | None = None
+) -> dict[str, object]:
     netuid = int(subnet_dir.name)
     targets_doc = _read_json_optional(subnet_dir / "subnet-targets.json")
     unresolved = _read_json_optional(subnet_dir / "unresolved.json") or []

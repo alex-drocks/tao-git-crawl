@@ -1507,3 +1507,56 @@ def test_registry_credit_exclusions_hide_rows_from_datasets_and_activity(tmp_pat
         "lines_added": 900,
         "lines_deleted": 0,
     }
+
+
+def test_list_subnets_reuses_overviews_until_subnet_output_changes(tmp_path, monkeypatch):
+    from tao_git_crawl import api
+
+    subnet_dir = tmp_path / "subnets" / "7"
+    (subnet_dir / "crawl").mkdir(parents=True)
+    (subnet_dir / "subnet-targets.json").write_text(
+        json.dumps({"targets": [{"kind": "owner", "subnet_name": "Cached"}]}), encoding="utf-8"
+    )
+    (subnet_dir / "score.json").write_text(json.dumps({"score": 10.0}), encoding="utf-8")
+    builds = []
+    build = api._build_subnet_overview
+    monkeypatch.setattr(
+        api, "_build_subnet_overview", lambda path, **kwargs: builds.append(path) or build(path, **kwargs)
+    )
+
+    assert list_subnets(tmp_path)[0]["score"] == {"score": 10.0}
+    get_subnet_detail(tmp_path, 7)["files"].append("caller-owned")
+    assert "files" not in list_subnets(tmp_path)[0]
+    assert len(builds) == 1
+
+    replacement = subnet_dir / "score.json.tmp"
+    replacement.write_text(json.dumps({"score": 20.0}), encoding="utf-8")
+    replacement.replace(subnet_dir / "score.json")
+
+    assert list_subnets(tmp_path)[0]["score"] == {"score": 20.0}
+    assert len(builds) == 2
+
+
+def test_handler_logs_one_line_when_client_disconnects(tmp_path, capsys):
+    from tao_git_crawl.api import _make_handler
+
+    class ClosedSocket:
+        def write(self, _body):
+            raise BrokenPipeError(32, "Broken pipe")
+
+    handler_class = _make_handler(
+        tmp_path, cors_origin="*", rate_limiter=SlidingWindowRateLimiter(max_requests=0, window_seconds=0)
+    )
+    handler = handler_class.__new__(handler_class)
+    handler.wfile = ClosedSocket()
+    handler.client_address = ("127.0.0.1", 1)
+    handler.requestline = "GET /api/subnets HTTP/1.1"
+    handler.request_version = "HTTP/1.1"
+    handler.path = "/api/subnets"
+    handler._headers_buffer = []
+
+    handler._send_json(HTTPStatus.OK, {"data": []})
+
+    assert capsys.readouterr().err.strip().endswith(
+        '"GET /api/subnets HTTP/1.1" client disconnected before the response was sent'
+    )
