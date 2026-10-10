@@ -10,6 +10,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 Use this section for changes that have merged but have not been released yet.
 Move entries into a dated version section when cutting the next tag.
 
+## [2.4.1] - 2026-10-09
+
 ### Fixed
 
 - Serve `/api/subnets` from a per-subnet cache that rebuilds a subnet only after its output files or crawl status
@@ -293,7 +295,8 @@ Move entries into a dated version section when cutting the next tag.
 
 - Keep local runtime state directories out of git and Docker build contexts.
 
-[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v2.4.0...HEAD
+[Unreleased]: https://github.com/alex-drocks/tao-git-crawl/compare/v2.4.1...HEAD
+[2.4.1]: https://github.com/alex-drocks/tao-git-crawl/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/alex-drocks/tao-git-crawl/compare/v2.1.0...v2.2.0
