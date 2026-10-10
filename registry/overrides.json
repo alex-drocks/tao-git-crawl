@@ -84,16 +84,6 @@
       ],
       "note": "Allways SN7 frontend; project UI identifies SN7 and all-ways.io. Keep the on-chain backend and do not expand the shared entrius owner."
     },
-    "8": {
-      "replace": false,
-      "targets": [
-        {
-          "kind": "repository",
-          "url": "https://github.com/taoshidev/vanta-cli"
-        }
-      ],
-      "note": "Vanta SN8 CLI adapter for collateral and entity operations; referenced by the on-chain Vanta repository. Keep upstream btcli as a dependency."
-    },
     "10": {
       "replace": true,
       "targets": [
