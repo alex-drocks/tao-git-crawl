@@ -1,6 +1,6 @@
 {
   "schema_version": "tao-git-crawl-registry-v2",
-  "updated_at": "2026-10-09T00:00:00Z",
+  "updated_at": "2026-10-10T00:00:00Z",
   "overrides": {
     "2": {
       "replace": true,
@@ -74,6 +74,16 @@
       ],
       "note": "Hone curated repo set; validator moved from deleted manifold-inc/hone to hone-subnet-org; do not expand all manifold-inc repos"
     },
+    "7": {
+      "replace": false,
+      "targets": [
+        {
+          "kind": "repository",
+          "url": "https://github.com/entrius/allways-ui"
+        }
+      ],
+      "note": "Allways SN7 frontend; project UI identifies SN7 and all-ways.io. Keep the on-chain backend and do not expand the shared entrius owner."
+    },
     "10": {
       "replace": true,
       "targets": [
@@ -101,6 +111,20 @@
         }
       ],
       "note": "Cacheon curated repo set"
+    },
+    "19": {
+      "replace": false,
+      "targets": [
+        {
+          "kind": "repository",
+          "url": "https://github.com/taostat/blockmachine-validator"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/taostat/blockmachine-miner"
+        }
+      ],
+      "note": "Blockmachine SN19 miner and validator repositories explicitly linked by the on-chain project README; do not expand the shared taostat owner."
     },
     "22": {
       "replace": true,
@@ -167,6 +191,26 @@
         }
       ],
       "note": "taostat GM subnet - curated gm-* and saygm-* repo set"
+    },
+    "34": {
+      "replace": false,
+      "targets": [
+        {
+          "kind": "repository",
+          "url": "https://github.com/BitMind-AI/gasbench"
+        }
+      ],
+      "note": "GASBench evaluation code referenced by the SN34 mining guide and package dependencies; retain the on-chain subnet repository."
+    },
+    "45": {
+      "replace": false,
+      "targets": [
+        {
+          "kind": "repository",
+          "url": "https://github.com/Team-Rizzo/alpharidge-ai-api"
+        }
+      ],
+      "note": "AlphaRidge SN45 API backend; the on-chain project documents the coordinated API implementation and the backend defaults to netuid 45."
     },
     "50": {
       "replace": true,
@@ -309,6 +353,26 @@
       ],
       "note": "Nova keeps on-chain targets; only reviewed vendored-code commits are excluded from credit"
     },
+    "75": {
+      "replace": false,
+      "targets": [
+        {
+          "kind": "repository",
+          "url": "https://github.com/thenervelab/hippius-drive-sdk"
+        }
+      ],
+      "note": "Hippius Drive SDK and CLI linked from the official Hippius documentation; retain the on-chain repository and do not expand unrelated or upstream-derived repos."
+    },
+    "81": {
+      "replace": false,
+      "targets": [
+        {
+          "kind": "repository",
+          "url": "https://github.com/reliquadotai/reliquary-fleet"
+        }
+      ],
+      "note": "Reliquary miner fleet dashboard maintained by Reliqua for SN81; retain the on-chain subnet repository."
+    },
     "91": {
       "replace": false,
       "targets": [],
@@ -357,6 +421,16 @@
       ],
       "note": "Cortex (formerly Base Intelligence) curated repo set; main repo moved from BaseIntelligence/base to CortexLM/cortex"
     },
+    "111": {
+      "replace": false,
+      "targets": [
+        {
+          "kind": "repository",
+          "url": "https://github.com/DeSciClaims/claims-reference-miner"
+        }
+      ],
+      "note": "Claims SN111 reference miner explicitly linked by the on-chain project; delegates extraction to the canonical Claims pipeline."
+    },
     "118": {
       "replace": false,
       "targets": [],
@@ -375,6 +449,16 @@
         }
       ],
       "note": "Ditto keeps on-chain owner targets; only the vendored third-party skill is excluded from credit"
+    },
+    "128": {
+      "replace": false,
+      "targets": [
+        {
+          "kind": "repository",
+          "url": "https://github.com/byteleapai/byteleap-Validator"
+        }
+      ],
+      "note": "ByteLeap SN128 validator component of the same miner/validator/worker architecture documented by the on-chain miner repository."
     }
   }
 }
