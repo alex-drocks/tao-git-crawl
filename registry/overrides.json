@@ -1,6 +1,6 @@
 {
   "schema_version": "tao-git-crawl-registry-v2",
-  "updated_at": "2026-10-10T00:00:00Z",
+  "updated_at": "2026-10-15T00:00:00Z",
   "overrides": {
     "2": {
       "replace": true,
@@ -359,9 +359,13 @@
         {
           "kind": "repository",
           "url": "https://github.com/thenervelab/hippius-drive-sdk"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/thenervelab/hippius-hub"
         }
       ],
-      "note": "Hippius Drive SDK and CLI linked from the official Hippius documentation; retain the on-chain repository and do not expand unrelated or upstream-derived repos."
+      "note": "Hippius Drive SDK and CLI linked from the official Hippius documentation; retain the on-chain repository and do not expand unrelated or upstream-derived repos. Hippius Hub supplies the current model/container registry client and CLI explicitly linked by official Hippius documentation."
     },
     "81": {
       "replace": false,
@@ -384,6 +388,16 @@
         }
       ],
       "note": "Cascade keeps on-chain targets; synced miner champions are excluded from credit"
+    },
+    "92": {
+      "replace": false,
+      "targets": [
+        {
+          "kind": "repository",
+          "url": "https://github.com/reaxlabs/reax-miner-kit"
+        }
+      ],
+      "note": "REAX SN92 onboarding, local rehearsal and miner lifecycle CLI linked from the current official REAX mining site; retain the on-chain subnet code."
     },
     "100": {
       "replace": true,
@@ -430,6 +444,16 @@
         }
       ],
       "note": "Claims SN111 reference miner explicitly linked by the on-chain project; delegates extraction to the canonical Claims pipeline."
+    },
+    "117": {
+      "replace": false,
+      "targets": [
+        {
+          "kind": "repository",
+          "url": "https://github.com/everyframe-studio/everyframe-validator"
+        }
+      ],
+      "note": "EveryFrame SN117 external validator for the official signed accounting feed and published reward policy; retain the on-chain miner link, whose canonical redirect is a separate replacement review."
     },
     "118": {
       "replace": false,
