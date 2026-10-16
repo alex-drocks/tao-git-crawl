@@ -1,6 +1,6 @@
 {
   "schema_version": "tao-git-crawl-registry-v2",
-  "updated_at": "2026-10-15T00:00:00Z",
+  "updated_at": "2026-10-16T00:00:00Z",
   "overrides": {
     "2": {
       "replace": true,
@@ -218,9 +218,13 @@
         {
           "kind": "repository",
           "url": "https://github.com/synthdataco/synth-subnet"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/synthdataco/synth-lib"
         }
       ],
-      "note": "Synth repo transferred from mode-network/synth-subnet to the synthdata.co org; on-chain github_repo still names the old URL"
+      "note": "Synth repo transferred from mode-network/synth-subnet to the synthdata.co org; on-chain github_repo still names the old URL. The current subnet README and miner tutorial link synth-lib for miner backtesting, historical market-data preparation and benchmark CLI tooling."
     },
     "51": {
       "replace": true,
