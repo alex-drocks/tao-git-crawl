@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from tao_git_crawl.activity_filter import is_credited_change
-from tao_git_crawl.models import CreditExclusion
+from tao_git_crawl.models import CreditExclusion, SubnetIdentityRecord
 from tao_git_crawl.overrides import TargetOverride
 from tao_git_crawl.registry import (
     DEFAULT_REGISTRY_REPO_PATH,
@@ -20,6 +20,7 @@ from tao_git_crawl.registry import (
     parse_registry_json,
     resolver_config_from_registry,
 )
+from tao_git_crawl.resolver import resolve_subnets
 
 GOOD_REGISTRY = {
     "schema_version": DEFAULT_REGISTRY_SCHEMA_VERSION,
@@ -243,6 +244,29 @@ def test_built_in_registry_exclusions_are_reviewed_and_pinned():
             assert exclusion.commit is None or len(exclusion.commit) == 40
         if override.exclusions and not override.targets:
             assert override.replace is False
+
+
+@pytest.mark.parametrize("code_link", [
+    "https://github.com/DaniLabsAI/subnet",
+    "https://github.com/DaniLabsAI/future-protocol",
+])
+def test_built_in_sn2_follows_identity_and_preserves_historical_exclusions(code_link):
+    registry = load_built_in_registry()
+    document = resolve_subnets(
+        [SubnetIdentityRecord(
+            netuid=2, registered_at=2734060, subnet_name="DaniLabs", github_repo=code_link,
+        )],
+        target_label="bittensor-subnets",
+        config=resolver_config_from_registry(registry),
+    )
+
+    assert [(target.url, target.source_field) for target in document.targets] == [(code_link, "github_repo")]
+    assert document.fallback_targets == []
+    exclusions = document.credit_exclusions_for_netuid(2)
+    assert {(item.repo, item.commit, item.path) for item in exclusions} == {
+        ("inference-labs-inc/JSTprove", "5a65898a005077d5669bc6719fe3080e440c17f0", "compiler/"),
+        ("inference-labs-inc/JSTprove", "5a65898a005077d5669bc6719fe3080e440c17f0", "prover/"),
+    }
 
 
 def test_parse_registry_json_preserves_reviewed_exclusion_exceptions():

@@ -3,25 +3,8 @@
   "updated_at": "2026-10-15T00:00:00Z",
   "overrides": {
     "2": {
-      "replace": true,
-      "targets": [
-        {
-          "kind": "repository",
-          "url": "https://github.com/inference-labs-inc/subnet-2"
-        },
-        {
-          "kind": "repository",
-          "url": "https://github.com/inference-labs-inc/dsperse"
-        },
-        {
-          "kind": "repository",
-          "url": "https://github.com/inference-labs-inc/btlightning"
-        },
-        {
-          "kind": "repository",
-          "url": "https://github.com/inference-labs-inc/JSTprove"
-        }
-      ],
+      "replace": false,
+      "targets": [],
       "exclusions": [
         {
           "repo": "inference-labs-inc/JSTprove",
@@ -36,7 +19,7 @@
           "reason": "Imports PolyhedraZK Expander; with compiler/, 70% of files (82% of lines) are byte-identical to upstream history"
         }
       ],
-      "note": "curated repo set"
+      "note": "Follow current on-chain code link; preserve reviewed historical exclusions"
     },
     "4": {
       "replace": true,
