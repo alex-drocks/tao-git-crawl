@@ -1,6 +1,6 @@
 {
   "schema_version": "tao-git-crawl-registry-v2",
-  "updated_at": "2026-10-15T00:00:00Z",
+  "updated_at": "2026-10-20T00:00:00Z",
   "overrides": {
     "2": {
       "replace": false,
@@ -378,9 +378,13 @@
         {
           "kind": "repository",
           "url": "https://github.com/reaxlabs/reax-miner-kit"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/reaxlabs/auto-model-router"
         }
       ],
-      "note": "REAX SN92 onboarding, local rehearsal and miner lifecycle CLI linked from the current official REAX mining site; retain the on-chain subnet code."
+      "note": "REAX SN92 miner lifecycle CLI and Decision Models LLM provider-selection/client gateway tooling linked from the official product documentation; auto-model-router is the declared REAX mirror of fstandhartinger/auto-model-router. Retain the on-chain subnet code."
     },
     "100": {
       "replace": true,

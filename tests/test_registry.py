@@ -269,6 +269,33 @@ def test_built_in_sn2_follows_identity_and_preserves_historical_exclusions(code_
     }
 
 
+@pytest.mark.parametrize("code_link", [
+    "https://github.com/reaxlabs/reax-subnet",
+    "https://github.com/reaxlabs/auto-model-router",
+])
+def test_built_in_sn92_adds_exact_product_tooling_and_deduplicates_identity_link(code_link):
+    registry = load_built_in_registry()
+    document = resolve_subnets(
+        [SubnetIdentityRecord(
+            netuid=92, registered_at=9247819, subnet_name="REAX", github_repo=code_link,
+        )],
+        target_label="bittensor-subnets",
+        config=resolver_config_from_registry(registry),
+    )
+
+    expected = {
+        code_link,
+        "https://github.com/reaxlabs/reax-miner-kit",
+        "https://github.com/reaxlabs/auto-model-router",
+    }
+    assert {target.url for target in document.targets} == expected
+    assert len(document.targets) == len(expected)
+    assert all(target.kind == "repository" and target.netuid == 92 for target in document.targets)
+    assert document.fallback_targets == []
+    assert registry.overrides[92].replace is False
+    assert document.credit_exclusions_for_netuid(92) == ()
+
+
 def test_parse_registry_json_preserves_reviewed_exclusion_exceptions():
     registry = parse_registry_json(
         _registry_with_override({"replace": False, "exclusions": [{
