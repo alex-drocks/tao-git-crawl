@@ -234,6 +234,26 @@ def test_parse_registry_json_rejects_exclusion_only_override_that_would_replace_
         parse_registry_json(_registry_with_override({"targets": [], "exclusions": [exclusion]}))
 
 
+@pytest.mark.parametrize("code_link", [
+    "https://github.com/BitMind-AI/yugos",
+    "https://github.com/BitMind-AI/future-protocol",
+])
+def test_built_in_sn34_follows_identity_without_legacy_gasbench(code_link):
+    document = resolve_subnets(
+        [SubnetIdentityRecord(
+            netuid=34, registered_at=3493948, subnet_name="Yugos", github_repo=code_link,
+        )],
+        target_label="bittensor-subnets",
+        config=resolver_config_from_registry(load_built_in_registry()),
+    )
+
+    assert [(target.netuid, target.url, target.source_field) for target in document.targets] == [
+        (34, code_link, "github_repo"),
+    ]
+    assert document.fallback_targets == []
+    assert document.unresolved == []
+
+
 def test_built_in_registry_exclusions_are_reviewed_and_pinned():
     registry = load_built_in_registry()
     excluded = {netuid for netuid, override in registry.overrides.items() if override.exclusions}

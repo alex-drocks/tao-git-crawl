@@ -1,6 +1,6 @@
 {
   "schema_version": "tao-git-crawl-registry-v2",
-  "updated_at": "2026-10-20T00:00:00Z",
+  "updated_at": "2026-10-27T00:00:00Z",
   "overrides": {
     "2": {
       "replace": false,
@@ -174,16 +174,6 @@
         }
       ],
       "note": "taostat GM subnet - curated gm-* and saygm-* repo set"
-    },
-    "34": {
-      "replace": false,
-      "targets": [
-        {
-          "kind": "repository",
-          "url": "https://github.com/BitMind-AI/gasbench"
-        }
-      ],
-      "note": "GASBench evaluation code referenced by the SN34 mining guide and package dependencies; retain the on-chain subnet repository."
     },
     "45": {
       "replace": false,
