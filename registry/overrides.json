@@ -1,6 +1,6 @@
 {
   "schema_version": "tao-git-crawl-registry-v2",
-  "updated_at": "2026-10-27T00:00:00Z",
+  "updated_at": "2026-10-31T00:00:00Z",
   "overrides": {
     "2": {
       "replace": false,
@@ -184,6 +184,20 @@
         }
       ],
       "note": "AlphaRidge SN45 API backend; the on-chain project documents the coordinated API implementation and the backend defaults to netuid 45."
+    },
+    "49": {
+      "replace": false,
+      "targets": [
+        {
+          "kind": "repository",
+          "url": "https://github.com/nepher-ai/nepher-cli"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/nepher-ai/eval-nav"
+        }
+      ],
+      "note": "Nepher SN49 official miner CLI and validator evaluation harness; keep the on-chain primary and do not expand the owner."
     },
     "50": {
       "replace": true,

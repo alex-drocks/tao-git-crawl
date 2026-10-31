@@ -254,6 +254,28 @@ def test_built_in_sn34_follows_identity_without_legacy_gasbench(code_link):
     assert document.unresolved == []
 
 
+@pytest.mark.parametrize("code_link", [
+    "https://github.com/nepher-ai/nepher-subnet",
+    "https://github.com/nepher-ai/eval-nav",
+])
+def test_built_in_sn49_keeps_primary_and_adds_exact_cli_and_evaluator(code_link):
+    registry = load_built_in_registry()
+    document = resolve_subnets(
+        [SubnetIdentityRecord(
+            netuid=49, registered_at=6783158, subnet_name="Nepher Robotics", github_repo=code_link,
+        )],
+        target_label="bittensor-subnets",
+        config=resolver_config_from_registry(registry),
+    )
+
+    expected = {code_link, "https://github.com/nepher-ai/nepher-cli", "https://github.com/nepher-ai/eval-nav"}
+    assert {target.url for target in document.targets} == expected
+    assert len(document.targets) == len(expected)
+    assert all(target.kind == "repository" and target.netuid == 49 for target in document.targets)
+    assert document.fallback_targets == []
+    assert registry.overrides[49].replace is False
+
+
 def test_built_in_registry_exclusions_are_reviewed_and_pinned():
     registry = load_built_in_registry()
     excluded = {netuid for netuid, override in registry.overrides.items() if override.exclusions}
