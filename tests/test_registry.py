@@ -235,6 +235,28 @@ def test_parse_registry_json_rejects_exclusion_only_override_that_would_replace_
 
 
 @pytest.mark.parametrize("code_link", [
+    "https://github.com/404-Repo/404-gen-subnet",
+    "https://github.com/404-Repo/future-protocol",
+    "https://github.com/404-Repo/404-base-miner-gpt",
+])
+def test_built_in_sn17_preserves_chain_target_and_adds_exact_async_miner(code_link):
+    registry = load_built_in_registry()
+    document = resolve_subnets(
+        [SubnetIdentityRecord(netuid=17, subnet_name="404-GEN", github_repo=code_link)],
+        target_label="bittensor-subnets",
+        config=resolver_config_from_registry(registry),
+    )
+
+    expected = {code_link, "https://github.com/404-Repo/404-base-miner-gpt"}
+    assert {target.url for target in document.targets} == expected
+    assert len(document.targets) == len(expected)
+    assert all(target.kind == "repository" and target.netuid == 17 for target in document.targets)
+    assert document.fallback_targets == []
+    assert document.unresolved == []
+    assert registry.overrides[17].replace is False
+
+
+@pytest.mark.parametrize("code_link", [
     "https://github.com/BitMind-AI/yugos",
     "https://github.com/BitMind-AI/future-protocol",
 ])

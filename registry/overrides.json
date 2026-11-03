@@ -1,6 +1,6 @@
 {
   "schema_version": "tao-git-crawl-registry-v2",
-  "updated_at": "2026-10-31T00:00:00Z",
+  "updated_at": "2026-11-03T00:00:00Z",
   "overrides": {
     "2": {
       "replace": false,
@@ -94,6 +94,16 @@
         }
       ],
       "note": "Cacheon curated repo set"
+    },
+    "17": {
+      "replace": false,
+      "targets": [
+        {
+          "kind": "repository",
+          "url": "https://github.com/404-Repo/404-base-miner-gpt"
+        }
+      ],
+      "note": "404-GEN SN17 async miner reference explicitly recommended and pinned by the on-chain primary launch guide; keep the primary code link and do not expand the shared owner."
     },
     "19": {
       "replace": false,
