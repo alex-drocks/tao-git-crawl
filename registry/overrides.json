@@ -1,6 +1,6 @@
 {
   "schema_version": "tao-git-crawl-registry-v2",
-  "updated_at": "2026-11-03T00:00:00Z",
+  "updated_at": "2026-11-04T00:00:00Z",
   "overrides": {
     "2": {
       "replace": false,
@@ -370,9 +370,13 @@
         {
           "kind": "repository",
           "url": "https://github.com/reliquadotai/reliquary-fleet"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/reliquadotai/reliquary-mcp"
         }
       ],
-      "note": "Reliquary miner fleet dashboard maintained by Reliqua for SN81; retain the on-chain subnet repository."
+      "note": "Reliquary miner fleet dashboard maintained by Reliqua for SN81; retain the on-chain subnet repository. The official customer MCP adds account-scoped tools and SN81 evidence monitoring within the shared Reliquary product."
     },
     "91": {
       "replace": false,
@@ -442,9 +446,13 @@
         {
           "kind": "repository",
           "url": "https://github.com/DeSciClaims/claims-reference-miner"
+        },
+        {
+          "kind": "repository",
+          "url": "https://github.com/DeSciClaims/claims-miner-package"
         }
       ],
-      "note": "Claims SN111 reference miner explicitly linked by the on-chain project; delegates extraction to the canonical Claims pipeline."
+      "note": "Claims SN111 reference miner explicitly linked by the on-chain project; delegates extraction to the canonical Claims pipeline. The current competition guide also links the separately installable, customizable sample miner package."
     },
     "117": {
       "replace": false,

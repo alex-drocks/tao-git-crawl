@@ -256,6 +256,33 @@ def test_built_in_sn17_preserves_chain_target_and_adds_exact_async_miner(code_li
     assert registry.overrides[17].replace is False
 
 
+@pytest.mark.parametrize(("netuid", "primary", "existing", "added"), [
+    (81, "reliquadotai/reliquary", "reliquadotai/reliquary-fleet", "reliquadotai/reliquary-mcp"),
+    (111, "DeSciClaims/Claims", "DeSciClaims/claims-reference-miner", "DeSciClaims/claims-miner-package"),
+])
+@pytest.mark.parametrize("chain_link", ["primary", "future", "added"])
+def test_built_in_companions_preserve_chain_and_existing_targets(netuid, primary, existing, added, chain_link):
+    links = {
+        "primary": f"https://github.com/{primary}",
+        "future": f"https://github.com/{primary.split('/')[0]}/future-protocol",
+        "added": f"https://github.com/{added}",
+    }
+    registry = load_built_in_registry()
+    document = resolve_subnets(
+        [SubnetIdentityRecord(netuid=netuid, github_repo=links[chain_link])],
+        target_label="bittensor-subnets",
+        config=resolver_config_from_registry(registry),
+    )
+
+    expected = {links[chain_link], f"https://github.com/{existing}", f"https://github.com/{added}"}
+    assert {target.url for target in document.targets} == expected
+    assert len(document.targets) == len(expected)
+    assert all(target.kind == "repository" and target.netuid == netuid for target in document.targets)
+    assert document.fallback_targets == []
+    assert document.unresolved == []
+    assert registry.overrides[netuid].replace is False
+
+
 @pytest.mark.parametrize("code_link", [
     "https://github.com/BitMind-AI/yugos",
     "https://github.com/BitMind-AI/future-protocol",
