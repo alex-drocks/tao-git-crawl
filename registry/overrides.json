@@ -1,6 +1,6 @@
 {
   "schema_version": "tao-git-crawl-registry-v2",
-  "updated_at": "2026-11-04T00:00:00Z",
+  "updated_at": "2026-11-13T00:00:00Z",
   "overrides": {
     "2": {
       "replace": false,
@@ -482,6 +482,16 @@
         }
       ],
       "note": "Ditto keeps on-chain owner targets; only the vendored third-party skill is excluded from credit"
+    },
+    "127": {
+      "replace": false,
+      "targets": [
+        {
+          "kind": "repository",
+          "url": "https://github.com/ooo-hq/zils-agent-skills"
+        }
+      ],
+      "note": "Zils SN127 coding-agent fit/train skills and Claude Code/Cursor plugin linked by the official SDK; retain the on-chain primary and do not expand the shared owner."
     },
     "128": {
       "replace": false,
