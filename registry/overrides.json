@@ -1,6 +1,6 @@
 {
   "schema_version": "tao-git-crawl-registry-v2",
-  "updated_at": "2026-11-13T00:00:00Z",
+  "updated_at": "2026-11-14T00:00:00Z",
   "overrides": {
     "2": {
       "replace": false,
@@ -453,6 +453,16 @@
         }
       ],
       "note": "Claims SN111 reference miner explicitly linked by the on-chain project; delegates extraction to the canonical Claims pipeline. The current competition guide also links the separately installable, customizable sample miner package."
+    },
+    "112": {
+      "replace": false,
+      "targets": [
+        {
+          "kind": "repository",
+          "url": "https://github.com/thorrobotics/thor-subnet"
+        }
+      ],
+      "note": "THOR SN112 illustrative protocol, scorer, client and reference miner/validator loop linked by the registered project website; retain on-chain targets and do not expand the owner."
     },
     "117": {
       "replace": false,
