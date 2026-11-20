@@ -1,6 +1,6 @@
 {
   "schema_version": "tao-git-crawl-registry-v2",
-  "updated_at": "2026-11-14T00:00:00Z",
+  "updated_at": "2026-11-18T00:00:00Z",
   "overrides": {
     "2": {
       "replace": false,
@@ -403,6 +403,16 @@
         }
       ],
       "note": "REAX SN92 miner lifecycle CLI and Decision Models LLM provider-selection/client gateway tooling linked from the official product documentation; auto-model-router is the declared REAX mirror of fstandhartinger/auto-model-router. Retain the on-chain subnet code."
+    },
+    "94": {
+      "replace": false,
+      "targets": [
+        {
+          "kind": "repository",
+          "url": "https://github.com/cathedralai/cathedral-desktop"
+        }
+      ],
+      "note": "Cathedral SN94 desktop client and attested-stream reference tooling, linked by the official desktop guest fingerprint guide and integrated by the current sandbox desktop template. The guest remains a public test build; retain the on-chain sandbox source."
     },
     "100": {
       "replace": true,
